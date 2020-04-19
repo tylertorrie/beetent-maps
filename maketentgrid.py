@@ -45,6 +45,7 @@ def make_files(myzip, field_path, name, origin):
 
 def make_tents(myzip, field_path, pid, pivotpoint, radius, width, spacing, lat_shift, angle):
     # create starting point for grid
+    print (pivotpoint)
     easting, northing = utmish.from_lonlat(pivotpoint[0], pivotpoint[1], pivotpoint[0])
     radius_sqr = radius * radius
 
@@ -158,19 +159,28 @@ def make_line(myzip, field_path, pivotpoint, lat_offset, angle):
     myzip.writestr('%s/Swaths.shp' % field_path, shp.getvalue())
     myzip.writestr('%s/Swaths.shx' % field_path, shx.getvalue())
 
-#pivotpoint = (-111.7149103932853,49.86944210874295)
-pivotpoint = (-111.744016117205,49.87662108238306) # david's yard
-pivotpoint = (-111.727547,  49.876926)
-easting, northing = utmish.from_lonlat(pivotpoint[0], pivotpoint[1], pivotpoint[0])
+fields = [ ("RoyPederson",      (-111.7490278, 49.862     ),430, 0),
+           ("DJensenNorth",     (-111.9406667, 49.8331944), 430, 0),
+           ("Giesbrecht",       (-112.0536667, 49.8694722), 420, 0),
+           ("JensenNE31-10-15", (-112.0199444, 49.8695278), 420, 0),
+           ("JensenSE25-10-16", (-112.0425556, 49.8479167), 430, 0),
+           ("StolkNE24-10-16",  (-112.0425833, 49.8404722), 430, 0),
+           ("LCTorrieNE33-10-13", (-111.703931, 49.869473), 430, 90),
+           ("LCTorrieSE33-10-13", (-111.703815, 49.862154), 430, 90),
+           ("LCTorrieN34-10-13",  (-111.686718, 49.865810), 840, 90),
+
+        ]
+
 lateral_offset = 3 # meters to shift tracks sideways so it won't hit the pivot point dead on.
 width = 120 * 0.3048 # 120' in metres
 spacing = width * 3
-rotate = 15
+rotate = 0
 
 with zipfile.ZipFile("/tmp/test.zip", mode='w') as myzip:
-    make_files(myzip, "Client/Farm/Field", "030620", pivotpoint)
-    make_tents(myzip, "Client/Farm/Field", 3062, pivotpoint, 435, width, spacing, lateral_offset, rotate) 
-    make_line(myzip, "Client/Farm/Field", pivotpoint, lateral_offset, rotate)
+    for field in fields:
+        make_files(myzip, "AgGPS/Data/BeeStuff/BeeTents/%s" % field[0], "030620", field[1])
+        make_tents(myzip, "AgGPS/Data/BeeStuff/BeeTents/%s" % field[0], 3062, field[1], field[2], width, spacing, lateral_offset, field[3]) 
+        make_line(myzip, "AgGPS/Data/BeeStuff/BeeTents/%s" % field[0], field[1], lateral_offset, field[3])
 
 
 sys.exit(0)
