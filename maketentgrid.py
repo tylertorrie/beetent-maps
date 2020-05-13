@@ -7,7 +7,9 @@ import math
 import sys
 import zipfile
 import datetime
+import csv
 from io import BytesIO
+from io import StringIO
 
 def ll_at( lon1, lat1, bearing, distance):
     R = 6378137 #Radius of the Earth in metres
@@ -74,6 +76,10 @@ def make_tents(myzip, field_path, pid, pivotpoint, radius, width, spacing, lat_s
     w.field('Status_Text', 'C', size=8)
     w.field('Visible', 'N')
 
+    csvbuffer = StringIO()
+    csvdata = csv.DictWriter(csvbuffer, fieldnames = [ 'Latitude', 'Longitude'])
+    csvdata.writeheader()
+
     for c in range(-int(radius / spacing)-1, int(radius / spacing) + 1):
         for r in range(-int(radius / width),int(radius / width) + 1):
             if r % 2: #odd, shift by half spacing
@@ -102,6 +108,8 @@ def make_tents(myzip, field_path, pid, pivotpoint, radius, width, spacing, lat_s
 
                 w.point(lon, lat)
 
+                csvdata.writerow( {'Latitude': '%.7f' % lat, 'Longitude': '%.7f' % lon} )
+
                 pid += 1
 
     myzip.writestr("%s/PointFeature.kml" % field_path, kml.kml())    
@@ -109,6 +117,9 @@ def make_tents(myzip, field_path, pid, pivotpoint, radius, width, spacing, lat_s
     myzip.writestr('%s/PointFeature.dbf' % field_path, dbf.getvalue())
     myzip.writestr('%s/PointFeature.shp' % field_path, shp.getvalue())
     myzip.writestr('%s/PointFeature.shx' % field_path, shx.getvalue())
+    myzip.writestr('%s/TentLocations.csv' % field_path, csvbuffer.getvalue().encode('utf-8'))
+
+
 
 def make_line(myzip, field_path, pivotpoint, lat_offset, angle):
     # create starting point for grid
@@ -181,38 +192,4 @@ with zipfile.ZipFile("/tmp/test.zip", mode='w') as myzip:
         make_files(myzip, "AgGPS/Data/BeeStuff/BeeTents/%s" % field[0], "030620", field[1])
         make_tents(myzip, "AgGPS/Data/BeeStuff/BeeTents/%s" % field[0], 3062, field[1], field[2], width, spacing, lateral_offset, field[3]) 
         make_line(myzip, "AgGPS/Data/BeeStuff/BeeTents/%s" % field[0], field[1], lateral_offset, field[3])
-
-
-sys.exit(0)
-
-
-diameter = 426 # approximately one pivot circle
-diamsqr = diameter * diameter
-
-kml = simplekml.Kml()
-pid = 3502
-print( "Date,Time,Version,Id,Name,Latitude,Longitude,Height,AlarmRad,WarningRad,Status_Txt,Visible")
-for c in range(-int(diameter / spacing), int(diameter / spacing) + 1):
-    for r in range(-int(diameter / width),int(diameter / width) + 1):
-        if r*r*width*width + (c*spacing+width)*(c*spacing+width) <= diamsqr:
-            if r % 2: #odd, shift by half spacing
-                east = r*width
-                north = c*spacing+spacing/2
-            else: #even, don't shift
-                east = r*width
-                north = c*spacing
-
-            if rotate:
-                east1 = east * math.cos(math.radians(rotate)) - north * math.sin(math.radians(rotate))
-                north1 = north * math.cos(math.radians(rotate)) + east * math.sin(math.radians(rotate))
-                east = east1
-                north = north1
-
-            lat, lon = utmish.to_lonlat(east + easting, north + northing, pivotpoint[0])
-            #print (lat, lon)
-            kml.newpoint (name="", coords = [ (lon, lat) ])
-            print ("2020-03-05,02:54:16pm,7.78.002,", end="")
-            print ('"%d",Tree_%d,%0.7f,%0.7f,761.064,0.0000,10.0000,,"1"' % (pid, pid, lat, lon))
-            pid += 1
-
 
