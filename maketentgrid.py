@@ -45,7 +45,15 @@ def make_files(myzip, field_path, name, origin):
 
     myzip.writestr("%s/newField.ok" % (field_path,), '')
 
-def make_tents(myzip, field_path, pid, pivotpoint, radius, width, spacing, lat_shift, angle):
+def make_tents(myzip, field_path, pid, pivotpoint, radius, width, spacing, lat_shift, angle, quadrants = None, **kwargs):
+    if quadrants is None:
+        quadrants = [ 0, 1, 2, 3] #nw, ne, se, sw
+
+    eastlimit = kwargs.get('eastlimit',None)
+    northlimit = kwargs.get('northlimit', None)
+    westlimit = kwargs.get('westlimit', None)
+    southlimit = kwargs.get('southlimit', None)
+
     # create starting point for grid
     print (pivotpoint)
     easting, northing = utmish.from_lonlat(pivotpoint[0], pivotpoint[1], pivotpoint[0])
@@ -54,6 +62,8 @@ def make_tents(myzip, field_path, pid, pivotpoint, radius, width, spacing, lat_s
     rotate = 0 - angle
     rotate = (rotate + 180) % 360 - 180
     #rotate = -rotate
+
+    margin = width / 2.0
 
 
     kml = simplekml.Kml()
@@ -82,6 +92,8 @@ def make_tents(myzip, field_path, pid, pivotpoint, radius, width, spacing, lat_s
 
     for c in range(-int(radius / spacing)-1, int(radius / spacing) + 1):
         for r in range(-int(radius / width),int(radius / width) + 1):
+            # only place tents in specified quadrants of circle
+
             if r % 2: #odd, shift by half spacing
                 east = r*width + lat_shift
                 north = c*spacing+spacing/2
@@ -95,6 +107,29 @@ def make_tents(myzip, field_path, pid, pivotpoint, radius, width, spacing, lat_s
             north = north1
 
             if east * east + north * north <= radius_sqr:
+                #manual limits to keep tents on field
+                if eastlimit and east > eastlimit: continue
+                if westlimit and east < -westlimit: continue
+                if northlimit and north > northlimit: continue
+                if southlimit and north < -southlimit: continue
+
+                flag = False
+                if east < margin and north >= -margin and 0 in quadrants:
+                    flag = True
+
+                if east >= -margin and north >= -margin and 1 in quadrants:
+                    flag = True
+
+                if east >= -margin and north < margin and 2 in quadrants:
+                    flag = True
+
+                if east < margin and north < margin and 3 in quadrants:
+                    flag = True
+
+                if not flag:
+                    # no specified quadrant claims this tent, so skip
+                    continue
+
                 #if (r % 2 and r*r*width*width + (c*spacing+spacing/2)*(c*spacing+spacing/2) <= radius_sqr or
                 #    not r %2 and r*r*width*width + (c*spacing)*(c*spacing) <= radius_sqr):
 
@@ -112,7 +147,7 @@ def make_tents(myzip, field_path, pid, pivotpoint, radius, width, spacing, lat_s
 
                 pid += 1
 
-    myzip.writestr("%s/PointFeature.kml" % field_path, kml.kml())    
+    myzip.writestr("%s/TentLocations.kml" % field_path, kml.kml())    
     w.close()
     myzip.writestr('%s/PointFeature.dbf' % field_path, dbf.getvalue())
     myzip.writestr('%s/PointFeature.shp' % field_path, shp.getvalue())
@@ -170,19 +205,20 @@ def make_line(myzip, field_path, pivotpoint, lat_offset, angle):
     myzip.writestr('%s/Swaths.shp' % field_path, shp.getvalue())
     myzip.writestr('%s/Swaths.shx' % field_path, shx.getvalue())
 
-fields = [ ("RoyPederson",      (-111.7490278, 49.862     ),430, 0),
-           ("DJensenNorth",     (-111.9406667, 49.8331944), 430, 0),
-           ("Giesbrecht",       (-112.0536667, 49.8694722), 420, 0),
-           ("JensenNE31-10-15", (-112.0199444, 49.8695278), 420, 0),
-           ("JensenSE25-10-16", (-112.0425556, 49.8479167), 430, 0),
-           ("StolkNE24-10-16",  (-112.0425833, 49.8404722), 430, 0),
-           ("LCTorrieNE33-10-13", (-111.703931, 49.869473), 430, 90),
-           ("LCTorrieSE33-10-13", (-111.703815, 49.862154), 430, 90),
-           ("LCTorrieN34-10-13",  (-111.686718, 49.865810), 840, 90),
+fields = [ ("RoyPederson",      (-111.7490278, 49.862     ),430, 0, [0,1,2,3], {} ),
+           ("DJensenNorth",     (-111.9406667, 49.8331944), 430, 0, [0,1,2,3], {'eastlimit': 395} ),
+           ("Giesbrecht",       (-112.0536667, 49.8694722), 420, 0, [0,1,2,3], {'eastlimit': 395} ),
+           ("JensenNE31-10-15", (-112.0199444, 49.8695278), 420, 0, [0,1,2,3], {'eastlimit': 395} ),
+           ("JensenSE25-10-16", (-112.0425556, 49.8479167), 430, 0, [1,2,3], {} ),
+           ("StolkNE24-10-16",  (-112.0425833, 49.8404722), 430, 0, [0,1,2,3], {} ),
+           ("LCTorrieNE33-10-13", (-111.703931, 49.869473), 430, 90, [0,1,2,3], {'southlimit': 385 } ),
+           ("LCTorrieSE33-10-13", (-111.703815, 49.862154), 430, 90, [0,1,2,3], {} ),
+           ("LCTorrieN34-10-13",  (-111.686718, 49.865810), 840, 0, [0,1], { 'northlimit': 805,
+                                                                             'eastlimit': 802} ),
 
         ]
 
-lateral_offset = 3 # meters to shift tracks sideways so it won't hit the pivot point dead on.
+lateral_offset = 4 # meters to shift tracks sideways so it won't hit the pivot point dead on.
 width = 120 * 0.3048 # 120' in metres
 spacing = width * 3
 rotate = 0
@@ -190,6 +226,8 @@ rotate = 0
 with zipfile.ZipFile("/tmp/test.zip", mode='w') as myzip:
     for field in fields:
         make_files(myzip, "AgGPS/Data/BeeStuff/BeeTents/%s" % field[0], "030620", field[1])
-        make_tents(myzip, "AgGPS/Data/BeeStuff/BeeTents/%s" % field[0], 3062, field[1], field[2], width, spacing, lateral_offset, field[3]) 
+        make_tents(myzip, "AgGPS/Data/BeeStuff/BeeTents/%s" % field[0], 3062, 
+                   pivotpoint=field[1], radius=field[2], width=width, spacing=spacing, 
+                   lat_shift=lateral_offset, angle=field[3], quadrants=field[4], **field[5]) 
         make_line(myzip, "AgGPS/Data/BeeStuff/BeeTents/%s" % field[0], field[1], lateral_offset, field[3])
 
