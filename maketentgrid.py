@@ -66,14 +66,12 @@ def make_tents(myzip, field_path, pivotpoint, radius, edge_dist, width, lat_shif
     northlimit = kwargs.get('northlimit', northlimit)
     westlimit = kwargs.get('westlimit', westlimit)
     southlimit = kwargs.get('southlimit', southlimit)
-    print(northlimit, eastlimit, southlimit, westlimit)
 
     # create starting point for grid
     print (pivotpoint)
     easting, northing = utmish.from_lonlat(pivotpoint[0], pivotpoint[1], pivotpoint[0])
     radius_sqr = radius * radius
     spacing = calculate_spacing(radius, width)
-    print (spacing)
 
     rotate = 0 - angle
     rotate = (rotate + 180) % 360 - 180
@@ -105,12 +103,13 @@ def make_tents(myzip, field_path, pivotpoint, radius, edge_dist, width, lat_shif
     w.field('Visible', 'N')
 
     csvbuffer = StringIO()
-    csvdata = csv.DictWriter(csvbuffer, fieldnames = [ 'Latitude', 'Longitude'])
+    csvdata = csv.DictWriter(csvbuffer, fieldnames = [ 'GPS Position', 'Tent'])
     csvdata.writeheader()
 
-    for c in range(-int(radius / spacing)-1, int(radius / spacing) + 1):
-        print (c)
-        for r in range(-int(radius / width),int(radius / width) + 1):
+    tent_id = 0
+
+    for r in range(-int(radius / width),int(radius / width) + 1):
+        for c in range(-int(radius / spacing)-1, int(radius / spacing) + 1):
             # only place tents in specified quadrants of circle
 
             if r % 2: #odd, shift by half spacing
@@ -154,17 +153,19 @@ def make_tents(myzip, field_path, pivotpoint, radius, edge_dist, width, lat_shif
 
                 lon, lat = utmish.to_lonlat(east + easting, north + northing, pivotpoint[0])
                 #print (lat, lon)
-                kml.newpoint (name="", coords = [ (lon, lat) ])
+                #kml.newpoint (name="%d,%d" % (east, north), coords = [ (lon, lat) ])
+                kml.newpoint (name="tent %d" % (tent_id), coords = [ (lon, lat) ])
 
                 w.record(Date=datetime.date.today(), Time="12:00:00pm",Version="7.78.002",
-                         Id = pid, Name = "Tree_%d" % pid, Latitude = lat, Longitude = lon, Height = 761.064,
+                         Id = pid, Name = "Tree_%d" % tent_id, Latitude = lat, Longitude = lon, Height = 761.064,
                          AlarmRad = 0, WarningRad = 10.0, Status_Text='', Visible=1)
 
                 w.point(lon, lat)
 
-                csvdata.writerow( {'Latitude': '%.7f' % lat, 'Longitude': '%.7f' % lon} )
+                csvdata.writerow( {'GPS Position': '%.7f,%.7f' % (lat,lon), 'Tent': '%d' % tent_id} )
 
                 pid += 1
+                tent_id += 1
 
     myzip.writestr("%s/TentLocations.kml" % field_path, kml.kml())    
     w.close()
@@ -224,7 +225,7 @@ def make_line(myzip, field_path, pivotpoint, lat_offset, angle):
     myzip.writestr('%s/Swaths.shp' % field_path, shp.getvalue())
     myzip.writestr('%s/Swaths.shx' % field_path, shx.getvalue())
 
-def calculate_spacing(radius, width):
+def calculate_spacing(radius, width, num_tents = None):
     """
         Calculate total length of all the passes from pivot
         point outward, every "width" meters (sprayer passes).
@@ -239,8 +240,10 @@ def calculate_spacing(radius, width):
         c += width
 
     total = total * 4 - radius*2
-    acres = math.pi * radius * radius / 4046.87
-    return total / acres  
+    if num_tents:
+        return total / num_tents
+    else:
+        return total / (math.pi * radius * radius / 4046.87 + 1)
 
 data_items = [ 'name', 'pivot_point', 'radius', 'edge_dist', 'seed_angle', 'lat_offset', 'quadrants', 'width', 'extra' ]
 
@@ -259,8 +262,8 @@ fields = [
         ]
 
 lateral_offset = 0 # meters to shift tracks sideways so it won't hit the pivot point dead on.
-#width = 120 * 0.3048 # 120' in metres
-width = 132 * 0.3048 # 120' in metres
+width = 120 * 0.3048 # 120' in metres
+#width = 132 * 0.3048 # 120' in metres
 #width = 90 * 0.3048 # 120' in metres
 #width = 128 * 0.3048 # 120' in metres
 #spacing = width * 3 # 120 feet
