@@ -45,19 +45,35 @@ def make_files(myzip, field_path, name, origin):
 
     myzip.writestr("%s/newField.ok" % (field_path,), '')
 
-def make_tents(myzip, field_path, pid, pivotpoint, radius, width, spacing, lat_shift, angle, quadrants = None, **kwargs):
+def make_tents(myzip, field_path, pivotpoint, radius, edge_dist, width, lat_shift, angle, quadrants = None, **kwargs):
+    """
+        pivotpoint is tuple of longitude, latitude
+        radius is maximum radius of circle in metres
+        edge_dist is distance to north, south, west, or east edges when end gun is off, if pivot has end gun
+        width is sprayer width or distance between rows of tents
+        lat_shift is distance from center line to place first row of tents (usually a couple of meters)
+        angle is seeding angle
+
+        quadrants is list of quadrants of circle to place tents in (replace with arc)
+    """
+
     if quadrants is None:
         quadrants = [ 0, 1, 2, 3] #nw, ne, se, sw
 
-    eastlimit = kwargs.get('eastlimit',None)
-    northlimit = kwargs.get('northlimit', None)
-    westlimit = kwargs.get('westlimit', None)
-    southlimit = kwargs.get('southlimit', None)
+    eastlimit = northlimit = westlimit = southlimit = edge_dist
+
+    eastlimit = kwargs.get('eastlimit',eastlimit)
+    northlimit = kwargs.get('northlimit', northlimit)
+    westlimit = kwargs.get('westlimit', westlimit)
+    southlimit = kwargs.get('southlimit', southlimit)
+    print(northlimit, eastlimit, southlimit, westlimit)
 
     # create starting point for grid
     print (pivotpoint)
     easting, northing = utmish.from_lonlat(pivotpoint[0], pivotpoint[1], pivotpoint[0])
     radius_sqr = radius * radius
+    spacing = calculate_spacing(radius, width)
+    print (spacing)
 
     rotate = 0 - angle
     rotate = (rotate + 180) % 360 - 180
@@ -71,6 +87,8 @@ def make_tents(myzip, field_path, pid, pivotpoint, radius, width, spacing, lat_s
     shp = BytesIO()
     shx = BytesIO()
     dbf = BytesIO()
+
+    pid = 1234 #arbitrary number for shapefile
 
     w = shapefile.Writer(shp = shp, shx = shx, dbf = dbf, shapeType=1 )
     w.field('Date', 'D')
@@ -91,6 +109,7 @@ def make_tents(myzip, field_path, pid, pivotpoint, radius, width, spacing, lat_s
     csvdata.writeheader()
 
     for c in range(-int(radius / spacing)-1, int(radius / spacing) + 1):
+        print (c)
         for r in range(-int(radius / width),int(radius / width) + 1):
             # only place tents in specified quadrants of circle
 
@@ -205,29 +224,62 @@ def make_line(myzip, field_path, pivotpoint, lat_offset, angle):
     myzip.writestr('%s/Swaths.shp' % field_path, shp.getvalue())
     myzip.writestr('%s/Swaths.shx' % field_path, shx.getvalue())
 
-fields = [ ("RoyPederson",      (-111.7490278, 49.862     ),430, 0, [0,1,2,3], {} ),
-           ("DJensenNorth",     (-111.9406667, 49.8331944), 430, 0, [0,1,2,3], {'eastlimit': 395} ),
-           ("Giesbrecht",       (-112.0536667, 49.8694722), 420, 0, [0,1,2,3], {'eastlimit': 395} ),
-           ("JensenNE31-10-15", (-112.0199444, 49.8695278), 420, 0, [0,1,2,3], {'eastlimit': 395} ),
-           ("JensenSE25-10-16", (-112.0425556, 49.8479167), 430, 0, [1,2,3], {} ),
-           ("StolkNE24-10-16",  (-112.0425833, 49.8404722), 430, 0, [0,1,2,3], {} ),
-           ("LCTorrieNE33-10-13", (-111.703931, 49.869473), 430, 90, [0,1,2,3], {'southlimit': 385 } ),
-           ("LCTorrieSE33-10-13", (-111.703815, 49.862154), 430, 90, [0,1,2,3], {} ),
-           ("LCTorrieN34-10-13",  (-111.686718, 49.865810), 840, 0, [0,1], { 'northlimit': 805,
-                                                                             'eastlimit': 802} ),
+def calculate_spacing(radius, width):
+    """
+        Calculate total length of all the passes from pivot
+        point outward, every "width" meters (sprayer passes).
+        Divide that by the number of acres in the circle to 
+        calculate the distance between tents as a factor of
+        the sprayer width.
+    """
+    c = 0
+    total = 0
+    while c < radius:
+        total += math.sqrt(radius*radius-c*c)
+        c += width
+
+    total = total * 4 - radius*2
+    acres = math.pi * radius * radius / 4046.87
+    return total / acres  
+
+data_items = [ 'name', 'pivot_point', 'radius', 'edge_dist', 'seed_angle', 'lat_offset', 'quadrants', 'width', 'extra' ]
+
+fields = [ 
+           #("RoyPederson",      (-111.7490278, 49.862     ),430, 0, [0,1,2,3], {} ),
+           #("DJensenNorth",     (-111.9406667, 49.8331944), 430, 0, [0,1,2,3], {'eastlimit': 395} ),
+           #("Giesbrecht",       (-112.0536667, 49.8694722), 420, 0, [0,1,2,3], {'eastlimit': 395} ),
+           #("JensenNE31-10-15", (-112.0199444, 49.8695278), 420, 0, [0,1,2,3], {'eastlimit': 395} ),
+           #("JensenSE25-10-16", (-112.0425556, 49.8479167), 430, 0, [1,2,3], {} ),
+           #("StolkNE24-10-16",  (-112.0425833, 49.8404722), 430, 0, [0,1,2,3], {} ),
+           ("LCTorrieNE33-10-13", (-111.703931, 49.869473), 425, 90, [0,1,2,3], {'southlimit': 385 } ),
+           #("LCTorrieSE33-10-13", (-111.703815, 49.862154), 430, 90, [0,1,2,3], {} ),
+           #("LCTorrieN34-10-13",  (-111.686718, 49.865810), 840, 0, [0,1], { 'northlimit': 805,
+           #                                                                  'eastlimit': 802} ),
 
         ]
 
-lateral_offset = 4 # meters to shift tracks sideways so it won't hit the pivot point dead on.
-width = 120 * 0.3048 # 120' in metres
-spacing = width * 3
+lateral_offset = 0 # meters to shift tracks sideways so it won't hit the pivot point dead on.
+#width = 120 * 0.3048 # 120' in metres
+width = 132 * 0.3048 # 120' in metres
+#width = 90 * 0.3048 # 120' in metres
+#width = 128 * 0.3048 # 120' in metres
+#spacing = width * 3 # 120 feet
+#spacing = width * 2.5 # 132 feet
+#spacing = width * 5.4 # 90 feet
+#spacing = width * 2.65 # 128 feet
+
+
 rotate = 0
 
-with zipfile.ZipFile("/tmp/test.zip", mode='w') as myzip:
+calculate_spacing(430,132*0.3048)
+
+zipfilename = '/tmp/beetents ' + datetime.date.today().isoformat() + ".zip"
+print(zipfilename)
+with zipfile.ZipFile(zipfilename, mode='w') as myzip:
     for field in fields:
-        make_files(myzip, "AgGPS/Data/BeeStuff/BeeTents/%s" % field[0], "030620", field[1])
-        make_tents(myzip, "AgGPS/Data/BeeStuff/BeeTents/%s" % field[0], 3062, 
-                   pivotpoint=field[1], radius=field[2], width=width, spacing=spacing, 
+        make_files(myzip, "AgGPS/Data/BeeStuff/BeeTents/%s" % field[0], field[0], field[1])
+        make_tents(myzip, "AgGPS/Data/BeeStuff/BeeTents/%s" % field[0],  
+                   pivotpoint=field[1], radius=field[2], edge_dist = 395, width=width,  
                    lat_shift=lateral_offset, angle=field[3], quadrants=field[4], **field[5]) 
         make_line(myzip, "AgGPS/Data/BeeStuff/BeeTents/%s" % field[0], field[1], lateral_offset, field[3])
 
