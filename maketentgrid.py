@@ -45,7 +45,7 @@ def make_files(myzip, field_path, name, origin):
 
     myzip.writestr("%s/newField.ok" % (field_path,), '')
 
-def make_tents(myzip, field_path, pivotpoint, radius, edge_dist, width, lat_shift, angle, quadrants = None, **kwargs):
+def make_tents(myzip, trimble_path, field_name, pivotpoint, radius, edge_dist, width, lat_shift, angle, pie_slice = None, **kwargs):
     """
         pivotpoint is tuple of longitude, latitude
         radius is maximum radius of circle in metres
@@ -57,8 +57,7 @@ def make_tents(myzip, field_path, pivotpoint, radius, edge_dist, width, lat_shif
         quadrants is list of quadrants of circle to place tents in (replace with arc)
     """
 
-    if quadrants is None:
-        quadrants = [ 0, 1, 2, 3] #nw, ne, se, sw
+    field_path = trimble_path + "/" + field_name
 
     eastlimit = northlimit = westlimit = southlimit = edge_dist
 
@@ -131,29 +130,31 @@ def make_tents(myzip, field_path, pivotpoint, radius, edge_dist, width, lat_shif
                 if northlimit and north > northlimit: continue
                 if southlimit and north < -southlimit: continue
 
-                flag = False
-                if east < margin and north >= -margin and 0 in quadrants:
-                    flag = True
+                flag = True
 
-                if east >= -margin and north >= -margin and 1 in quadrants:
-                    flag = True
+                if pie_slice and (north or east):
+                    angle = math.degrees(math.atan2(east,north))
+                    if (angle < 0): angle += 360
 
-                if east >= -margin and north < margin and 2 in quadrants:
-                    flag = True
+                    if pie_slice[0] > pie_slice[1]:
+                        # arc crosses zero
+                        if angle < pie_slice[0] and angle > pie_slice[1]: 
+                            flag = False
+                            #print (tent_id, angle)
+                        #if angle >= pie_slice[0] or angle <= pie_slice[1]: flag = True
+                        #else: flag = False
+                    else:
+                        if angle < pie_slice[0] or angle > pie_slice[1]: flag = False
+                        #if angle >= pie_slice[0] and angle <= pie_slice[1]: flag = True
+                        #else: flag = False
 
-                if east < margin and north < margin and 3 in quadrants:
-                    flag = True
+
 
                 if not flag:
                     # no specified quadrant claims this tent, so skip
                     continue
 
-                #if (r % 2 and r*r*width*width + (c*spacing+spacing/2)*(c*spacing+spacing/2) <= radius_sqr or
-                #    not r %2 and r*r*width*width + (c*spacing)*(c*spacing) <= radius_sqr):
-
                 lon, lat = utmish.to_lonlat(east + easting, north + northing, pivotpoint[0])
-                #print (lat, lon)
-                #kml.newpoint (name="%d,%d" % (east, north), coords = [ (lon, lat) ])
                 kml.newpoint (name="tent %d" % (tent_id), coords = [ (lon, lat) ])
 
                 w.record(Date=datetime.date.today(), Time="12:00:00pm",Version="7.78.002",
@@ -167,12 +168,12 @@ def make_tents(myzip, field_path, pivotpoint, radius, edge_dist, width, lat_shif
                 pid += 1
                 tent_id += 1
 
-    myzip.writestr("%s/TentLocations.kml" % field_path, kml.kml())    
+    myzip.writestr("TNT/googleearth/%s.kml" % field_name, kml.kml())    
     w.close()
     myzip.writestr('%s/PointFeature.dbf' % field_path, dbf.getvalue())
     myzip.writestr('%s/PointFeature.shp' % field_path, shp.getvalue())
     myzip.writestr('%s/PointFeature.shx' % field_path, shx.getvalue())
-    myzip.writestr('%s/TentLocations.csv' % field_path, csvbuffer.getvalue().encode('utf-8'))
+    myzip.writestr('TNT/spreadsheets/%s.csv' % field_name, csvbuffer.getvalue().encode('utf-8'))
 
 
 
@@ -245,21 +246,51 @@ def calculate_spacing(radius, width, num_tents = None):
     else:
         return total / (math.pi * radius * radius / 4046.87 + 1)
 
-data_items = [ 'name', 'pivot_point', 'radius', 'edge_dist', 'seed_angle', 'lat_offset', 'quadrants', 'width', 'extra' ]
+data_items = [ 'name', 'pivot_point', 'radius', 'edge_dist', 'seed_angle', 'lat_offset', 'pie_slice', 'width', 'extra' ]
 
-fields = [ 
-           #("RoyPederson",      (-111.7490278, 49.862     ),430, 0, [0,1,2,3], {} ),
-           #("DJensenNorth",     (-111.9406667, 49.8331944), 430, 0, [0,1,2,3], {'eastlimit': 395} ),
-           #("Giesbrecht",       (-112.0536667, 49.8694722), 420, 0, [0,1,2,3], {'eastlimit': 395} ),
-           #("JensenNE31-10-15", (-112.0199444, 49.8695278), 420, 0, [0,1,2,3], {'eastlimit': 395} ),
-           #("JensenSE25-10-16", (-112.0425556, 49.8479167), 430, 0, [1,2,3], {} ),
-           #("StolkNE24-10-16",  (-112.0425833, 49.8404722), 430, 0, [0,1,2,3], {} ),
-           ("LCTorrieNE33-10-13", (-111.703931, 49.869473), 425, 90, [0,1,2,3], {'southlimit': 385 } ),
-           #("LCTorrieSE33-10-13", (-111.703815, 49.862154), 430, 90, [0,1,2,3], {} ),
-           #("LCTorrieN34-10-13",  (-111.686718, 49.865810), 840, 0, [0,1], { 'northlimit': 805,
-           #                                                                  'eastlimit': 802} ),
+field_data = [ 
+           ("RoyPederson",      (-111.7490278, 49.862     ),430, 395, 0, 4, None, 120 * 0.3048, {} ),
+           ("RVR#1", (-111.795754,49.906374), 425, 0, 0, 2, None, 120 * 0.3048, {} ),
+           ("RVR#9", (-111.806201,49.913440), 355, 0, 215, 2, (40,215), 120 * 0.3048, {} ),
+           ("RVR#10", (-111.796499,49.917004), 477, 0, 74, 2, (94,254), 120 * 0.3048, {} ),
+
+           ("DJensenNorth",     (-111.9406667, 49.8331944), 430, 395, 0, 4, None, 120 * 0.3048, {'eastlimit': 395} ),
+
+           ("Giesbrecht",       (-112.0536667, 49.8694722), 420, 395, 0, 4, None, 120 * 0.3048, {'eastlimit': 395} ),
+
+           ("JensenNE31-10-15", (-112.0199444, 49.8695278), 420, 395, 0, 4, None, 120 * 0.3048, {'eastlimit': 395} ),
+           ("JensenSE25-10-16", (-112.0425556, 49.8479167), 430, 395, 0, 4, (0,245), 120 * 0.3048, {} ),
+
+           ("StolkNE24-10-16",  (-112.0425833, 49.8404722), 430, 395,0, 4, None, 120 * 0.3048, {} ),
+
+           ("LCTorrieNE33-10-13", (-111.703931, 49.869473), 427, 395, 90, 2, None, 120 * 0.3048, {'southlimit': 385 } ),
+           ("LCTorrieSE33-10-13", (-111.703815, 49.862154), 430, 395, 90, 4, None, 120*0.3048, {} ),
+           ("LCTorrieN34-10-13",  (-111.686718, 49.865810), 830, 805, 0, 4, (270,90), 120 * 0.3048, { 'northlimit': 805, 'eastlimit': 802} ),
+
+           ("Lyle Ypma NW-27-9-14", (-111.833241, 49.768374), 585,0,  0, 4, (0,180), 132*0.3048, {} ),
+           ("Lyle Ypma SW-20-10-13", (-111.737769,  49.832830), 387,0,  0, 4, (225,135), 132*0.3048, {} ),
+           ("Lyle Ypma E 21-10-13", (-111.709377, 49.836641), 830,0,  0, 4, (0,180), 132*0.3048, {} ),
+
+
+           ("Terry Lane SE-1-11-12", (-111.511168,49.876861), 430,394,  0, 4, None , 120*0.3048, {} ),
+           ("Terry Lane NE-1-11-12", (-111.511232, 49.884128), 430,394,  0, 4, None , 120*0.3048, {} ),
+           ("Terry Lane SW-12-11-12", (-111.522303,49.891291), 411,394,  0, 4, None , 120*0.3048, {} ),
+           #("Terry Lane NE-12-11-12", (-111.510798, 49.898546), 430,0,  0, 4, None , 120*0.3048, {} ),
+           ("Terry Lane NE-12-11-12", (-111.4979643, 49.8928071), 540,0,  0, 4, None , 120*0.3048, {} ),
+
+           ("Douwe Huizing SW-1-11-12", (-111.522241,49.876820), 415,395,  0, 4, None , 90*0.3048, {} ),
+           ("Douwe Huizing SW-26-10-12", (-111.534194, 49.847407), 415,395,  0, 4, None , 90*0.3048, {} ),
+
+           ("Reid Hopkins NE-26-10-12", (-111.523085, 49.854559), 415,395,  90, 4, None , 128*0.3048, {} ),
+           ("Reid Hopkins SE-26-10-12", (-111.523124,  49.847380), 415,395,  90, 4, None , 128*0.3048, {} ),
+
 
         ]
+
+fields = []
+for item in field_data:
+    fields.append(dict(zip(data_items, item)))
+
 
 lateral_offset = 0 # meters to shift tracks sideways so it won't hit the pivot point dead on.
 width = 120 * 0.3048 # 120' in metres
@@ -280,9 +311,10 @@ zipfilename = '/tmp/beetents ' + datetime.date.today().isoformat() + ".zip"
 print(zipfilename)
 with zipfile.ZipFile(zipfilename, mode='w') as myzip:
     for field in fields:
-        make_files(myzip, "AgGPS/Data/BeeStuff/BeeTents/%s" % field[0], field[0], field[1])
-        make_tents(myzip, "AgGPS/Data/BeeStuff/BeeTents/%s" % field[0],  
-                   pivotpoint=field[1], radius=field[2], edge_dist = 395, width=width,  
-                   lat_shift=lateral_offset, angle=field[3], quadrants=field[4], **field[5]) 
-        make_line(myzip, "AgGPS/Data/BeeStuff/BeeTents/%s" % field[0], field[1], lateral_offset, field[3])
+        print (field)
+        make_files(myzip, "TNT/AgGPS/Data/BeeStuff/BeeTents/%s" % field['name'], field['name'], field['pivot_point'])
+        make_tents(myzip, "TNT/AgGPS/Data/BeeStuff/BeeTents/", field['name'],  
+                   pivotpoint=field['pivot_point'], radius=field['radius'], edge_dist = field['edge_dist'], width=field['width'],  
+                   lat_shift=field['lat_offset'], angle=field['seed_angle'], pie_slice=field['pie_slice'], **field['extra']) 
+        make_line(myzip, "TNT/AgGPS/Data/BeeStuff/BeeTents/%s" % field['name'], field['pivot_point'], field['lat_offset'], field['seed_angle'])
 
