@@ -158,7 +158,7 @@ def make_tents(myzip, trimble_path, field_name, pivotpoint, radius, edge_dist, w
                 kml.newpoint (name="tent %d" % (tent_id), coords = [ (lon, lat) ])
 
                 w.record(Date=datetime.date.today(), Time="12:00:00pm",Version="7.78.002",
-                         Id = pid, Name = "Tree_%d" % tent_id, Latitude = lat, Longitude = lon, Height = 761.064,
+                         Id = pid, Name = "Tree_%d" % pid, Latitude = lat, Longitude = lon, Height = 761.064,
                          AlarmRad = 0, WarningRad = 10.0, Status_Text='', Visible=1)
 
                 w.point(lon, lat)
