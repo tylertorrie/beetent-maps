@@ -288,7 +288,7 @@ field_data = [
 
         ]
 
-fields = [20
+fields = []
 for item in field_data:
     fields.append(dict(zip(data_items, item)))
 
