@@ -85,7 +85,7 @@ def make_tents(myzip, trimble_path, field_name, pivotpoint, radius, edge_dist, w
     shx = BytesIO()
     dbf = BytesIO()
 
-    pid = 1234 #arbitrary number for shapefile
+    pid = 3062 #arbitrary number for shapefile
 
     w = shapefile.Writer(shp = shp, shx = shx, dbf = dbf, shapeType=1 )
     w.field('Date', 'D')
@@ -288,7 +288,7 @@ field_data = [
 
         ]
 
-fields = []
+fields = [20
 for item in field_data:
     fields.append(dict(zip(data_items, item)))
 
