@@ -107,11 +107,24 @@ def make_tents(myzip, trimble_path, field_name, pivotpoint, radius, edge_dist, w
 
     tent_id = 0
 
-    for r in range(-int(radius / width),int(radius / width) + 1):
+    # Experimental rows
+
+    exp_rows = False
+    if 'exp_rows' in kwargs:
+        exp_rows = True
+        rows = kwargs['exp_rows'] #[-10,-8,-6,-4,-3,-2,-1,0,2,4,6,7,8,9,10]
+        odd = kwargs.get('exp_rows_start_odd','True')
+    else:
+        rows = range(-int(radius / width),int(radius / width) + 1)
+        
+    for r in rows:
+        if not exp_rows:
+            odd = r % 2
+        #print (odd)
         for c in range(-int(radius / spacing)-1, int(radius / spacing) + 1):
             # only place tents in specified quadrants of circle
 
-            if r % 2: #odd, shift by half spacing
+            if odd: #odd, shift by half spacing
                 east = r*width + lat_shift
                 north = c*spacing+spacing/2
             else: #even, don't shift
@@ -167,6 +180,8 @@ def make_tents(myzip, trimble_path, field_name, pivotpoint, radius, edge_dist, w
 
                 pid += 1
                 tent_id += 1
+        if exp_rows:
+            odd = not odd
 
     myzip.writestr("TNT/googleearth/%s.kml" % field_name, kml.kml())    
     w.close()
@@ -257,14 +272,14 @@ field_data = [
 
            ("DJensenNorth",     (-111.9406667, 49.8331944), 430, 395, 0, 4, None, 120 * 0.3048, {'eastlimit': 395} ),
 
-           ("Giesbrecht",       (-112.0536667, 49.8694722), 420, 395, 0, 4, None, 120 * 0.3048, {'eastlimit': 395} ),
+           ("Giesbrecht",       (-112.0536667, 49.8694722), 420, 395, 0, 4, None, 120 * 0.3048, {'eastlimit': 395, 'exp_rows' : [-10,-8,-6,-4,-3,-2,-1,0,2,4,6,7,8,9,10]} ),
 
            ("JensenNE31-10-15", (-112.0199444, 49.8695278), 420, 395, 0, 4, None, 120 * 0.3048, {'eastlimit': 395} ),
            ("JensenSE25-10-16", (-112.0425556, 49.8479167), 430, 395, 0, 4, (0,245), 120 * 0.3048, {} ),
 
-           ("StolkNE24-10-16",  (-112.0425833, 49.8404722), 430, 395,0, 4, None, 120 * 0.3048, {} ),
+           ("StolkNE24-10-16",  (-112.0425833, 49.8404722), 430, 395,0, 4, None, 120 * 0.3048, {'exp_rows' : [-10,-8,-6,-4,-3,-2,-1,0,2,4,6,7,8,9,10]} ),
 
-           ("LCTorrieNE33-10-13", (-111.703931, 49.869473), 427, 395, 90, 2, None, 118.5 * 0.3048, {'southlimit': 385, 'eastlimit':385 } ),
+           ("LCTorrieNE33-10-13", (-111.703931, 49.869473), 427, 395, 90, 2, None, 118.5 * 0.3048, {'southlimit': 385, 'eastlimit':385, 'exp_rows' : [-10,-8,-6,-4,-3,-2,-1,0,2,4,6,7,8,9,10] } ),
            ("LCTorrieSE33-10-13", (-111.703815, 49.862154), 423, 395, 90, 4, None, 118.5*0.3048, {} ),
            ("LCTorrieN34-10-13",  (-111.686718, 49.865810), 820, 805, 0, 4, (270,90), 118.5 * 0.3048, { 'northlimit': 805, 'eastlimit': 780, } ),
 
@@ -276,7 +291,7 @@ field_data = [
            ("Terry Lane SE-1-11-12", (-111.511168,49.876861), 430,394,  0, 4, None , 120*0.3048, {} ),
            ("Terry Lane NE-1-11-12", (-111.511232, 49.884128), 430,394,  0, 4, None , 120*0.3048, {} ),
            ("Terry Lane SW-12-11-12", (-111.522303,49.891291), 411,394,  0, 4, None , 120*0.3048, {} ),
-           #("Terry Lane NE-12-11-12 try2", (-111.510798, 49.898546), 430,0,  0, 4, None , 120*0.3048, {} ),
+           ("Terry Lane NE-12-11-12 try2", (-111.510798, 49.898546), 430,0,  0, 4, None , 120*0.3048, {} ),
            ("Terry Lane NE-12-11-12", (-111.5096496, 49.8977084), 320,0,  0, 4, None , 120*0.3048, {} ),
 
            ("Douwe Huizing SW-1-11-12", (-111.522241,49.876820), 415,395,  0, 4, None , 90*0.3048, {} ),
