@@ -18,8 +18,8 @@ class FileWriter(object):
         directory using the same call as zipfile, so we can switch between
         using zips and directories easily
     """
-    def __init__(self, path):
-        self._path = path
+    def __init__(self):
+        pass
 
     def __enter__(self):
         # do nothing since there's really no setup and cleanup
@@ -36,12 +36,12 @@ class FileWriter(object):
             write data to it. Either bytes or str, which is 
             implicitly converted to UTF-8.
         """
-        combined_path = os.path.join(self._path, filename)
-        directory = os.path.dirname(combined_path)
+        #combined_path = os.path.join(self._path, filename)
+        directory = os.path.dirname(filename)
         if not os.path.exists(directory):
             os.makedirs(directory)
 
-        file=open(combined_path,"wb")
+        file=open(filename,"wb")
         with file:
             if isinstance(data,str):
                 file.write(data.encode('UTF-8'))
@@ -95,7 +95,7 @@ def make_pdf_circle_bays(ctx, field):
     height = 11 * 72
 
     #make the entire circle fit on the page
-    scale = 8/8.5*width / field['radius'] / 2
+    scale = 8/8.5*width / field['Radius'] / 2
 
     ctx.set_line_width(0.5)
     ctx.set_source_rgb(1,1,1)
@@ -103,28 +103,26 @@ def make_pdf_circle_bays(ctx, field):
     ctx.fill()
     ctx.set_source_rgb(0,0,0)
 
-    if field['edge_dist']:
-        northlimit=southlimit=eastlimit=westlimit=field['edge_dist']
+    if field['North_limit'] is not None:
+        northlimit = field['North_limit']
     else:
-        if 'northlimit' in field['extra']:
-            northlimit = field['extra']['northlimit']
-        else:
-            northlimit = field['radius']
+        northlimit = field['Radius']
 
-        if 'eastlimit' in field['extra']:
-            eastlimit = field['extra']['eastlimit']
-        else:
-            eastlimit = field['radius']
+    if field['East_limit'] is not None:
+        eastlimit = field['East_limit']
+    else:
+        eastlimit = field['Radius']
 
-        if 'southlimit' in field['extra']:
-            southlimit = field['extra']['southlimit']
-        else:
-            southlimit = field['radius']
+    if field['South_limit'] is not None:
+        southlimit = field['South_limit']
+    else:
+        southlimit = field['Radius']
 
-        if 'westlimit' in field['extra']:
-            westlimit = field['extra']['westlimit']
-        else:
-            westlimit = field['radius']
+    if field['West_limit'] is not None:
+        westlimit = field['West_limit']
+    else:
+        westlimit = field['Radius']
+
 
     ctx.arc(width/2, height/2, 2, 0, 2*math.pi)
     ctx.fill()
@@ -132,8 +130,8 @@ def make_pdf_circle_bays(ctx, field):
     if field['pie_slice']:
         start_angle = 360 - field['pie_slice'][0] + 90
         end_angle = 360 - field['pie_slice'][1] + 90
-        x = math.cos(math.radians(start_angle)) * field['radius']
-        y = math.sin(math.radians(start_angle)) * field['radius']
+        x = math.cos(math.radians(start_angle)) * field['Radius']
+        y = math.sin(math.radians(start_angle)) * field['Radius']
         if x > eastlimit: x=eastlimit
         elif x < -westlimit: x = -westlimit
         
@@ -145,8 +143,8 @@ def make_pdf_circle_bays(ctx, field):
 
         ctx.line_to(width/2, height/2)
 
-        x = math.cos(math.radians(end_angle)) * field['radius']
-        y = math.sin(math.radians(end_angle)) * field['radius']
+        x = math.cos(math.radians(end_angle)) * field['Radius']
+        y = math.sin(math.radians(end_angle)) * field['Radius']
         if x > eastlimit: x=eastlimit
         elif x < -westlimit: x = -westlimit
         
@@ -163,8 +161,8 @@ def make_pdf_circle_bays(ctx, field):
         start_angle = 360
         end_angle = 0
 
-    x = math.cos(math.radians(start_angle)) * field['radius']
-    y = math.sin(math.radians(start_angle)) * field['radius']
+    x = math.cos(math.radians(start_angle)) * field['Radius']
+    y = math.sin(math.radians(start_angle)) * field['Radius']
     if x > eastlimit: x=eastlimit
     elif x < -westlimit: x = -westlimit
     
@@ -178,8 +176,8 @@ def make_pdf_circle_bays(ctx, field):
     ctx.set_line_width(1)
     angle = start_angle
     while True:
-        x = math.cos(math.radians(angle)) * field['radius']
-        y = math.sin(math.radians(angle)) * field['radius']
+        x = math.cos(math.radians(angle)) * field['Radius']
+        y = math.sin(math.radians(angle)) * field['Radius']
         if x > eastlimit: x=eastlimit
         elif x < -westlimit: x = -westlimit
         
@@ -195,85 +193,88 @@ def make_pdf_circle_bays(ctx, field):
     ctx.stroke()
 
     ctx.set_line_width(0.5)
-    radius = field['radius']
+    radius = field['Radius']
     radius_sqr = radius * radius
-    sprayer_width = field['width']
+    sprayer_width = field['Sprayer_width']
     spacing = calculate_spacing(radius, sprayer_width)
-    rotate = 0 - field['seed_angle']
+    rotate = 0 - field['Seed_angle']
     rotate = (rotate + 180) % 360 - 180
     pie_slice = field['pie_slice']
-    lat_shift = field['lat_offset']
-    bays_per_sprayer_width = 3
+    lat_shift = field['Lateral_offset']
 
-    # Draw male bays
-    ctx.set_source_rgb(0,0,0.9)
-    rows = range(-int(radius / sprayer_width * bays_per_sprayer_width ) - 1,int(radius / sprayer_width * bays_per_sprayer_width) + 1)
-    for r in rows:
-        east = r * sprayer_width / bays_per_sprayer_width + sprayer_width / bays_per_sprayer_width / 2
-        north = radius
 
-        east1 = east * math.cos(math.radians(rotate)) - north * math.sin(math.radians(rotate))
-        north1 = north * math.cos(math.radians(rotate)) + east * math.sin(math.radians(rotate))
+    if 'Female_bays_per_width' in field and field['Female_bays_per_width']:
+        bays_per_sprayer_width = field['Female_bays_per_width']
 
-        east2 = east * math.cos(math.radians(rotate)) + north * math.sin(math.radians(rotate))
-        north2 = -north * math.cos(math.radians(rotate)) + east * math.sin(math.radians(rotate))
+        # Draw male bays
+        ctx.set_source_rgb(0,0,0.9)
+        rows = range(-int(radius / sprayer_width * bays_per_sprayer_width ) - 1,int(radius / sprayer_width * bays_per_sprayer_width) + 1)
+        for r in rows:
+            east = r * sprayer_width / bays_per_sprayer_width + sprayer_width / bays_per_sprayer_width / 2
+            north = radius
 
-        if abs(east1 - east2) < 0.001: #north and south line
-            # trim lines that are outside of the circle entirely
-            if east1 > eastlimit or east1 < -westlimit: continue
-            if north1 < -southlimit: north1 = -southlimit
-            elif north1 > northlimit: north1 = northlimit
+            east1 = east * math.cos(math.radians(rotate)) - north * math.sin(math.radians(rotate))
+            north1 = north * math.cos(math.radians(rotate)) + east * math.sin(math.radians(rotate))
 
-            if north2 < -southlimit: north2 = -southlimit
-            elif north2 > northlimit: north2 = northlimit
+            east2 = east * math.cos(math.radians(rotate)) + north * math.sin(math.radians(rotate))
+            north2 = -north * math.cos(math.radians(rotate)) + east * math.sin(math.radians(rotate))
 
-        elif abs(north1 - north2) < 0.001: #east and west line
-            #trim lines that are outside of the circle entirely
-            if north1 > northlimit or north1 < -southlimit: continue
+            if abs(east1 - east2) < 0.001: #north and south line
+                # trim lines that are outside of the circle entirely
+                if east1 > eastlimit or east1 < -westlimit: continue
+                if north1 < -southlimit: north1 = -southlimit
+                elif north1 > northlimit: north1 = northlimit
 
+                if north2 < -southlimit: north2 = -southlimit
+                elif north2 > northlimit: north2 = northlimit
+
+            elif abs(north1 - north2) < 0.001: #east and west line
+                #trim lines that are outside of the circle entirely
+                if north1 > northlimit or north1 < -southlimit: continue
+
+                if east1 < -westlimit: east1 = -westlimit
+                elif east1 > eastlimit: east1 = eastlimit
+
+                if east2 < -westlimit: east2 = -westlimit
+                elif east2 > eastlimit: east2 = eastlimit
+            else: #some other angle that we can calculate slope
+                # if midpoint of bay is outside the radius, we can
+                # safely skip it
+                e = (east2 + east1) / 2
+                n = (north2 + north1) / 2
+                #print (east2, east1, e, n)
+
+                if e*e + n*n > radius_sqr: continue
+
+                #TODO: if it's outside the pie skip
+
+            """
             if east1 < -westlimit: east1 = -westlimit
             elif east1 > eastlimit: east1 = eastlimit
 
             if east2 < -westlimit: east2 = -westlimit
             elif east2 > eastlimit: east2 = eastlimit
-        else: #some other angle that we can calculate slope
-            # if midpoint of bay is outside the radius, we can
-            # safely skip it
-            e = (east2 + east1) / 2
-            n = (north2 + north1) / 2
-            #print (east2, east1, e, n)
 
-            if e*e + n*n > radius_sqr: continue
+            if north1 < -southlimit: north1 = -southlimit
+            elif north1 > northlimit: north1 = northlimit
 
-            #TODO: if it's outside the pie skip
+            if north2 < -southlimit: north2 = -southlimit
+            elif north2 > northlimit: north2 = northlimit
+            """
 
-        """
-        if east1 < -westlimit: east1 = -westlimit
-        elif east1 > eastlimit: east1 = eastlimit
-
-        if east2 < -westlimit: east2 = -westlimit
-        elif east2 > eastlimit: east2 = eastlimit
-
-        if north1 < -southlimit: north1 = -southlimit
-        elif north1 > northlimit: north1 = northlimit
-
-        if north2 < -southlimit: north2 = -southlimit
-        elif north2 > northlimit: north2 = northlimit
-        """
-
-        ctx.move_to(east1 * scale + width/2, -north1 * scale + height/2)
-        ctx.line_to(east2 * scale + width/2, -north2 * scale + height/2)
-        ctx.stroke()
+            ctx.move_to(east1 * scale + width/2, -north1 * scale + height/2)
+            ctx.line_to(east2 * scale + width/2, -north2 * scale + height/2)
+            ctx.stroke()
         
     ctx.select_font_face("Arial", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
     ctx.set_font_size(24)
 
     ctx.move_to(72,72)
     ctx.set_source_rgb(0,0,0)
-    ctx.show_text(field['name'])
+    ctx.show_text(field['Name'])
 
 
-def make_tents(myzip, trimble_path, field_name, pivotpoint, radius, edge_dist, width, lat_shift, angle, pie_slice = None, **kwargs):
+def make_tents(myzip, trimble_path, field_name, pivotpoint, radius, width, lat_shift, angle, pie_slice = None, **kwargs):
     """
         pivotpoint is tuple of longitude, latitude
         radius is maximum radius of circle in metres
@@ -286,14 +287,12 @@ def make_tents(myzip, trimble_path, field_name, pivotpoint, radius, edge_dist, w
     """
 
 
-    field_path = trimble_path + "/" + field_name
+    #field_path = trimble_path + "/" + field_name
 
-    eastlimit = northlimit = westlimit = southlimit = edge_dist
-
-    eastlimit = kwargs.get('eastlimit',eastlimit)
-    northlimit = kwargs.get('northlimit', northlimit)
-    westlimit = kwargs.get('westlimit', westlimit)
-    southlimit = kwargs.get('southlimit', southlimit)
+    eastlimit = kwargs.get('eastlimit',radius)
+    northlimit = kwargs.get('northlimit', radius)
+    westlimit = kwargs.get('westlimit', radius)
+    southlimit = kwargs.get('southlimit', radius)
 
     # PDF options
     pdf = kwargs.get('pdf', None)
@@ -343,10 +342,11 @@ def make_tents(myzip, trimble_path, field_name, pivotpoint, radius, edge_dist, w
 
     # Experimental rows
 
-    exp_rows = False
-    if 'exp_rows' in kwargs:
+    
+    exp_rows = kwargs['exp_rows']
+    if exp_rows:
+        rows = exp_rows
         exp_rows = True
-        rows = kwargs['exp_rows'] #[-10,-8,-6,-4,-3,-2,-1,0,2,4,6,7,8,9,10]
         odd = kwargs.get('exp_rows_start_odd',True)
     else:
         rows = range(-int(radius / width),int(radius / width) + 1)
@@ -422,12 +422,12 @@ def make_tents(myzip, trimble_path, field_name, pivotpoint, radius, edge_dist, w
         if exp_rows:
             odd = not odd
 
-    myzip.writestr("TNT/googleearth/%s.kml" % field_name, kml.kml())    
+    myzip.writestr("%s/googleearth/%s.kml" % (trimble_path,field_name), kml.kml())    
     w.close()
-    myzip.writestr('%s/PointFeature.dbf' % field_path, dbf.getvalue())
-    myzip.writestr('%s/PointFeature.shp' % field_path, shp.getvalue())
-    myzip.writestr('%s/PointFeature.shx' % field_path, shx.getvalue())
-    myzip.writestr('TNT/spreadsheets/%s.csv' % field_name, csvbuffer.getvalue().encode('utf-8'))
+    myzip.writestr('%s/AgGPS/Data/TNTBees/BeeTents/%s/PointFeature.dbf' % (trimble_path, field_name), dbf.getvalue())
+    myzip.writestr('%s/AgGPS/Data/TNTBees/BeeTents/%s/PointFeature.shp' % (trimble_path, field_name), shp.getvalue())
+    myzip.writestr('%s/AgGPS/Data/TNTBees/BeeTents/%s/PointFeature.shx' % (trimble_path, field_name), shx.getvalue())
+    myzip.writestr('%s/spreadsheets/%s.csv' % (trimble_path, field_name), csvbuffer.getvalue().encode('utf-8'))
 
 
 
@@ -502,7 +502,9 @@ def calculate_spacing(radius, width, num_tents = None):
 
 if __name__== "__main__":
 
-    data_items = [ 'name', 'pivot_point', 'radius', 'edge_dist', 'seed_angle', 'lat_offset', 'pie_slice', 'width', 'extra' ]
+    """
+    # 2020 fields, now using CSV import instead of this
+    data_items = [ 'Name', 'pivot_point', 'radius', 'edge_dist', 'seed_angle', 'lat_offset', 'pie_slice', 'width', 'extra' ]
 
     field_data = [ 
     #           ("RoyPederson",      (-111.7490278, 49.862     ),430, 395, 0, 4, None, 120 * 0.3048, {} ),
@@ -543,44 +545,157 @@ if __name__== "__main__":
 
 
             ]
+    """
+    
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-z','--zip', type=str, help="create a zip file containing all generated files. Default is to write them to a directory.")
+    parser.add_argument('-p','--path', type=str, help="write file tree relative to this path. If you specified a zip file, this path will must be relative and will be inside the zip file. If not specified, will write to a folder called TNT in the same folder as the csv file.")
+    parser.add_argument('-t', '--timestamp', help="Add timestamp to zip filename or if not using zip, to the path specified.", action="store_true")
+    parser.add_argument('csv_file', type=str, help="CSV file to read field information from.")
+
+    args = parser.parse_args()
+
 
     fields = []
-    for item in field_data:
-        fields.append(dict(zip(data_items, item)))
+    with open(args.csv_file, 'r') as csvfile:
+        reader = csv.DictReader(csvfile)
+        for row in reader:
+            # perform some type conversions, and validate some fields
+            # and calculate convenience entries
+            row['PP_Longitude'] = float(row['PP_Longitude'])
+            row['PP_Latitude'] = float(row['PP_Latitude'])
+            row['Radius'] = float(row['Radius'])
+            row['Seed_angle'] = float(row['Seed_angle'])
+            row['Sprayer_width'] = float(row['Sprayer_width']) * 0.3048 #metres/ft
+            if row['Pie_start'] != '' and row['Pie_end'] != '':
+                row['pie_slice'] = (int(row['Pie_start']),
+                                    int(row['Pie_end']))
+            else:
+                row['pie_slice'] = None
+
+            if row['North_limit'] != '':
+                row['North_limit'] = int(row['North_limit'])
+            else:
+                row['North_limit'] = row['Radius']
+
+            if row['East_limit'] != '':
+                row['East_limit'] = int(row['East_limit'])
+            else:
+                row['East_limit'] = row['Radius']
+
+            if row['South_limit'] != '':
+                row['South_limit'] = int(row['South_limit'])
+            else:
+                row['South_limit'] = row['Radius']
+
+            if row['West_limit'] != '':
+                row['West_limit'] = int(row['West_limit'])
+            else:
+                row['West_limit'] = row['Radius']
+
+            if row['Lateral_offset'] != '':
+                row['Lateral_offset'] = float(row['Lateral_offset']) * 0.3048 #metres/ft
+            else:
+                row['Lateral_offset'] = 0
+
+            if row['Female_bays_per_width'] != '':
+                row['Female_bays_per_width'] = int(row['Female_bays_per_width'])
+
+                if not row['Lateral_offset']:
+                    # calculate it based on the width of the bays. This figures
+                    # out where the tent is placed, just to the right-hand side
+                    # of the male bay
+                    row['Lateral_offset'] = row['Sprayer_width'] / float(row['Female_bays_per_width']) / 2 * 0.75
+            else:
+                row['Female_bays_per_width'] = None
+
+            if row['Experimental'] != '':
+                exp_rows = row['Experimental'].split(',')
+                exp_rows = [int(x) for x in exp_rows]
+                row['Experimental'] = exp_rows
+            else:
+                row['Experimental'] = None
+
+            if row['Experimental_start_odd'] != '':
+                row['Experimental_start_odd'] = True
+            else:
+                row['Experimental_start_odd'] = False
 
 
-    lateral_offset = 0 # meters to shift tracks sideways so it won't hit the pivot point dead on.
-    width = 120 * 0.3048 # 120' in metres
-    #width = 132 * 0.3048 # 120' in metres
-    #width = 90 * 0.3048 # 120' in metres
-    #width = 128 * 0.3048 # 120' in metres
-    #spacing = width * 3 # 120 feet
-    #spacing = width * 2.5 # 132 feet
-    #spacing = width * 5.4 # 90 feet
-    #spacing = width * 2.65 # 128 feet
+            fields.append(row)
 
 
-    rotate = 0
-
-    calculate_spacing(430,132*0.3048)
+    #for item in field_data:
+    #    fields.append(dict(zip(data_items, item)))
 
     #zipfilename = '/tmp/beetents ' + datetime.date.today().isoformat() + ".zip"
-    zipfilename = "./"
-    width, height = 612,792 #72 dpi
-    surface = cairo.PDFSurface ("TNT/fields.pdf", width, height)
 
-    #with zipfile.ZipFile(zipfilename, mode='w') as myzip:
-    with FileWriter(zipfilename) as myzip:
+    if not args.path:
+        if not args.zip:
+            # not using zip, place files in the same directory as the CSV file
+            dirpath = os.path.join(os.path.dirname(os.path.abspath(args.csv_file)), "TNT")
+        else:
+            dirpath = "TNT"
+    else:
+        dirpath = args.path
+        
+
+    if args.zip:
+        zipfilename = args.zip
+        if args.timestamp:
+            zipname_parts = os.path.splitext(zipfilename)
+            zipfilename = "%s-%s%s" % (zipname_parts[0],datetime.date.today().isoformat(), zipname_parts[1])
+            
+        print ("Writing output to %s." % zipfilename)
+        writer = zipfile.ZipFile(zipfilename, mode='w')
+    else:
+        if args.timestamp:
+            dirpath = dirpath+"-"+datetime.date.today().isoformat()
+
+        print ("Writing output to folder %s." % dirpath)
+        writer = FileWriter()
+
+
+    width, height = 612,792 #72 dpi
+
+    # TODO place this is the zip file
+    if args.zip:
+        pdfpath = os.path.dirname(os.path.abspath(args.zip))
+    else:
+        pdfpath = dirpath
+    if not os.path.exists(pdfpath):
+        os.makedirs(pdfpath)
+    surface = cairo.PDFSurface (os.path.join(pdfpath, "tntfields.pdf"), width, height)
+
+    with writer:
         for field in fields:
-            print (field)
+            print ("Processing: %s (%f, %f)" % (field['Name'], field['PP_Longitude'], field['PP_Latitude']))
             ctx = cairo.Context (surface)
             make_pdf_circle_bays(ctx, field)
 
-            make_files(myzip, "TNT/AgGPS/Data/BeeStuff/BeeTents/%s" % field['name'], field['name'], field['pivot_point'])
-            make_tents(myzip, "TNT/AgGPS/Data/BeeStuff/BeeTents/", field['name'],  
-                       pivotpoint=field['pivot_point'], radius=field['radius'], edge_dist = field['edge_dist'], width=field['width'],  
-                       lat_shift=field['lat_offset'], angle=field['seed_angle'], pie_slice=field['pie_slice'], **field['extra'], pdf=ctx) 
-            make_line(myzip, "TNT/AgGPS/Data/BeeStuff/BeeTents/%s" % field['name'], field['pivot_point'], field['lat_offset'], field['seed_angle'])
+            make_files(writer, os.path.join(dirpath, "AgGPS/Data/TNTBees/BeeTents/%s" % field['Name']), 
+                               field['Name'], 
+                               (float(field['PP_Longitude']), float(field['PP_Latitude'])))
+
+            make_tents(writer, dirpath, 
+                              field['Name'],
+                              pivotpoint=(field['PP_Longitude'], field['PP_Latitude']), 
+                              radius=field['Radius'], width=field['Sprayer_width'],  
+                              lat_shift=field['Lateral_offset'], angle=field['Seed_angle'], 
+                              pie_slice=field['pie_slice'],
+                              northlimit=field['North_limit'],
+                              eastlimit=field['East_limit'],
+                              southlimit=field['South_limit'],
+                              westlimit=field['West_limit'],
+                              exp_rows = field['Experimental'],
+                              exp_rows_start_odd = field['Experimental_start_odd'],
+                              pdf=ctx) 
+
+            make_line(writer, os.path.join(dirpath, "AgGPS/Data/TNTBees/BeeTents/%s" % field['Name']), 
+                             (field['PP_Longitude'], field['PP_Latitude']), 
+                             field['Lateral_offset'], field['Seed_angle'])
 
             ctx.show_page()
 
