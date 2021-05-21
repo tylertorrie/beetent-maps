@@ -9,7 +9,8 @@ import sys
 import zipfile
 import datetime
 import csv
-import cairo
+import fpdf
+
 from io import BytesIO
 from io import StringIO
 
@@ -48,6 +49,21 @@ class FileWriter(object):
             else:
                 file.write(data)
 
+class BeePDF(fpdf.FPDF):
+    def __init__(self, orientation, units, papersize):
+        super().__init__(orientation, units, papersize)
+        self.last_x=None
+        self.last_y=None
+
+    def move_to(self, x,y):
+        self.last_x = x
+        self.last_y = y
+
+    def line_to(self, x,y):
+        self.line(self.last_x, self.last_y, x, y)
+        self.last_x = x
+        self.last_y = y
+
 def ll_at( lon1, lat1, bearing, distance):
     R = 6378137 #Radius of the Earth in metres
     brng = math.radians(bearing)
@@ -82,13 +98,11 @@ def make_files(myzip, field_path, name, origin):
 
     myzip.writestr("%s/newField.ok" % (field_path,), '')
 
-def make_pdf_circle_bays(ctx, field):
+def make_pdf_circle_bays(pdf_writer, field):
     """
-        Draw the outline of the circle and male bays on the
-        Cairo context ctx that will end up in the PDF
+        Draw the outline of the circle and male bays using the
+        pdf_writer (instance of FPDF) onto the current field's PDF page
     """
-
-    surface = ctx.get_target()
 
     #TODO: cleaner, programmatic way to do this
     width = 8.5 * 72
@@ -97,11 +111,8 @@ def make_pdf_circle_bays(ctx, field):
     #make the entire circle fit on the page
     scale = 8/8.5*width / field['Radius'] / 2
 
-    ctx.set_line_width(0.5)
-    ctx.set_source_rgb(1,1,1)
-    ctx.rectangle(0,0,width,height)
-    ctx.fill()
-    ctx.set_source_rgb(0,0,0)
+    pdf_writer.set_line_width(0.5)
+    pdf_writer.set_draw_color(0,0,0)
 
     if field['North_limit'] is not None:
         northlimit = field['North_limit']
@@ -123,10 +134,9 @@ def make_pdf_circle_bays(ctx, field):
     else:
         westlimit = field['Radius']
 
-
-    ctx.arc(width/2, height/2, 2, 0, 2*math.pi)
-    ctx.fill()
-
+    # draw pivot point
+    pdf_writer.ellipse(width/2-2,height/2-2,4,4,'DF')
+    
     if field['pie_slice']:
         start_angle = 360 - field['pie_slice'][0] + 90
         end_angle = 360 - field['pie_slice'][1] + 90
@@ -138,10 +148,10 @@ def make_pdf_circle_bays(ctx, field):
         if y > northlimit: y = northlimit
         elif y < -southlimit: y = -southlimit
 
-        ctx.move_to(x * scale + width/2,
-                    -y * scale + height/2)
+        pdf_writer.move_to(x * scale + width/2,
+                           -y * scale + height/2)
 
-        ctx.line_to(width/2, height/2)
+        pdf_writer.line_to(width/2, height/2)
 
         x = math.cos(math.radians(end_angle)) * field['Radius']
         y = math.sin(math.radians(end_angle)) * field['Radius']
@@ -151,10 +161,9 @@ def make_pdf_circle_bays(ctx, field):
         if y > northlimit: y = northlimit
         elif y < -southlimit: y = -southlimit
 
-        ctx.line_to(x * scale + width/2,
-                    -y * scale + height/2)
+        pdf_writer.line_to( x * scale + width/2,
+                            -y * scale + height/2 )
 
-        ctx.stroke()
         if start_angle < end_angle:
             if end_angle > 180: end_angle = -360 + end_angle
     else:
@@ -168,12 +177,13 @@ def make_pdf_circle_bays(ctx, field):
     
     if y > northlimit: y = northlimit
     elif y < -southlimit: y = -southlimit
-    ctx.move_to(x * scale + width/2,
-                -y * scale + height/2)
+
+    pdf_writer.move_to(x * scale + width/2,
+                      -y * scale + height/2)
 
     # if arc crosses 0, adjust
 
-    ctx.set_line_width(1)
+    pdf_writer.set_line_width(1)
     angle = start_angle
     while True:
         x = math.cos(math.radians(angle)) * field['Radius']
@@ -184,15 +194,13 @@ def make_pdf_circle_bays(ctx, field):
         if y > northlimit: y = northlimit
         elif y < -southlimit: y = -southlimit
 
-        ctx.line_to(x * scale + width/2,
-                    -y * scale + height/2)
+        pdf_writer.line_to(x * scale + width/2,
+                          -y * scale + height/2)
 
         angle -= 1
         if angle < end_angle: break
      
-    ctx.stroke()
-
-    ctx.set_line_width(0.5)
+    pdf_writer.set_line_width(0.5)
     radius = field['Radius']
     radius_sqr = radius * radius
     sprayer_width = field['Sprayer_width']
@@ -207,7 +215,7 @@ def make_pdf_circle_bays(ctx, field):
         bays_per_sprayer_width = field['Female_bays_per_width']
 
         # Draw male bays
-        ctx.set_source_rgb(0,0,0.9)
+        pdf_writer.set_draw_color(0,0,230)
         rows = range(-int(radius / sprayer_width * bays_per_sprayer_width ) - 1,int(radius / sprayer_width * bays_per_sprayer_width) + 1)
         for r in rows:
             east = r * sprayer_width / bays_per_sprayer_width + sprayer_width / bays_per_sprayer_width / 2
@@ -262,16 +270,13 @@ def make_pdf_circle_bays(ctx, field):
             elif north2 > northlimit: north2 = northlimit
             """
 
-            ctx.move_to(east1 * scale + width/2, -north1 * scale + height/2)
-            ctx.line_to(east2 * scale + width/2, -north2 * scale + height/2)
-            ctx.stroke()
+            pdf_writer.line(east1 * scale + width/2, -north1 * scale + height/2,
+                            east2 * scale + width/2, -north2 * scale + height/2)
         
-    ctx.select_font_face("Arial", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
-    ctx.set_font_size(24)
-
-    ctx.move_to(72,72)
-    ctx.set_source_rgb(0,0,0)
-    ctx.show_text(field['Name'])
+    pdf_writer.set_draw_color(0,0,0)
+    pdf_writer.set_font("Arial")
+    pdf_writer.set_font_size(24)
+    pdf_writer.text(72,72,field['Name'])
 
 
 def make_tents(myzip, trimble_path, field_name, pivotpoint, radius, width, lat_shift, angle, pie_slice = None, **kwargs):
@@ -402,9 +407,9 @@ def make_tents(myzip, trimble_path, field_name, pivotpoint, radius, width, lat_s
                     continue
 
                 if pdf:
-                    pdf.set_source_rgb(1,0,0)
-                    pdf.arc(east * scale + pdf_width/2 , -north * scale + pdf_height/2, 2,0,2*math.pi)
-                    pdf.fill()
+                    pdf.set_draw_color(255,0,0)
+                    pdf.set_fill_color(255,0,0)
+                    pdf.ellipse(east * scale + pdf_width/2-2 , -north * scale + pdf_height/2-2, 4,4,'DF')
 
                 lon, lat = utmish.to_lonlat(east + easting, north + northing, pivotpoint[0])
                 kml.newpoint (name="tent %d" % (tent_id), coords = [ (lon, lat) ])
@@ -667,13 +672,15 @@ if __name__== "__main__":
         pdfpath = dirpath
     if not os.path.exists(pdfpath):
         os.makedirs(pdfpath)
-    surface = cairo.PDFSurface (os.path.join(pdfpath, "tntfields.pdf"), width, height)
+        
+    pdfwriter = BeePDF('P','pt','Letter')
+    #surface = cairo.PDFSurface (os.path.join(pdfpath, "tntfields.pdf"), width, height)
 
     with writer:
         for field in fields:
             print ("Processing: %s (%f, %f)" % (field['Name'], field['PP_Longitude'], field['PP_Latitude']))
-            ctx = cairo.Context (surface)
-            make_pdf_circle_bays(ctx, field)
+            pdfwriter.add_page()
+            make_pdf_circle_bays(pdfwriter, field)
 
             make_files(writer, os.path.join(dirpath, "AgGPS/Data/TNTBees/BeeTents/%s" % field['Name']), 
                                field['Name'], 
@@ -691,12 +698,14 @@ if __name__== "__main__":
                               westlimit=field['West_limit'],
                               exp_rows = field['Experimental'],
                               exp_rows_start_odd = field['Experimental_start_odd'],
-                              pdf=ctx) 
+                              pdf=pdfwriter
+                              ) 
 
             make_line(writer, os.path.join(dirpath, "AgGPS/Data/TNTBees/BeeTents/%s" % field['Name']), 
                              (field['PP_Longitude'], field['PP_Latitude']), 
                              field['Lateral_offset'], field['Seed_angle'])
 
-            ctx.show_page()
-
-
+        if not args.zip:
+            pdfwriter.output(os.path.join(dirpath,'TNTFields.pdf'),'F')
+        else:
+            writer.writestr(os.path.join(dirpath,'TNTFields.pdf'),pdfwriter.output(dest='S'))
