@@ -4,3 +4,6 @@
 [submodule "pyshp"]
 	path = pyshp
 	url = https://github.com/GeospatialPython/pyshp
+[submodule "pyfpdf"]
+	path = pyfpdf
+	url = https://github.com/reingart/pyfpdf
