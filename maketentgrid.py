@@ -606,7 +606,7 @@ if __name__== "__main__":
                 row['Lateral_offset'] = 0
 
             if row['Female_bays_per_width'] != '':
-                row['Female_bays_per_width'] = int(row['Female_bays_per_width'])
+                row['Female_bays_per_width'] = float(row['Female_bays_per_width'])
 
                 if not row['Lateral_offset']:
                     # calculate it based on the width of the bays. This figures
