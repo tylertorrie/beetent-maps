@@ -485,13 +485,16 @@ def make_line(myzip, field_path, pivotpoint, lat_offset, angle):
     myzip.writestr('%s/Swaths.shp' % field_path, shp.getvalue())
     myzip.writestr('%s/Swaths.shx' % field_path, shx.getvalue())
 
-def calculate_spacing(radius, width, num_tents = None):
+def calculate_spacing(radius, width, factor=1, num_tents = None):
     """
         Calculate total length of all the passes from pivot
         point outward, every "width" meters (sprayer passes).
         Divide that by the number of acres in the circle to 
         calculate the distance between tents as a factor of
         the sprayer width.
+
+        factor allows tweaking the spacing, either increasing it, or
+        decreasing it
     """
     c = 0
     total = 0
@@ -501,9 +504,9 @@ def calculate_spacing(radius, width, num_tents = None):
 
     total = total * 4 - radius*2
     if num_tents:
-        return total / num_tents
+        return total / num_tents * factor
     else:
-        return total / (math.pi * radius * radius / 4046.87 + 1)
+        return total / (math.pi * radius * radius / 4046.87 + 1) * factor
 
 if __name__== "__main__":
 
@@ -569,67 +572,74 @@ if __name__== "__main__":
         for row in reader:
             # perform some type conversions, and validate some fields
             # and calculate convenience entries
-            row['PP_Longitude'] = float(row['PP_Longitude'])
-            row['PP_Latitude'] = float(row['PP_Latitude'])
-            row['Radius'] = float(row['Radius'])
-            row['Seed_angle'] = float(row['Seed_angle'])
-            row['Sprayer_width'] = float(row['Sprayer_width']) * 0.3048 #metres/ft
-            if row['Pie_start'] != '' and row['Pie_end'] != '':
-                row['pie_slice'] = (int(row['Pie_start']),
-                                    int(row['Pie_end']))
-            else:
-                row['pie_slice'] = None
+            try:
+                row['PP_Longitude'] = float(row['PP_Longitude'])
+                row['PP_Latitude'] = float(row['PP_Latitude'])
+                row['Radius'] = float(row['Radius'])
+                if row['Seed_angle'] == '':
+                    print ("Warning! No seed angle supplied for %s. Assuming 0 degrees." % row['Name'])
+                    row['Seed_angle'] = 0
+                else:
+                    row['Seed_angle'] = float(row['Seed_angle'])
+                row['Sprayer_width'] = float(row['Sprayer_width']) * 0.3048 #metres/ft
+                if row['Pie_start'] != '' and row['Pie_end'] != '':
+                    row['pie_slice'] = (int(row['Pie_start']),
+                                        int(row['Pie_end']))
+                else:
+                    row['pie_slice'] = None
 
-            if row['North_limit'] != '':
-                row['North_limit'] = int(row['North_limit'])
-            else:
-                row['North_limit'] = row['Radius']
+                if row['North_limit'] != '':
+                    row['North_limit'] = int(row['North_limit'])
+                else:
+                    row['North_limit'] = row['Radius']
 
-            if row['East_limit'] != '':
-                row['East_limit'] = int(row['East_limit'])
-            else:
-                row['East_limit'] = row['Radius']
+                if row['East_limit'] != '':
+                    row['East_limit'] = int(row['East_limit'])
+                else:
+                    row['East_limit'] = row['Radius']
 
-            if row['South_limit'] != '':
-                row['South_limit'] = int(row['South_limit'])
-            else:
-                row['South_limit'] = row['Radius']
+                if row['South_limit'] != '':
+                    row['South_limit'] = int(row['South_limit'])
+                else:
+                    row['South_limit'] = row['Radius']
 
-            if row['West_limit'] != '':
-                row['West_limit'] = int(row['West_limit'])
-            else:
-                row['West_limit'] = row['Radius']
+                if row['West_limit'] != '':
+                    row['West_limit'] = int(row['West_limit'])
+                else:
+                    row['West_limit'] = row['Radius']
 
-            if row['Lateral_offset'] != '':
-                row['Lateral_offset'] = float(row['Lateral_offset']) * 0.3048 #metres/ft
-            else:
-                row['Lateral_offset'] = 0
+                if row['Lateral_offset'] != '':
+                    row['Lateral_offset'] = float(row['Lateral_offset']) * 0.3048 #metres/ft
+                else:
+                    row['Lateral_offset'] = 0
 
-            if row['Female_bays_per_width'] != '':
-                row['Female_bays_per_width'] = float(row['Female_bays_per_width'])
+                if row['Female_bays_per_width'] != '':
+                    row['Female_bays_per_width'] = float(row['Female_bays_per_width'])
 
-                if not row['Lateral_offset']:
-                    # calculate it based on the width of the bays. This figures
-                    # out where the tent is placed, just to the right-hand side
-                    # of the male bay
-                    row['Lateral_offset'] = row['Sprayer_width'] / float(row['Female_bays_per_width']) / 2 * 0.75
-            else:
-                row['Female_bays_per_width'] = None
+                    if not row['Lateral_offset']:
+                        # calculate it based on the width of the bays. This figures
+                        # out where the tent is placed, just to the right-hand side
+                        # of the male bay
+                        row['Lateral_offset'] = row['Sprayer_width'] / float(row['Female_bays_per_width']) / 2 * 0.75
+                else:
+                    row['Female_bays_per_width'] = None
 
-            if row['Experimental'] != '':
-                exp_rows = row['Experimental'].split(',')
-                exp_rows = [int(x) for x in exp_rows]
-                row['Experimental'] = exp_rows
-            else:
-                row['Experimental'] = None
+                if row['Experimental'] != '':
+                    exp_rows = row['Experimental'].split(',')
+                    exp_rows = [int(x) for x in exp_rows]
+                    row['Experimental'] = exp_rows
+                else:
+                    row['Experimental'] = None
 
-            if row['Experimental_start_odd'] != '':
-                row['Experimental_start_odd'] = True
-            else:
-                row['Experimental_start_odd'] = False
+                if row['Experimental_start_odd'] != '':
+                    row['Experimental_start_odd'] = True
+                else:
+                    row['Experimental_start_odd'] = False
 
 
-            fields.append(row)
+                fields.append(row)
+            except ValueError:
+                print ("Warning! %s has incomplete information. It will not be processed." % row['Name'])
 
 
     #for item in field_data:
@@ -659,7 +669,9 @@ if __name__== "__main__":
         if args.timestamp:
             dirpath = dirpath+"-"+datetime.date.today().isoformat()
 
+        print ()
         print ("Writing output to folder %s." % dirpath)
+        print ()
         writer = FileWriter()
 
 
@@ -709,3 +721,7 @@ if __name__== "__main__":
             pdfwriter.output(os.path.join(dirpath,'TNTFields.pdf'),'F')
         else:
             writer.writestr(os.path.join(dirpath,'TNTFields.pdf'),pdfwriter.output(dest='S'))
+
+    print ("Press enter to close this window.")
+
+    input()
