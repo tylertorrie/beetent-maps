@@ -204,7 +204,8 @@ def make_pdf_circle_bays(pdf_writer, field):
     radius = field['Radius']
     radius_sqr = radius * radius
     sprayer_width = field['Sprayer_width']
-    spacing = calculate_spacing(radius, sprayer_width)
+
+    spacing = calculate_spacing(radius, sprayer_width, num_tents = field['# of Structures'])
     rotate = 0 - field['Seed_angle']
     rotate = (rotate + 180) % 360 - 180
     pie_slice = field['pie_slice']
@@ -308,7 +309,10 @@ def make_tents(myzip, trimble_path, field_name, pivotpoint, radius, width, lat_s
     # create starting point for grid
     easting, northing = utmish.from_lonlat(pivotpoint[0], pivotpoint[1], pivotpoint[0])
     radius_sqr = radius * radius
-    spacing = calculate_spacing(radius, width)
+
+    num_tents=kwargs.get('num_tents', None)
+
+    spacing = calculate_spacing(radius, width, num_tents = num_tents)
 
     rotate = 0 - angle
     rotate = (rotate + 180) % 360 - 180
@@ -506,6 +510,7 @@ def calculate_spacing(radius, width, factor=1, num_tents = None):
     if num_tents:
         return total / num_tents * factor
     else:
+        # otherwise 1 per acre
         return total / (math.pi * radius * radius / 4046.87 + 1) * factor
 
 if __name__== "__main__":
@@ -636,6 +641,26 @@ if __name__== "__main__":
                 else:
                     row['Experimental_start_odd'] = False
 
+                if row['# of Structures'] != '':
+                    row['# of Structures'] = int(row['# of Structures'])
+
+                    if row['pie_slice']:
+                        # if we have a pie slice, extrapolate how many
+                        # tents would cover the entire circle
+
+                        start = row['pie_slice'][0]
+                        end = row['pie_slice'][1]
+
+                        if start > end:
+                            arc_length = (360 - start) + end
+                        else:
+                            arc_length = end - start
+
+                        row['# of Structures'] /= arc_length/360
+
+                else:
+                    row['# of Structures'] = None
+
 
                 fields.append(row)
             except ValueError:
@@ -698,6 +723,7 @@ if __name__== "__main__":
                                field['Name'], 
                                (float(field['PP_Longitude']), float(field['PP_Latitude'])))
 
+            #print (field['# of Structures'])
             make_tents(writer, dirpath, 
                               field['Name'],
                               pivotpoint=(field['PP_Longitude'], field['PP_Latitude']), 
@@ -710,7 +736,8 @@ if __name__== "__main__":
                               westlimit=field['West_limit'],
                               exp_rows = field['Experimental'],
                               exp_rows_start_odd = field['Experimental_start_odd'],
-                              pdf=pdfwriter
+                              pdf=pdfwriter,
+                              num_tents = field['# of Structures'],
                               ) 
 
             make_line(writer, os.path.join(dirpath, "AgGPS/Data/TNTBees/BeeTents/%s" % field['Name']), 
