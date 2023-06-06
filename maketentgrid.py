@@ -6,6 +6,7 @@ import simplekml
 import shapefile
 import math
 import sys
+import traceback
 import zipfile
 import datetime
 import csv
@@ -205,7 +206,17 @@ def make_pdf_circle_bays(pdf_writer, field):
     radius_sqr = radius * radius
     sprayer_width = field['Sprayer_width']
 
-    spacing = calculate_spacing(radius, sprayer_width, num_tents = field['# of Structures'])
+    if field['spacing'] is not None:
+        spacing = field['spacing']  #float(field['spacing']) * 0.3048
+    else:
+        spacing = calculate_spacing(radius, sprayer_width, num_tents = field['# of Structures'])
+
+    directional_offset = field['directional_offset']
+    if directional_offset:
+        directional_offset = float(directional_offset) * 0.3048
+    else:
+        directional_offset = 0
+
     rotate = 0 - field['Seed_angle']
     rotate = (rotate + 180) % 360 - 180
     pie_slice = field['pie_slice']
@@ -312,7 +323,10 @@ def make_tents(myzip, trimble_path, field_name, pivotpoint, radius, width, lat_s
 
     num_tents=kwargs.get('num_tents', None)
 
-    spacing = calculate_spacing(radius, width, num_tents = num_tents)
+    if field['spacing'] is not None:
+        spacing = field['spacing']  #float(field['spacing']) * 0.3048
+    else:
+        spacing = calculate_spacing(radius, width, num_tents = num_tents)
 
     rotate = 0 - angle
     rotate = (rotate + 180) % 360 - 180
@@ -359,7 +373,13 @@ def make_tents(myzip, trimble_path, field_name, pivotpoint, radius, width, lat_s
         odd = kwargs.get('exp_rows_start_odd',True)
     else:
         rows = range(-int(radius / width),int(radius / width) + 1)
-        
+
+    directional_offset = field['directional_offset']
+    if directional_offset:
+        directional_offset = float(directional_offset) * 0.3048
+    else:
+        directional_offset = 0
+
     for r in rows:
         if not exp_rows:
             odd = r % 2
@@ -369,10 +389,10 @@ def make_tents(myzip, trimble_path, field_name, pivotpoint, radius, width, lat_s
 
             if odd: #odd, shift by half spacing
                 east = r*width + lat_shift
-                north = c*spacing+spacing/2
+                north = c*spacing+ spacing/2 + directional_offset
             else: #even, don't shift
                 east = r*width + lat_shift
-                north = c*spacing
+                north = c*spacing + directional_offset
 
             east1 = east * math.cos(math.radians(rotate)) - north * math.sin(math.radians(rotate))
             north1 = north * math.cos(math.radians(rotate)) + east * math.sin(math.radians(rotate))
@@ -580,7 +600,7 @@ if __name__== "__main__":
             try:
                 row['PP_Longitude'] = float(row['PP_Longitude'])
                 row['PP_Latitude'] = float(row['PP_Latitude'])
-                row['Radius'] = float(row['Radius'])
+                row['Radius'] = float(row['Radius']) * 0.3048
                 if row['Seed_angle'] == '':
                     print ("Warning! No seed angle supplied for %s. Assuming 0 degrees." % row['Name'])
                     row['Seed_angle'] = 0
@@ -594,22 +614,22 @@ if __name__== "__main__":
                     row['pie_slice'] = None
 
                 if row['North_limit'] != '':
-                    row['North_limit'] = int(row['North_limit'])
+                    row['North_limit'] = float(row['North_limit']) * 0.3048
                 else:
                     row['North_limit'] = row['Radius']
 
                 if row['East_limit'] != '':
-                    row['East_limit'] = int(row['East_limit'])
+                    row['East_limit'] = float(row['East_limit']) * 0.3048
                 else:
                     row['East_limit'] = row['Radius']
 
                 if row['South_limit'] != '':
-                    row['South_limit'] = int(row['South_limit'])
+                    row['South_limit'] = float(row['South_limit']) * 0.3048
                 else:
                     row['South_limit'] = row['Radius']
 
                 if row['West_limit'] != '':
-                    row['West_limit'] = int(row['West_limit'])
+                    row['West_limit'] = float(row['West_limit']) * 0.3048
                 else:
                     row['West_limit'] = row['Radius']
 
@@ -661,10 +681,23 @@ if __name__== "__main__":
                 else:
                     row['# of Structures'] = None
 
+                if not 'spacing' in row:
+                    row['spacing'] = None
+                else:
+                    if not row['spacing']:
+                        row['spacing'] = None
+                    else:
+                        row['spacing'] = float(row['spacing']) * 0.3048 #ft to metres
+
+                if not 'directional_offset' in row:
+                    row['directional_offset'] = None
 
                 fields.append(row)
-            except ValueError:
+            except ValueError as e:
                 print ("Warning! %s has incomplete information. It will not be processed." % row['Name'])
+                print (e)
+                traceback.print_exc()
+
 
 
     #for item in field_data:
