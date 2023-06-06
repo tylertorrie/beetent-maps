@@ -15,6 +15,10 @@ import fpdf
 from io import BytesIO
 from io import StringIO
 
+from contextlib import redirect_stdout
+
+
+
 class FileWriter(object):
     """ implements a simple class that allows us to write to files in a
         directory using the same call as zipfile, so we can switch between
@@ -323,8 +327,8 @@ def make_tents(myzip, trimble_path, field_name, pivotpoint, radius, width, lat_s
 
     num_tents=kwargs.get('num_tents', None)
 
-    if field['spacing'] is not None:
-        spacing = field['spacing']  #float(field['spacing']) * 0.3048
+    if kwargs['spacing'] is not None:
+        spacing = kwargs['spacing']  #float(field['spacing']) * 0.3048
     else:
         spacing = calculate_spacing(radius, width, num_tents = num_tents)
 
@@ -374,7 +378,7 @@ def make_tents(myzip, trimble_path, field_name, pivotpoint, radius, width, lat_s
     else:
         rows = range(-int(radius / width),int(radius / width) + 1)
 
-    directional_offset = field['directional_offset']
+    directional_offset = kwargs['directional_offset']
     if directional_offset:
         directional_offset = float(directional_offset) * 0.3048
     else:
@@ -533,6 +537,206 @@ def calculate_spacing(radius, width, factor=1, num_tents = None):
         # otherwise 1 per acre
         return total / (math.pi * radius * radius / 4046.87 + 1) * factor
 
+def process_csvfile(csv_file, path = None, use_zip = None, timestamp = None):
+
+    output = StringIO()
+
+    with redirect_stdout(output):
+        fields = []
+        with open(csv_file, 'r') as csvfile:
+            reader = csv.DictReader(csvfile)
+            for row in reader:
+                # perform some type conversions, and validate some fields
+                # and calculate convenience entries
+                try:
+                    row['PP_Longitude'] = float(row['PP_Longitude'])
+                    row['PP_Latitude'] = float(row['PP_Latitude'])
+                    row['Radius'] = float(row['Radius']) * 0.3048
+                    if row['Seed_angle'] == '':
+                        print ("Warning! No seed angle supplied for %s. Assuming 0 degrees." % row['Name'])
+                        row['Seed_angle'] = 0
+                    else:
+                        row['Seed_angle'] = float(row['Seed_angle'])
+                    row['Sprayer_width'] = float(row['Sprayer_width']) * 0.3048 #metres/ft
+                    if row['Pie_start'] != '' and row['Pie_end'] != '':
+                        row['pie_slice'] = (int(row['Pie_start']),
+                                            int(row['Pie_end']))
+                    else:
+                        row['pie_slice'] = None
+
+                    if row['North_limit'] != '':
+                        row['North_limit'] = float(row['North_limit']) * 0.3048
+                    else:
+                        row['North_limit'] = row['Radius']
+
+                    if row['East_limit'] != '':
+                        row['East_limit'] = float(row['East_limit']) * 0.3048
+                    else:
+                        row['East_limit'] = row['Radius']
+
+                    if row['South_limit'] != '':
+                        row['South_limit'] = float(row['South_limit']) * 0.3048
+                    else:
+                        row['South_limit'] = row['Radius']
+
+                    if row['West_limit'] != '':
+                        row['West_limit'] = float(row['West_limit']) * 0.3048
+                    else:
+                        row['West_limit'] = row['Radius']
+
+                    if row['Lateral_offset'] != '':
+                        row['Lateral_offset'] = float(row['Lateral_offset']) * 0.3048 #metres/ft
+                    else:
+                        row['Lateral_offset'] = 0
+
+                    if row['Female_bays_per_width'] != '':
+                        row['Female_bays_per_width'] = float(row['Female_bays_per_width'])
+
+                        if not row['Lateral_offset']:
+                            # calculate it based on the width of the bays. This figures
+                            # out where the tent is placed, just to the right-hand side
+                            # of the male bay
+                            row['Lateral_offset'] = row['Sprayer_width'] / float(row['Female_bays_per_width']) / 2 * 0.75
+                    else:
+                        row['Female_bays_per_width'] = None
+
+                    if row['Experimental'] != '':
+                        exp_rows = row['Experimental'].split(',')
+                        exp_rows = [int(x) for x in exp_rows]
+                        row['Experimental'] = exp_rows
+                    else:
+                        row['Experimental'] = None
+
+                    if row['Experimental_start_odd'] != '':
+                        row['Experimental_start_odd'] = True
+                    else:
+                        row['Experimental_start_odd'] = False
+
+                    if row['# of Structures'] != '':
+                        row['# of Structures'] = int(row['# of Structures'])
+
+                        if row['pie_slice']:
+                            # if we have a pie slice, extrapolate how many
+                            # tents would cover the entire circle
+
+                            start = row['pie_slice'][0]
+                            end = row['pie_slice'][1]
+
+                            if start > end:
+                                arc_length = (360 - start) + end
+                            else:
+                                arc_length = end - start
+
+                            row['# of Structures'] /= arc_length/360
+
+                    else:
+                        row['# of Structures'] = None
+
+                    if not 'spacing' in row:
+                        row['spacing'] = None
+                    else:
+                        if not row['spacing']:
+                            row['spacing'] = None
+                        else:
+                            row['spacing'] = float(row['spacing']) * 0.3048 #ft to metres
+
+                    if not 'directional_offset' in row:
+                        row['directional_offset'] = None
+
+                    fields.append(row)
+                except ValueError as e:
+                    print ("Warning! %s has incomplete information. It will not be processed." % row['Name'])
+                    print (traceback.format_exc())
+
+
+
+        #for item in field_data:
+        #    fields.append(dict(zip(data_items, item)))
+
+        #zipfilename = '/tmp/beetents ' + datetime.date.today().isoformat() + ".zip"
+
+        if not path:
+            if not use_zip:
+                # not using zip, place files in the same directory as the CSV file
+                dirpath = os.path.join(os.path.dirname(os.path.abspath(csv_file)), "TNT")
+            else:
+                dirpath = "TNT"
+        else:
+            dirpath = path
+            
+
+        if use_zip:
+            zipfilename = use_zip
+            if timestamp:
+                zipname_parts = os.path.splitext(zipfilename)
+                zipfilename = "%s-%s%s" % (zipname_parts[0],datetime.date.today().isoformat(), zipname_parts[1])
+                
+            print ("Writing output to %s." % zipfilename)
+            writer = zipfile.ZipFile(zipfilename, mode='w')
+        else:
+            if timestamp:
+                dirpath = dirpath+"-"+datetime.date.today().isoformat()
+
+            print ()
+            print ("Writing output to folder %s." % dirpath)
+            print ()
+            writer = FileWriter()
+
+
+        width, height = 612,792 #72 dpi
+
+        # TODO place this is the zip file
+        if args.zip:
+            pdfpath = os.path.dirname(os.path.abspath(use_zip))
+        else:
+            pdfpath = dirpath
+        if not os.path.exists(pdfpath):
+            os.makedirs(pdfpath)
+            
+        pdfwriter = BeePDF('P','pt','Letter')
+        #surface = cairo.PDFSurface (os.path.join(pdfpath, "tntfields.pdf"), width, height)
+
+        with writer:
+            for field in fields:
+                print ("Processing: %s (%f, %f)" % (field['Name'], field['PP_Longitude'], field['PP_Latitude']))
+                pdfwriter.add_page()
+                make_pdf_circle_bays(pdfwriter, field)
+
+                make_files(writer, os.path.join(dirpath, "AgGPS/Data/TNTBees/BeeTents/%s" % field['Name']), 
+                                   field['Name'], 
+                                   (float(field['PP_Longitude']), float(field['PP_Latitude'])))
+
+                #print (field['# of Structures'])
+                make_tents(writer, dirpath, 
+                                  field['Name'],
+                                  pivotpoint=(field['PP_Longitude'], field['PP_Latitude']), 
+                                  radius=field['Radius'], width=field['Sprayer_width'],  
+                                  lat_shift=field['Lateral_offset'], angle=field['Seed_angle'], 
+                                  pie_slice=field['pie_slice'],
+                                  northlimit=field['North_limit'],
+                                  eastlimit=field['East_limit'],
+                                  southlimit=field['South_limit'],
+                                  westlimit=field['West_limit'],
+                                  exp_rows = field['Experimental'],
+                                  exp_rows_start_odd = field['Experimental_start_odd'],
+                                  pdf=pdfwriter,
+                                  num_tents = field['# of Structures'],
+                                  spacing = field['spacing'],
+                                  directional_offset = field['directional_offset'],
+
+                                  ) 
+
+                make_line(writer, os.path.join(dirpath, "AgGPS/Data/TNTBees/BeeTents/%s" % field['Name']), 
+                                 (field['PP_Longitude'], field['PP_Latitude']), 
+                                 field['Lateral_offset'], field['Seed_angle'])
+
+            if not use_zip:
+                pdfwriter.output(os.path.join(dirpath,'TNTFields.pdf'),'F')
+            else:
+                writer.writestr(os.path.join(dirpath,'TNTFields.pdf'),pdfwriter.output(dest='S'))
+
+    return output
+
 if __name__== "__main__":
 
     """
@@ -580,208 +784,139 @@ if __name__== "__main__":
             ]
     """
     
+    try:
+        import tkinter as tk
+        import tkinter.font as tkFont
+        import tkinter.filedialog
+
+        use_tk = True
+    except ModuleNotFoundError:
+        use_tk = False
+
+    if use_tk:
+        class BeeTentGui:
+            def __init__(self, root):
+                #setting title
+                root.title("Bee Tent Maps")
+                #setting window size
+
+                #frame = tk.Frame(root)
+                #frame.pack(fill = tk.BOTH, expand = 1,pad = 5)
+
+                frame = tk.Frame(root)
+                frame.pack(fill=tk.X)
+
+                GLabel_429=tk.Label(frame)
+                ft = tkFont.Font(size=12)
+                GLabel_429["font"] = ft
+                GLabel_429["fg"] = "#000000"
+                GLabel_429["justify"] = "center"
+                GLabel_429["text"] = "Input file"
+                GLabel_429.pack(side = tk.LEFT)
+
+                self.fileinput=tk.Entry(frame)
+                self.fileinput["borderwidth"] = "1px"
+                ft = tkFont.Font(size=12)
+                self.fileinput["font"] = ft
+                self.fileinput["fg"] = "#000000"
+                self.fileinput["bg"] = "#ffffff"
+                self.fileinput["justify"] = "left"
+                self.fileinput["text"] = "Entry"
+                self.fileinput.pack(fill = tk.X, expand=True, side = tk.LEFT)
+
+                choosefile=tk.Button(frame)
+                choosefile["bg"] = "#e9e9ed"
+                ft = tkFont.Font(size=12)
+                choosefile["font"] = ft
+                choosefile["fg"] = "#000000"
+                choosefile["justify"] = "center"
+                choosefile["text"] = "..."
+                choosefile.pack(side = tk.RIGHT)
+                choosefile["command"] = self.choosefile_command
+
+                processbutton=tk.Button(root)
+                processbutton["bg"] = "#e9e9ed"
+                ft = tkFont.Font(size=12)
+                processbutton["font"] = ft
+                processbutton["fg"] = "#000000"
+                processbutton["justify"] = "center"
+                processbutton["text"] = "Process"
+                processbutton.pack()
+                processbutton["command"] = self.process_command
+
+                tf = tk.Frame(root)
+                tf.pack(fill=tk.BOTH, expand = 1)
+
+                self.outputtext=tk.Text(tf)
+                self.outputtext["borderwidth"] = "2px"
+                ft = tkFont.Font(size=10)
+                self.outputtext["font"] = ft
+                self.outputtext["fg"] = "#000000"
+                self.outputtext["bg"] = "#ffffff"
+                self.outputtext.pack(side = tk.LEFT, fill=tk.BOTH, expand=1)
+                self.outputtext.config(state = tk.DISABLED)
+
+                scrollbar = tk.Scrollbar(tf)
+                scrollbar.pack(side = tk.RIGHT, fill=tk.Y)
+                scrollbar.config(command = self.outputtext.yview)
+
+                self.outputtext.config(yscrollcommand = scrollbar.set)
+
+
+            def choosefile_command(self):
+                file = tk.filedialog.askopenfilename()
+                self.fileinput.delete(0,tk.END)
+                self.fileinput.insert(0,file)
+
+            def process_command(self):
+                filename = self.fileinput.get()
+
+                output = process_csvfile(filename, None, None, None).getvalue()
+
+                self.outputtext.config(state = tk.NORMAL)
+                self.outputtext.delete("1.0",tk.END)
+                self.outputtext.insert("end", output)
+                self.outputtext.config(state = tk.DISABLED)
+
+        root = tk.Tk()
+        beetentgui = BeeTentGui(root)
+
     import argparse
 
     parser = argparse.ArgumentParser()
     parser.add_argument('-z','--zip', type=str, help="create a zip file containing all generated files. Default is to write them to a directory.")
     parser.add_argument('-p','--path', type=str, help="write file tree relative to this path. If you specified a zip file, this path will must be relative and will be inside the zip file. If not specified, will write to a folder called TNT in the same folder as the csv file.")
     parser.add_argument('-t', '--timestamp', help="Add timestamp to zip filename or if not using zip, to the path specified.", action="store_true")
-    parser.add_argument('csv_file', type=str, help="CSV file to read field information from.")
+    parser.add_argument('csv_file', type=str, nargs = "?", help="CSV file to read field information from. If provided, will process automatically, otherwise can pick from the graphical user interface.")
 
     args = parser.parse_args()
 
+    if args.csv_file:
+        csv_filename = args.csv_file
+        # place in GUI
+        if use_tk:
+            beetentgui.fileinput.delete(0,tk.END)
+            beetentgui.fileinput.insert(0,csv_filename)
 
-    fields = []
-    with open(args.csv_file, 'r') as csvfile:
-        reader = csv.DictReader(csvfile)
-        for row in reader:
-            # perform some type conversions, and validate some fields
-            # and calculate convenience entries
-            try:
-                row['PP_Longitude'] = float(row['PP_Longitude'])
-                row['PP_Latitude'] = float(row['PP_Latitude'])
-                row['Radius'] = float(row['Radius']) * 0.3048
-                if row['Seed_angle'] == '':
-                    print ("Warning! No seed angle supplied for %s. Assuming 0 degrees." % row['Name'])
-                    row['Seed_angle'] = 0
-                else:
-                    row['Seed_angle'] = float(row['Seed_angle'])
-                row['Sprayer_width'] = float(row['Sprayer_width']) * 0.3048 #metres/ft
-                if row['Pie_start'] != '' and row['Pie_end'] != '':
-                    row['pie_slice'] = (int(row['Pie_start']),
-                                        int(row['Pie_end']))
-                else:
-                    row['pie_slice'] = None
-
-                if row['North_limit'] != '':
-                    row['North_limit'] = float(row['North_limit']) * 0.3048
-                else:
-                    row['North_limit'] = row['Radius']
-
-                if row['East_limit'] != '':
-                    row['East_limit'] = float(row['East_limit']) * 0.3048
-                else:
-                    row['East_limit'] = row['Radius']
-
-                if row['South_limit'] != '':
-                    row['South_limit'] = float(row['South_limit']) * 0.3048
-                else:
-                    row['South_limit'] = row['Radius']
-
-                if row['West_limit'] != '':
-                    row['West_limit'] = float(row['West_limit']) * 0.3048
-                else:
-                    row['West_limit'] = row['Radius']
-
-                if row['Lateral_offset'] != '':
-                    row['Lateral_offset'] = float(row['Lateral_offset']) * 0.3048 #metres/ft
-                else:
-                    row['Lateral_offset'] = 0
-
-                if row['Female_bays_per_width'] != '':
-                    row['Female_bays_per_width'] = float(row['Female_bays_per_width'])
-
-                    if not row['Lateral_offset']:
-                        # calculate it based on the width of the bays. This figures
-                        # out where the tent is placed, just to the right-hand side
-                        # of the male bay
-                        row['Lateral_offset'] = row['Sprayer_width'] / float(row['Female_bays_per_width']) / 2 * 0.75
-                else:
-                    row['Female_bays_per_width'] = None
-
-                if row['Experimental'] != '':
-                    exp_rows = row['Experimental'].split(',')
-                    exp_rows = [int(x) for x in exp_rows]
-                    row['Experimental'] = exp_rows
-                else:
-                    row['Experimental'] = None
-
-                if row['Experimental_start_odd'] != '':
-                    row['Experimental_start_odd'] = True
-                else:
-                    row['Experimental_start_odd'] = False
-
-                if row['# of Structures'] != '':
-                    row['# of Structures'] = int(row['# of Structures'])
-
-                    if row['pie_slice']:
-                        # if we have a pie slice, extrapolate how many
-                        # tents would cover the entire circle
-
-                        start = row['pie_slice'][0]
-                        end = row['pie_slice'][1]
-
-                        if start > end:
-                            arc_length = (360 - start) + end
-                        else:
-                            arc_length = end - start
-
-                        row['# of Structures'] /= arc_length/360
-
-                else:
-                    row['# of Structures'] = None
-
-                if not 'spacing' in row:
-                    row['spacing'] = None
-                else:
-                    if not row['spacing']:
-                        row['spacing'] = None
-                    else:
-                        row['spacing'] = float(row['spacing']) * 0.3048 #ft to metres
-
-                if not 'directional_offset' in row:
-                    row['directional_offset'] = None
-
-                fields.append(row)
-            except ValueError as e:
-                print ("Warning! %s has incomplete information. It will not be processed." % row['Name'])
-                print (e)
-                traceback.print_exc()
-
-
-
-    #for item in field_data:
-    #    fields.append(dict(zip(data_items, item)))
-
-    #zipfilename = '/tmp/beetents ' + datetime.date.today().isoformat() + ".zip"
-
-    if not args.path:
-        if not args.zip:
-            # not using zip, place files in the same directory as the CSV file
-            dirpath = os.path.join(os.path.dirname(os.path.abspath(args.csv_file)), "TNT")
-        else:
-            dirpath = "TNT"
-    else:
-        dirpath = args.path
-        
-
-    if args.zip:
-        zipfilename = args.zip
-        if args.timestamp:
-            zipname_parts = os.path.splitext(zipfilename)
-            zipfilename = "%s-%s%s" % (zipname_parts[0],datetime.date.today().isoformat(), zipname_parts[1])
+        #context mananger
             
-        print ("Writing output to %s." % zipfilename)
-        writer = zipfile.ZipFile(zipfilename, mode='w')
-    else:
-        if args.timestamp:
-            dirpath = dirpath+"-"+datetime.date.today().isoformat()
+        output = process_csvfile(csv_filename,args.path, args.zip, args.timestamp).getvalue()
 
-        print ()
-        print ("Writing output to folder %s." % dirpath)
-        print ()
-        writer = FileWriter()
-
-
-    width, height = 612,792 #72 dpi
-
-    # TODO place this is the zip file
-    if args.zip:
-        pdfpath = os.path.dirname(os.path.abspath(args.zip))
-    else:
-        pdfpath = dirpath
-    if not os.path.exists(pdfpath):
-        os.makedirs(pdfpath)
-        
-    pdfwriter = BeePDF('P','pt','Letter')
-    #surface = cairo.PDFSurface (os.path.join(pdfpath, "tntfields.pdf"), width, height)
-
-    with writer:
-        for field in fields:
-            print ("Processing: %s (%f, %f)" % (field['Name'], field['PP_Longitude'], field['PP_Latitude']))
-            pdfwriter.add_page()
-            make_pdf_circle_bays(pdfwriter, field)
-
-            make_files(writer, os.path.join(dirpath, "AgGPS/Data/TNTBees/BeeTents/%s" % field['Name']), 
-                               field['Name'], 
-                               (float(field['PP_Longitude']), float(field['PP_Latitude'])))
-
-            #print (field['# of Structures'])
-            make_tents(writer, dirpath, 
-                              field['Name'],
-                              pivotpoint=(field['PP_Longitude'], field['PP_Latitude']), 
-                              radius=field['Radius'], width=field['Sprayer_width'],  
-                              lat_shift=field['Lateral_offset'], angle=field['Seed_angle'], 
-                              pie_slice=field['pie_slice'],
-                              northlimit=field['North_limit'],
-                              eastlimit=field['East_limit'],
-                              southlimit=field['South_limit'],
-                              westlimit=field['West_limit'],
-                              exp_rows = field['Experimental'],
-                              exp_rows_start_odd = field['Experimental_start_odd'],
-                              pdf=pdfwriter,
-                              num_tents = field['# of Structures'],
-                              ) 
-
-            make_line(writer, os.path.join(dirpath, "AgGPS/Data/TNTBees/BeeTents/%s" % field['Name']), 
-                             (field['PP_Longitude'], field['PP_Latitude']), 
-                             field['Lateral_offset'], field['Seed_angle'])
-
-        if not args.zip:
-            pdfwriter.output(os.path.join(dirpath,'TNTFields.pdf'),'F')
+        if not use_tk:
+            print (output)
+            print ("Press enter to close this window.")
+            input()
+            sys.exit(0)
         else:
-            writer.writestr(os.path.join(dirpath,'TNTFields.pdf'),pdfwriter.output(dest='S'))
+            beetentgui.outputtext.config(state = tk.NORMAL)
+            beetentgui.outputtext.insert("end", output)
+            beetentgui.outputtext.config(state = tk.DISABLED)
 
-    print ("Press enter to close this window.")
+    else:
+        if not use_tk:
+            print ("No Tk GUI is available.  Please provide a csv_file argument.")
+            parser.print_help()
+            sys.exit(1)
 
-    input()
+    if use_tk:
+        root.mainloop()
