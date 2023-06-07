@@ -292,7 +292,7 @@ def make_pdf_circle_bays(pdf_writer, field):
     pdf_writer.set_draw_color(0,0,0)
     pdf_writer.set_font("Arial")
     pdf_writer.set_font_size(24)
-    pdf_writer.text(72,72,field['Name'])
+    pdf_writer.text(72,72,field['Name'].strip())
 
 
 def make_tents(myzip, trimble_path, field_name, pivotpoint, radius, width, lat_shift, angle, pie_slice = None, **kwargs):
@@ -698,17 +698,17 @@ def process_csvfile(csv_file, path = None, use_zip = None, timestamp = None):
 
         with writer:
             for field in fields:
-                print ("Processing: %s (%f, %f)" % (field['Name'], field['PP_Longitude'], field['PP_Latitude']))
+                print ("Processing: %s (%f, %f)" % (field['Name'].strip(), field['PP_Longitude'], field['PP_Latitude']))
                 pdfwriter.add_page()
                 make_pdf_circle_bays(pdfwriter, field)
 
-                make_files(writer, os.path.join(dirpath, "AgGPS/Data/TNTBees/BeeTents/%s" % field['Name']), 
-                                   field['Name'], 
+                make_files(writer, os.path.join(dirpath, "AgGPS/Data/TNTBees/BeeTents/%s" % field['Name'].strip()), 
+                                   field['Name'].strip(), 
                                    (float(field['PP_Longitude']), float(field['PP_Latitude'])))
 
                 #print (field['# of Structures'])
                 make_tents(writer, dirpath, 
-                                  field['Name'],
+                                  field['Name'].strip(),
                                   pivotpoint=(field['PP_Longitude'], field['PP_Latitude']), 
                                   radius=field['Radius'], width=field['Sprayer_width'],  
                                   lat_shift=field['Lateral_offset'], angle=field['Seed_angle'], 
@@ -726,7 +726,7 @@ def process_csvfile(csv_file, path = None, use_zip = None, timestamp = None):
 
                                   ) 
 
-                make_line(writer, os.path.join(dirpath, "AgGPS/Data/TNTBees/BeeTents/%s" % field['Name']), 
+                make_line(writer, os.path.join(dirpath, "AgGPS/Data/TNTBees/BeeTents/%s" % field['Name'].strip()), 
                                  (field['PP_Longitude'], field['PP_Latitude']), 
                                  field['Lateral_offset'], field['Seed_angle'])
 
