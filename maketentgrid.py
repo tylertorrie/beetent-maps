@@ -542,6 +542,7 @@ def process_csvfile(csv_file, path = None, use_zip = None, timestamp = None, use
 
     if use_metric:
         conv = 1
+
     else:
         conv = 0.3048
 
@@ -684,6 +685,11 @@ def process_csvfile(csv_file, path = None, use_zip = None, timestamp = None, use
                 dirpath = dirpath+"-"+datetime.date.today().isoformat()
 
             print ()
+            if (use_metric):
+                print ("Using METRIC units for distance (metres).")
+            else:
+                print ("Using IMPERIAL units for distance (feet).")
+
             print ("Writing output to folder %s." % dirpath)
             print ()
             writer = FileWriter()
@@ -801,7 +807,17 @@ if __name__== "__main__":
                     choosefile.pack(side = tk.RIGHT)
                     choosefile["command"] = self.choosefile_command
 
-                    processbutton=tk.Button(root)
+                    frame1 = tk.Frame(root)
+                    frame1.pack(fill=tk.X)
+
+                    self.use_metric = True
+                    metriccheck = tk.Checkbutton(frame1)
+                    metriccheck["text"] = "Use Metric"
+                    metriccheck.pack()
+                    metriccheck.select()
+                    metriccheck["command"] = self.on_metric_toggle
+
+                    processbutton=tk.Button(frame1)
                     processbutton["bg"] = "#e9e9ed"
                     ft = tkFont.Font(size=12)
                     processbutton["font"] = ft
@@ -835,10 +851,13 @@ if __name__== "__main__":
                     self.fileinput.delete(0,tk.END)
                     self.fileinput.insert(0,file)
 
+                def on_metric_toggle(self):
+                    self.use_metric = not self.use_metric
+
                 def process_command(self):
                     filename = self.fileinput.get()
 
-                    output = process_csvfile(filename, None, None, None).getvalue()
+                    output = process_csvfile(filename, None, None, None, self.use_metric).getvalue()
 
                     self.outputtext.config(state = tk.NORMAL)
                     self.outputtext.delete("1.0",tk.END)
