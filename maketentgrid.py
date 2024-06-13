@@ -108,7 +108,6 @@ def make_pdf_circle_bays(pdf_writer, field):
         Draw the outline of the circle and male bays using the
         pdf_writer (instance of FPDF) onto the current field's PDF page
     """
-
     #TODO: cleaner, programmatic way to do this
     width = 8.5 * 72
     height = 11 * 72
@@ -211,15 +210,15 @@ def make_pdf_circle_bays(pdf_writer, field):
     sprayer_width = field['Sprayer_width']
 
     if field['spacing'] is not None:
-        spacing = field['spacing']  #float(field['spacing']) * 0.3048
+        spacing = field['spacing']  #float(field['spacing']) * conv
     else:
         spacing = calculate_spacing(radius, sprayer_width, num_tents = field['# of Structures'])
 
     directional_offset = field['directional_offset']
-    if directional_offset:
-        directional_offset = float(directional_offset) * 0.3048
-    else:
-        directional_offset = 0
+    #if directional_offset:
+    #    directional_offset = float(directional_offset) * conv
+    #else:
+    #    directional_offset = 0
 
     rotate = 0 - field['Seed_angle']
     rotate = (rotate + 180) % 360 - 180
@@ -328,7 +327,7 @@ def make_tents(myzip, trimble_path, field_name, pivotpoint, radius, width, lat_s
     num_tents=kwargs.get('num_tents', None)
 
     if kwargs['spacing'] is not None:
-        spacing = kwargs['spacing']  #float(field['spacing']) * 0.3048
+        spacing = kwargs['spacing']  #float(field['spacing']) * conv
     else:
         spacing = calculate_spacing(radius, width, num_tents = num_tents)
 
@@ -379,10 +378,10 @@ def make_tents(myzip, trimble_path, field_name, pivotpoint, radius, width, lat_s
         rows = range(-int(radius / width),int(radius / width) + 1)
 
     directional_offset = kwargs['directional_offset']
-    if directional_offset:
-        directional_offset = float(directional_offset) * 0.3048
-    else:
-        directional_offset = 0
+    #if directional_offset:
+    #    directional_offset = float(directional_offset) * conv
+    #else:
+    #    directional_offset = 0
 
     for r in rows:
         if not exp_rows:
@@ -537,9 +536,14 @@ def calculate_spacing(radius, width, factor=1, num_tents = None):
         # otherwise 1 per acre
         return total / (math.pi * radius * radius / 4046.87 + 1) * factor
 
-def process_csvfile(csv_file, path = None, use_zip = None, timestamp = None):
+def process_csvfile(csv_file, path = None, use_zip = None, timestamp = None, use_metric = False):
 
     output = StringIO()
+
+    if use_metric:
+        conv = 1
+    else:
+        conv = 0.3048
 
     with redirect_stdout(output):
         fields = []
@@ -551,13 +555,13 @@ def process_csvfile(csv_file, path = None, use_zip = None, timestamp = None):
                 try:
                     row['PP_Longitude'] = float(row['PP_Longitude'])
                     row['PP_Latitude'] = float(row['PP_Latitude'])
-                    row['Radius'] = float(row['Radius']) * 0.3048
+                    row['Radius'] = float(row['Radius']) * conv
                     if row['Seed_angle'] == '':
                         print ("Warning! No seed angle supplied for %s. Assuming 0 degrees." % row['Name'])
                         row['Seed_angle'] = 0
                     else:
                         row['Seed_angle'] = float(row['Seed_angle'])
-                    row['Sprayer_width'] = float(row['Sprayer_width']) * 0.3048 #metres/ft
+                    row['Sprayer_width'] = float(row['Sprayer_width']) * conv
                     if row['Pie_start'] != '' and row['Pie_end'] != '':
                         row['pie_slice'] = (int(row['Pie_start']),
                                             int(row['Pie_end']))
@@ -565,27 +569,27 @@ def process_csvfile(csv_file, path = None, use_zip = None, timestamp = None):
                         row['pie_slice'] = None
 
                     if row['North_limit'] != '':
-                        row['North_limit'] = float(row['North_limit']) * 0.3048
+                        row['North_limit'] = float(row['North_limit']) * conv
                     else:
                         row['North_limit'] = row['Radius']
 
                     if row['East_limit'] != '':
-                        row['East_limit'] = float(row['East_limit']) * 0.3048
+                        row['East_limit'] = float(row['East_limit']) * conv
                     else:
                         row['East_limit'] = row['Radius']
 
                     if row['South_limit'] != '':
-                        row['South_limit'] = float(row['South_limit']) * 0.3048
+                        row['South_limit'] = float(row['South_limit']) * conv
                     else:
                         row['South_limit'] = row['Radius']
 
                     if row['West_limit'] != '':
-                        row['West_limit'] = float(row['West_limit']) * 0.3048
+                        row['West_limit'] = float(row['West_limit']) * conv
                     else:
                         row['West_limit'] = row['Radius']
 
                     if row['Lateral_offset'] != '':
-                        row['Lateral_offset'] = float(row['Lateral_offset']) * 0.3048 #metres/ft
+                        row['Lateral_offset'] = float(row['Lateral_offset']) * conv
                     else:
                         row['Lateral_offset'] = 0
 
@@ -638,10 +642,12 @@ def process_csvfile(csv_file, path = None, use_zip = None, timestamp = None):
                         if not row['spacing']:
                             row['spacing'] = None
                         else:
-                            row['spacing'] = float(row['spacing']) * 0.3048 #ft to metres
+                            row['spacing'] = float(row['spacing']) * conv
 
                     if not 'directional_offset' in row:
-                        row['directional_offset'] = None
+                        row['directional_offset'] = 0
+                    else:
+                        row['directional_offset'] = float(row['directional_offset']) * conv
 
                     fields.append(row)
                 except ValueError as e:
@@ -754,92 +760,95 @@ if __name__== "__main__":
         use_tk = False
 
     if use_tk:
-        class BeeTentGui:
-            def __init__(self, root):
-                #setting title
-                root.title("Bee Tent Maps")
-                #setting window size
+        try:
+            class BeeTentGui:
+                def __init__(self, root):
+                    #setting title
+                    root.title("Bee Tent Maps")
+                    #setting window size
 
-                #frame = tk.Frame(root)
-                #frame.pack(fill = tk.BOTH, expand = 1,pad = 5)
+                    #frame = tk.Frame(root)
+                    #frame.pack(fill = tk.BOTH, expand = 1,pad = 5)
 
-                frame = tk.Frame(root)
-                frame.pack(fill=tk.X)
+                    frame = tk.Frame(root)
+                    frame.pack(fill=tk.X)
 
-                GLabel_429=tk.Label(frame)
-                ft = tkFont.Font(size=12)
-                GLabel_429["font"] = ft
-                GLabel_429["fg"] = "#000000"
-                GLabel_429["justify"] = "center"
-                GLabel_429["text"] = "Input file"
-                GLabel_429.pack(side = tk.LEFT)
+                    GLabel_429=tk.Label(frame)
+                    ft = tkFont.Font(size=12)
+                    GLabel_429["font"] = ft
+                    GLabel_429["fg"] = "#000000"
+                    GLabel_429["justify"] = "center"
+                    GLabel_429["text"] = "Input file"
+                    GLabel_429.pack(side = tk.LEFT)
 
-                self.fileinput=tk.Entry(frame)
-                self.fileinput["borderwidth"] = "1px"
-                ft = tkFont.Font(size=12)
-                self.fileinput["font"] = ft
-                self.fileinput["fg"] = "#000000"
-                self.fileinput["bg"] = "#ffffff"
-                self.fileinput["justify"] = "left"
-                self.fileinput["text"] = "Entry"
-                self.fileinput.pack(fill = tk.X, expand=True, side = tk.LEFT)
+                    self.fileinput=tk.Entry(frame)
+                    self.fileinput["borderwidth"] = "1px"
+                    ft = tkFont.Font(size=12)
+                    self.fileinput["font"] = ft
+                    self.fileinput["fg"] = "#000000"
+                    self.fileinput["bg"] = "#ffffff"
+                    self.fileinput["justify"] = "left"
+                    self.fileinput["text"] = "Entry"
+                    self.fileinput.pack(fill = tk.X, expand=True, side = tk.LEFT)
 
-                choosefile=tk.Button(frame)
-                choosefile["bg"] = "#e9e9ed"
-                ft = tkFont.Font(size=12)
-                choosefile["font"] = ft
-                choosefile["fg"] = "#000000"
-                choosefile["justify"] = "center"
-                choosefile["text"] = "..."
-                choosefile.pack(side = tk.RIGHT)
-                choosefile["command"] = self.choosefile_command
+                    choosefile=tk.Button(frame)
+                    choosefile["bg"] = "#e9e9ed"
+                    ft = tkFont.Font(size=12)
+                    choosefile["font"] = ft
+                    choosefile["fg"] = "#000000"
+                    choosefile["justify"] = "center"
+                    choosefile["text"] = "..."
+                    choosefile.pack(side = tk.RIGHT)
+                    choosefile["command"] = self.choosefile_command
 
-                processbutton=tk.Button(root)
-                processbutton["bg"] = "#e9e9ed"
-                ft = tkFont.Font(size=12)
-                processbutton["font"] = ft
-                processbutton["fg"] = "#000000"
-                processbutton["justify"] = "center"
-                processbutton["text"] = "Process"
-                processbutton.pack()
-                processbutton["command"] = self.process_command
+                    processbutton=tk.Button(root)
+                    processbutton["bg"] = "#e9e9ed"
+                    ft = tkFont.Font(size=12)
+                    processbutton["font"] = ft
+                    processbutton["fg"] = "#000000"
+                    processbutton["justify"] = "center"
+                    processbutton["text"] = "Process"
+                    processbutton.pack()
+                    processbutton["command"] = self.process_command
 
-                tf = tk.Frame(root)
-                tf.pack(fill=tk.BOTH, expand = 1)
+                    tf = tk.Frame(root)
+                    tf.pack(fill=tk.BOTH, expand = 1)
 
-                self.outputtext=tk.Text(tf)
-                self.outputtext["borderwidth"] = "2px"
-                ft = tkFont.Font(size=10)
-                self.outputtext["font"] = ft
-                self.outputtext["fg"] = "#000000"
-                self.outputtext["bg"] = "#ffffff"
-                self.outputtext.pack(side = tk.LEFT, fill=tk.BOTH, expand=1)
-                self.outputtext.config(state = tk.DISABLED)
+                    self.outputtext=tk.Text(tf)
+                    self.outputtext["borderwidth"] = "2px"
+                    ft = tkFont.Font(size=10)
+                    self.outputtext["font"] = ft
+                    self.outputtext["fg"] = "#000000"
+                    self.outputtext["bg"] = "#ffffff"
+                    self.outputtext.pack(side = tk.LEFT, fill=tk.BOTH, expand=1)
+                    self.outputtext.config(state = tk.DISABLED)
 
-                scrollbar = tk.Scrollbar(tf)
-                scrollbar.pack(side = tk.RIGHT, fill=tk.Y)
-                scrollbar.config(command = self.outputtext.yview)
+                    scrollbar = tk.Scrollbar(tf)
+                    scrollbar.pack(side = tk.RIGHT, fill=tk.Y)
+                    scrollbar.config(command = self.outputtext.yview)
 
-                self.outputtext.config(yscrollcommand = scrollbar.set)
+                    self.outputtext.config(yscrollcommand = scrollbar.set)
 
 
-            def choosefile_command(self):
-                file = tk.filedialog.askopenfilename()
-                self.fileinput.delete(0,tk.END)
-                self.fileinput.insert(0,file)
+                def choosefile_command(self):
+                    file = tk.filedialog.askopenfilename()
+                    self.fileinput.delete(0,tk.END)
+                    self.fileinput.insert(0,file)
 
-            def process_command(self):
-                filename = self.fileinput.get()
+                def process_command(self):
+                    filename = self.fileinput.get()
 
-                output = process_csvfile(filename, None, None, None).getvalue()
+                    output = process_csvfile(filename, None, None, None).getvalue()
 
-                self.outputtext.config(state = tk.NORMAL)
-                self.outputtext.delete("1.0",tk.END)
-                self.outputtext.insert("end", output)
-                self.outputtext.config(state = tk.DISABLED)
+                    self.outputtext.config(state = tk.NORMAL)
+                    self.outputtext.delete("1.0",tk.END)
+                    self.outputtext.insert("end", output)
+                    self.outputtext.config(state = tk.DISABLED)
 
-        root = tk.Tk()
-        beetentgui = BeeTentGui(root)
+            root = tk.Tk()
+            beetentgui = BeeTentGui(root)
+        except tk._tkinter.TclError:
+            use_tk = False
 
     import argparse
 
@@ -847,6 +856,7 @@ if __name__== "__main__":
     parser.add_argument('-z','--zip', type=str, help="create a zip file containing all generated files. Default is to write them to a directory.")
     parser.add_argument('-p','--path', type=str, help="write file tree relative to this path. If you specified a zip file, this path will must be relative and will be inside the zip file. If not specified, will write to a folder called TNT in the same folder as the csv file.")
     parser.add_argument('-t', '--timestamp', help="Add timestamp to zip filename or if not using zip, to the path specified.", action="store_true")
+    parser.add_argument('-m', '--metric', help="use metres as the length unit", action="store_true")
     parser.add_argument('csv_file', type=str, nargs = "?", help="CSV file to read field information from. If provided, will process automatically, otherwise can pick from the graphical user interface.")
 
     args = parser.parse_args()
@@ -860,7 +870,7 @@ if __name__== "__main__":
 
         #context mananger
             
-        output = process_csvfile(csv_filename,args.path, args.zip, args.timestamp).getvalue()
+        output = process_csvfile(csv_filename,args.path, args.zip, args.timestamp, args.metric).getvalue()
 
         if not use_tk:
             print (output)
