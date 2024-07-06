@@ -812,7 +812,7 @@ if __name__== "__main__":
 
                     self.use_metric = True
                     metriccheck = tk.Checkbutton(frame1)
-                    metriccheck["text"] = "Use Metric"
+                    metriccheck["text"] = "Use Metric for pivot radius and field boundaries"
                     metriccheck.pack()
                     metriccheck.select()
                     metriccheck["command"] = self.on_metric_toggle
