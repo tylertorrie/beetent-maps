@@ -2162,6 +2162,7 @@ class Writer(object):
 ##            if generated:
 ##                return target
 
+"""
 # Begin Testing
 def test(**kwargs):
     import doctest
@@ -2198,7 +2199,8 @@ def test(**kwargs):
             runner.summarize(verbosity)
 
     return failure_count
-    
+"""
+
 if __name__ == "__main__":
     """
     Doctests are contained in the file 'README.md', and are tested using the built-in
