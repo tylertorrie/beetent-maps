@@ -562,7 +562,7 @@ def process_csvfile(csv_file, path = None, use_zip = None, timestamp = None, use
                         row['Seed_angle'] = 0
                     else:
                         row['Seed_angle'] = float(row['Seed_angle'])
-                    row['Sprayer_width'] = float(row['Sprayer_width']) * conv
+                    row['Sprayer_width'] = float(row['Sprayer_width']) * 0.3048
                     if row['Pie_start'] != '' and row['Pie_end'] != '':
                         row['pie_slice'] = (int(row['Pie_start']),
                                             int(row['Pie_end']))
