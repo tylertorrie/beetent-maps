@@ -788,7 +788,7 @@ if __name__== "__main__":
                     GLabel_429.pack(side = tk.LEFT)
 
                     self.fileinput=tk.Entry(frame)
-                    self.fileinput["borderwidth"] = "1px"
+                    self.fileinput["borderwidth"] = "1"
                     ft = tkFont.Font(size=12)
                     self.fileinput["font"] = ft
                     self.fileinput["fg"] = "#000000"
@@ -831,7 +831,7 @@ if __name__== "__main__":
                     tf.pack(fill=tk.BOTH, expand = 1)
 
                     self.outputtext=tk.Text(tf)
-                    self.outputtext["borderwidth"] = "2px"
+                    self.outputtext["borderwidth"] = "2"
                     ft = tkFont.Font(size=10)
                     self.outputtext["font"] = ft
                     self.outputtext["fg"] = "#000000"
