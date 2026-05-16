@@ -19,7 +19,7 @@ ctk.set_default_color_theme("blue")
 
 SATELLITE_URL = "https://mt0.google.com/vt/lyrs=s&hl=en&x={x}&y={y}&z={z}&s=Ga"
 STREET_URL    = "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png"
-DATA_DIR      = Path.home() / "Documents" / "BeetentMaps"
+DATA_DIR      = Path(__file__).parent / "fields"
 DEFAULT_LAT, DEFAULT_LON, DEFAULT_ZOOM = 49.86, -111.96, 10
 
 # ── Prairie LLD geocoder ───────────────────────────────────────────────────────
