@@ -1348,13 +1348,7 @@ class BeetentApp(ctk.CTk):
         n_units=int(max_r/unit)+2
         for i in range(-n_units,n_units+1):
             cx=i*unit
-            band=self._band_polygon_enu(cx-female_m/2,cx+female_m/2,tdx,tdy,ldx,ldy,poly_enu)
-            if band:
-                lpts=[enu_to_latlon(e,n,plat,plon) for e,n in band]
-                try:
-                    p=self.map_widget.set_polygon(lpts,fill_color="#002266",outline_color="#002266",border_width=0)
-                    self.bay_polygons.append(p)
-                except Exception: pass
+            # Female bays hidden — only male bays shown
             band=self._band_polygon_enu(cx+female_m/2,cx+female_m/2+male_m,tdx,tdy,ldx,ldy,poly_enu)
             if band:
                 lpts=[enu_to_latlon(e,n,plat,plon) for e,n in band]
