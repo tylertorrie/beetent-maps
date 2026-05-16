@@ -11,6 +11,7 @@ import zipfile
 import datetime
 import csv
 import fpdf
+import json
 
 from io import BytesIO
 from io import StringIO
@@ -309,10 +310,16 @@ def make_tents(myzip, trimble_path, field_name, pivotpoint, radius, width, lat_s
 
     #field_path = trimble_path + "/" + field_name
 
-    eastlimit = kwargs.get('eastlimit',radius)
+    eastlimit = kwargs.get('eastlimit', radius)
     northlimit = kwargs.get('northlimit', radius)
     westlimit = kwargs.get('westlimit', radius)
     southlimit = kwargs.get('southlimit', radius)
+    boundary_polygon_enu = kwargs.get('boundary_polygon_enu', None)
+    pivot_tracks_m = kwargs.get('pivot_tracks_m', [])
+    pivot_track_exclusion_m = kwargs.get('pivot_track_exclusion_m', 3.048)
+    if boundary_polygon_enu:
+        # Use bounding radius of polygon for grid generation range
+        radius = max(math.sqrt(e*e + n*n) for e, n in boundary_polygon_enu) * 1.05
 
     # PDF options
     pdf = kwargs.get('pdf', None)
@@ -327,9 +334,18 @@ def make_tents(myzip, trimble_path, field_name, pivotpoint, radius, width, lat_s
     num_tents=kwargs.get('num_tents', None)
 
     if kwargs['spacing'] is not None:
-        spacing = kwargs['spacing']  #float(field['spacing']) * conv
+        spacing = kwargs['spacing']
+    elif num_tents is not None:
+        kw = dict(pie_slice=pie_slice,
+                  northlimit=northlimit, eastlimit=eastlimit,
+                  southlimit=southlimit, westlimit=westlimit,
+                  exp_rows=kwargs.get('exp_rows') if kwargs.get('exp_rows') else None,
+                  exp_rows_start_odd=kwargs.get('exp_rows_start_odd', True),
+                  directional_offset=kwargs.get('directional_offset', 0))
+        spacing = find_exact_spacing(num_tents, pivotpoint, radius, width,
+                                     lat_shift, angle, **kw)
     else:
-        spacing = calculate_spacing(radius, width, num_tents = num_tents)
+        spacing = calculate_spacing(radius, width)
 
     rotate = 0 - angle
     rotate = (rotate + 180) % 360 - 180
@@ -364,102 +380,97 @@ def make_tents(myzip, trimble_path, field_name, pivotpoint, radius, width, lat_s
     csvdata = csv.DictWriter(csvbuffer, fieldnames = [ 'GPS Position', 'Tent'])
     csvdata.writeheader()
 
-    tent_id = 0
-
     # Experimental rows
-
-    
     exp_rows = kwargs['exp_rows']
     if exp_rows:
         rows = exp_rows
         exp_rows = True
-        odd = kwargs.get('exp_rows_start_odd',True)
+        odd = kwargs.get('exp_rows_start_odd', True)
     else:
-        rows = range(-int(radius / width),int(radius / width) + 1)
+        rows = range(-int(radius / width), int(radius / width) + 1)
 
     directional_offset = kwargs['directional_offset']
-    #if directional_offset:
-    #    directional_offset = float(directional_offset) * conv
-    #else:
-    #    directional_offset = 0
 
+    # Collect all valid grid positions first so we can trim to exact num_tents
+    positions = []
     for r in rows:
         if not exp_rows:
             odd = r % 2
-        #print (odd)
-        for c in range(-int(radius / spacing)-1, int(radius / spacing) + 1):
-            # only place tents in specified quadrants of circle
+        for c in range(-int(radius / spacing) - 1, int(radius / spacing) + 1):
+            if odd:
+                east  = r * width + lat_shift
+                north = c * spacing + spacing / 2 + directional_offset
+            else:
+                east  = r * width + lat_shift
+                north = c * spacing + directional_offset
 
-            if odd: #odd, shift by half spacing
-                east = r*width + lat_shift
-                north = c*spacing+ spacing/2 + directional_offset
-            else: #even, don't shift
-                east = r*width + lat_shift
-                north = c*spacing + directional_offset
+            east1  = east  * math.cos(math.radians(rotate)) - north * math.sin(math.radians(rotate))
+            north1 = north * math.cos(math.radians(rotate)) + east  * math.sin(math.radians(rotate))
+            east, north = east1, north1
 
-            east1 = east * math.cos(math.radians(rotate)) - north * math.sin(math.radians(rotate))
-            north1 = north * math.cos(math.radians(rotate)) + east * math.sin(math.radians(rotate))
-            east = east1
-            north = north1
-
-            if east * east + north * north <= radius_sqr:
-                #manual limits to keep tents on field
-                if eastlimit and east > eastlimit: continue
-                if westlimit and east < -westlimit: continue
-                if northlimit and north > northlimit: continue
+            if boundary_polygon_enu:
+                if not _point_in_polygon(east, north, boundary_polygon_enu): continue
+            else:
+                if east * east + north * north > radius_sqr: continue
+                if eastlimit  and east >  eastlimit:  continue
+                if westlimit  and east < -westlimit:  continue
+                if northlimit and north >  northlimit: continue
                 if southlimit and north < -southlimit: continue
 
-                flag = True
+            if pie_slice and (north or east):
+                a = math.degrees(math.atan2(east, north))
+                if a < 0: a += 360
+                if pie_slice[0] > pie_slice[1]:
+                    if a < pie_slice[0] and a > pie_slice[1]: continue
+                else:
+                    if a < pie_slice[0] or a > pie_slice[1]: continue
 
-                if pie_slice and (north or east):
-                    angle = math.degrees(math.atan2(east,north))
-                    if (angle < 0): angle += 360
+            if pivot_tracks_m:
+                d = math.sqrt(east * east + north * north)
+                if any(abs(d - tr) < pivot_track_exclusion_m for tr in pivot_tracks_m): continue
 
-                    if pie_slice[0] > pie_slice[1]:
-                        # arc crosses zero
-                        if angle < pie_slice[0] and angle > pie_slice[1]: 
-                            flag = False
-                            #print (tent_id, angle)
-                        #if angle >= pie_slice[0] or angle <= pie_slice[1]: flag = True
-                        #else: flag = False
-                    else:
-                        if angle < pie_slice[0] or angle > pie_slice[1]: flag = False
-                        #if angle >= pie_slice[0] and angle <= pie_slice[1]: flag = True
-                        #else: flag = False
+            positions.append((east, north))
 
-
-
-                if not flag:
-                    # no specified quadrant claims this tent, so skip
-                    continue
-
-                if pdf:
-                    pdf.set_draw_color(255,0,0)
-                    pdf.set_fill_color(255,0,0)
-                    pdf.ellipse(east * scale + pdf_width/2-2 , -north * scale + pdf_height/2-2, 4,4,'DF')
-
-                lon, lat = utmish.to_lonlat(east + easting, north + northing, pivotpoint[0])
-                kml.newpoint (name="tent %d" % (tent_id), coords = [ (lon, lat) ])
-
-                w.record(Date=datetime.date.today(), Time="12:00:00pm",Version="7.78.002",
-                         Id = pid, Name = "Tree_%d" % pid, Latitude = lat, Longitude = lon, Height = 761.064,
-                         AlarmRad = 0, WarningRad = 10.0, Status_Text='', Visible=1)
-
-                w.point(lon, lat)
-
-                csvdata.writerow( {'GPS Position': '%.7f,%.7f' % (lat,lon), 'Tent': '%d' % tent_id} )
-
-                pid += 1
-                tent_id += 1
         if exp_rows:
             odd = not odd
 
-    myzip.writestr("%s/googleearth/%s.kml" % (trimble_path,field_name), kml.kml())    
+    # Trim to exact count when the user requested a specific number
+    if num_tents is not None and len(positions) > num_tents:
+        positions = positions[:num_tents]
+
+    tent_id = 0
+    for east, north in positions:
+        if pdf:
+            pdf.set_draw_color(255, 0, 0)
+            pdf.set_fill_color(255, 0, 0)
+            pdf.ellipse(east * scale + pdf_width / 2 - 2, -north * scale + pdf_height / 2 - 2, 4, 4, 'DF')
+
+        lon, lat = utmish.to_lonlat(east + easting, north + northing, pivotpoint[0])
+        kml.newpoint(name="tent %d" % tent_id, coords=[(lon, lat)])
+        w.record(Date=datetime.date.today(), Time="12:00:00pm", Version="7.78.002",
+                 Id=pid, Name="Tree_%d" % pid, Latitude=lat, Longitude=lon, Height=761.064,
+                 AlarmRad=0, WarningRad=10.0, Status_Text='', Visible=1)
+        w.point(lon, lat)
+        csvdata.writerow({'GPS Position': '%.7f,%.7f' % (lat, lon), 'Tent': '%d' % tent_id})
+        pid += 1
+        tent_id += 1
+
+    myzip.writestr("%s/googleearth/%s.kml" % (trimble_path, field_name), kml.kml())
     w.close()
     myzip.writestr('%s/AgGPS/Data/TNTBees/BeeTents/%s/PointFeature.dbf' % (trimble_path, field_name), dbf.getvalue())
     myzip.writestr('%s/AgGPS/Data/TNTBees/BeeTents/%s/PointFeature.shp' % (trimble_path, field_name), shp.getvalue())
     myzip.writestr('%s/AgGPS/Data/TNTBees/BeeTents/%s/PointFeature.shx' % (trimble_path, field_name), shx.getvalue())
     myzip.writestr('%s/spreadsheets/%s.csv' % (trimble_path, field_name), csvbuffer.getvalue().encode('utf-8'))
+
+    # John Deere Operations Center — GeoJSON points
+    jd_positions = []
+    for east, north in positions:
+        lon, lat = utmish.to_lonlat(east + easting, north + northing, pivotpoint[0])
+        jd_positions.append((lon, lat))
+    myzip.writestr('%s/johndeere/%s.geojson' % (trimble_path, field_name),
+                   _make_geojson(jd_positions, field_name))
+
+    return len(positions)
 
 
 
@@ -512,6 +523,133 @@ def make_line(myzip, field_path, pivotpoint, lat_offset, angle):
     myzip.writestr('%s/Swaths.shp' % field_path, shp.getvalue())
     myzip.writestr('%s/Swaths.shx' % field_path, shx.getvalue())
 
+def _point_in_polygon(px, py, polygon):
+    """Ray-casting point-in-polygon. polygon is [(x,y), ...]."""
+    inside = False
+    j = len(polygon) - 1
+    for i, (xi, yi) in enumerate(polygon):
+        xj, yj = polygon[j]
+        if ((yi > py) != (yj > py)) and (px < (xj - xi) * (py - yi) / (yj - yi) + xi):
+            inside = not inside
+        j = i
+    return inside
+
+
+def _make_geojson(lonlat_list, field_name):
+    """Return a GeoJSON FeatureCollection string for John Deere Operations Center."""
+    features = [
+        {"type": "Feature",
+         "geometry": {"type": "Point", "coordinates": [lon, lat]},
+         "properties": {"id": i + 1, "name": "Shelter_%d" % (i + 1), "type": "bee_shelter"}}
+        for i, (lon, lat) in enumerate(lonlat_list)
+    ]
+    return json.dumps({
+        "type": "FeatureCollection",
+        "name": field_name,
+        "crs": {"type": "name", "properties": {"name": "urn:ogc:def:crs:OGC:1.3:CRS84"}},
+        "features": features,
+    }, indent=2)
+
+
+def latlon_list_to_enu(latlon_list, pivot_lon, pivot_lat):
+    """Convert [(lat,lon), ...] to [(east,north), ...] relative to pivot in metres."""
+    pe, pn = utmish.from_lonlat(pivot_lon, pivot_lat, pivot_lon)
+    result = []
+    for lat, lon in latlon_list:
+        e, n = utmish.from_lonlat(lon, lat, pivot_lon)
+        result.append((e - pe, n - pn))
+    return result
+
+
+def count_tents_only(pivotpoint, radius, width, lat_shift, angle, spacing,
+                     pie_slice=None, northlimit=None, eastlimit=None,
+                     southlimit=None, westlimit=None, exp_rows=None,
+                     exp_rows_start_odd=True, directional_offset=0,
+                     boundary_polygon_enu=None, pivot_tracks_m=None,
+                     pivot_track_exclusion_m=3.048):
+    """Count tent positions without writing any files."""
+    radius_sqr = radius * radius
+    if northlimit is None: northlimit = radius
+    if eastlimit is None:  eastlimit  = radius
+    if southlimit is None: southlimit = radius
+    if westlimit is None:  westlimit  = radius
+
+    rotate = (0 - angle + 180) % 360 - 180
+    count = 0
+    tracks = pivot_tracks_m or []
+
+    if exp_rows:
+        rows = exp_rows
+        odd = exp_rows_start_odd
+        use_exp = True
+    else:
+        rows = range(-int(radius / width), int(radius / width) + 1)
+        use_exp = False
+
+    for r in rows:
+        if not use_exp:
+            odd = r % 2
+        for c in range(-int(radius / spacing) - 1, int(radius / spacing) + 1):
+            if odd:
+                east  = r * width + lat_shift
+                north = c * spacing + spacing / 2 + directional_offset
+            else:
+                east  = r * width + lat_shift
+                north = c * spacing + directional_offset
+            e = east * math.cos(math.radians(rotate)) - north * math.sin(math.radians(rotate))
+            n = north * math.cos(math.radians(rotate)) + east * math.sin(math.radians(rotate))
+
+            if boundary_polygon_enu:
+                if not _point_in_polygon(e, n, boundary_polygon_enu): continue
+            else:
+                if e * e + n * n > radius_sqr: continue
+                if eastlimit  and e >  eastlimit:  continue
+                if westlimit  and e < -westlimit:  continue
+                if northlimit and n >  northlimit: continue
+                if southlimit and n < -southlimit: continue
+
+            if pie_slice and (n or e):
+                a = math.degrees(math.atan2(e, n))
+                if a < 0: a += 360
+                if pie_slice[0] > pie_slice[1]:
+                    if a < pie_slice[0] and a > pie_slice[1]: continue
+                else:
+                    if a < pie_slice[0] or a > pie_slice[1]: continue
+
+            if tracks:
+                d = math.sqrt(e * e + n * n)
+                if any(abs(d - tr) < pivot_track_exclusion_m for tr in tracks): continue
+
+            count += 1
+        if use_exp:
+            odd = not odd
+    return count
+
+
+def find_exact_spacing(target, pivotpoint, radius, width, lat_shift, angle,
+                       pie_slice=None, northlimit=None, eastlimit=None,
+                       southlimit=None, westlimit=None, exp_rows=None,
+                       exp_rows_start_odd=True, directional_offset=0,
+                       boundary_polygon_enu=None, pivot_tracks_m=None,
+                       pivot_track_exclusion_m=3.048):
+    """Return spacing so the grid places >= target tents (binary search)."""
+    kw = dict(pie_slice=pie_slice, northlimit=northlimit, eastlimit=eastlimit,
+              southlimit=southlimit, westlimit=westlimit, exp_rows=exp_rows,
+              exp_rows_start_odd=exp_rows_start_odd, directional_offset=directional_offset,
+              boundary_polygon_enu=boundary_polygon_enu, pivot_tracks_m=pivot_tracks_m,
+              pivot_track_exclusion_m=pivot_track_exclusion_m)
+    lo, hi = 0.5, radius * 2.0
+    if count_tents_only(pivotpoint, radius, width, lat_shift, angle, lo, **kw) < target:
+        return lo
+    for _ in range(60):
+        mid = (lo + hi) / 2
+        if count_tents_only(pivotpoint, radius, width, lat_shift, angle, mid, **kw) >= target:
+            lo = mid
+        else:
+            hi = mid
+    return lo
+
+
 def calculate_spacing(radius, width, factor=1, num_tents = None):
     """
         Calculate total length of all the passes from pivot
@@ -535,6 +673,289 @@ def calculate_spacing(radius, width, factor=1, num_tents = None):
     else:
         # otherwise 1 per acre
         return total / (math.pi * radius * radius / 4046.87 + 1) * factor
+
+def get_tent_positions(field_dict, use_metric=True):
+    """
+    Compute shelter positions from a field dict, return [(lat, lon), ...] in NW-snake
+    numbering order. Returns [] on any error or missing data.
+    NW-snake: start at the northwest-most shelter, number south along the first row,
+    then snake (next row goes north, then south, alternating).
+
+    Spacing priority:
+      1. user-given spacing → use as-is, do NOT trim to num_tents
+      2. num_tents given (no spacing) → find_exact_spacing, then trim to num_tents
+      3. neither → calculate_spacing auto
+    """
+    try:
+        conv = 1.0 if use_metric else 0.3048
+        pivotpoint = (float(field_dict['PP_Longitude']), float(field_dict['PP_Latitude']))
+        sprayer_width = float(field_dict['Sprayer_width']) * 0.3048  # Sprayer_width always in feet
+
+        boundary_polygon = field_dict.get('boundary_polygon') or None
+        pivot_tracks = [float(r) for r in (field_dict.get('pivot_tracks') or [])]
+        excl_m = float(field_dict.get('track_exclusion_ft') or 10) * 0.3048
+
+        if boundary_polygon:
+            boundary_enu = latlon_list_to_enu(boundary_polygon, pivotpoint[0], pivotpoint[1])
+            radius = max(math.sqrt(e*e + n*n) for e, n in boundary_enu) * 1.05
+        else:
+            r_raw = str(field_dict.get('Radius') or '').strip()
+            if not r_raw:
+                return []
+            radius = float(r_raw) * conv
+            boundary_enu = None
+
+        seed_angle = float(field_dict.get('Spray_angle') or field_dict.get('Seed_angle') or 0)
+
+        # Compute lat_offset and effective row width from bay parameters when available.
+        # tent_row_width is used for the shelter grid lateral spacing; it MUST equal
+        # female_m + male_m so that each shelter row centre falls on a female bay centre.
+        # Using the user-entered Sprayer_width instead would misalign rows whenever
+        # Sprayer_width != female_m + male_m (e.g. user left the default 133 ft).
+        nf_raw = str(field_dict.get('num_female_rows') or '').strip()
+        nm_raw = str(field_dict.get('num_male_rows') or '').strip()
+        rs_in_raw = str(field_dict.get('row_spacing_in') or '').strip()
+        if nf_raw and nm_raw and rs_in_raw:
+            nf_i = int(nf_raw); nm_i = int(nm_raw); rs_m = float(rs_in_raw) * 0.0254
+            female_m = (nf_i + 1) * rs_m
+            male_m_w = (nm_i + 1) * rs_m
+            tent_row_width = female_m + male_m_w
+            lat_offset = max(0.0, female_m / 2 - 1.2192)
+        elif boundary_enu is not None:
+            tent_row_width = sprayer_width
+            lat_offset = 0.0
+        else:
+            tent_row_width = sprayer_width
+            lat_offset = float(field_dict.get('Lateral_offset') or 0) * conv
+
+        sp_raw = str(field_dict.get('spacing') or '').strip()
+        do_raw = str(field_dict.get('directional_offset') or '').strip()
+        ns_raw = str(field_dict.get('num_structures') or field_dict.get('# of Structures') or '').strip()
+        num_tents = int(ns_raw) if ns_raw else None
+        directional_offset = float(do_raw) * conv if do_raw else 0.0
+
+        user_spacing = bool(sp_raw)
+
+        if sp_raw:
+            spacing = float(sp_raw) * conv
+        elif num_tents:
+            kw = dict(directional_offset=directional_offset,
+                      boundary_polygon_enu=boundary_enu,
+                      pivot_tracks_m=pivot_tracks,
+                      pivot_track_exclusion_m=excl_m)
+            spacing = find_exact_spacing(num_tents, pivotpoint, radius, tent_row_width,
+                                         lat_offset, seed_angle, **kw)
+        else:
+            spacing = calculate_spacing(radius, tent_row_width)
+
+        if spacing <= 0:
+            return []
+
+        rotate = (0 - seed_angle + 180) % 360 - 180
+        rot_r = math.radians(rotate)
+        cos_r, sin_r = math.cos(rot_r), math.sin(rot_r)
+
+        easting, northing = utmish.from_lonlat(pivotpoint[0], pivotpoint[1], pivotpoint[0])
+        radius_sqr = radius * radius
+
+        rows = range(-int(radius / tent_row_width), int(radius / tent_row_width) + 1)
+
+        # Collect valid positions with their row index for snake-sort
+        raw = []  # (east_enu, north_enu, row_r)
+        for r in rows:
+            odd = r % 2
+            for c in range(-int(radius / spacing) - 1, int(radius / spacing) + 1):
+                pre_e = r * tent_row_width + lat_offset
+                pre_n = (c * spacing + spacing / 2 + directional_offset) if odd else (c * spacing + directional_offset)
+                east  = pre_e * cos_r - pre_n * sin_r
+                north = pre_n * cos_r + pre_e * sin_r
+                if boundary_enu:
+                    if not _point_in_polygon(east, north, boundary_enu): continue
+                else:
+                    if east*east + north*north > radius_sqr: continue
+                if pivot_tracks:
+                    d = math.sqrt(east*east + north*north)
+                    if any(abs(d - tr) < excl_m for tr in pivot_tracks): continue
+                raw.append((east, north, r))
+
+        # Trim to exact count only when using find_exact_spacing (not user-given spacing)
+        if not user_spacing and num_tents and len(raw) > num_tents:
+            raw = raw[:num_tents]
+
+        # NW-snake sort
+        # Lateral direction in ENU (between rows): (cos_r, sin_r)
+        # Travel direction in ENU (along a row): (-sin_r, cos_r)
+        ldx, ldy = cos_r, sin_r
+        tdx, tdy = -sin_r, cos_r
+
+        # Group by row index r
+        from collections import defaultdict
+        row_groups = defaultdict(list)
+        for e, n, r in raw:
+            row_groups[r].append((e, n))
+
+        # Sort rows by lateral coord ascending (most negative = most NW-ward)
+        def row_lat_coord(r):
+            pts = row_groups[r]
+            return sum(e*ldx + n*ldy for e, n in pts) / len(pts)
+        sorted_rows = sorted(row_groups.keys(), key=row_lat_coord)
+
+        # First row: start from NW end.
+        # NW direction = (-1,1). If dot(travel_dir, NW) > 0, NW end has max travel → sort desc.
+        travel_nw = tdx * (-1) + tdy * 1
+        first_row_descending = travel_nw > 0
+
+        ordered = []
+        for i, r in enumerate(sorted_rows):
+            pts = sorted(row_groups[r], key=lambda en: en[0]*tdx + en[1]*tdy)
+            descending = (i % 2 == 0 and first_row_descending) or (i % 2 == 1 and not first_row_descending)
+            if descending:
+                pts = list(reversed(pts))
+            ordered.extend(pts)
+
+        result = []
+        for e, n in ordered:
+            lon, lat = utmish.to_lonlat(e + easting, n + northing, pivotpoint[0])
+            result.append((lat, lon))
+        return result
+
+    except Exception:
+        return []
+
+
+def process_field_data(fields, dirpath, use_metric=True):
+    """
+    Process a list of field dicts (native Python types) and write output to dirpath.
+    Each dict may include the standard CSV keys plus:
+      boundary_polygon : [[lat, lon], ...]  — if present, replaces radius+limits
+      pivot_tracks     : [radius_m, ...]    — exclusion ring radii in metres
+    Returns (output_text, num_fields_ok).
+    """
+    output = StringIO()
+    conv = 1.0 if use_metric else 0.3048
+
+    if not os.path.exists(dirpath):
+        os.makedirs(dirpath)
+
+    pdfwriter = BeePDF('P', 'pt', 'Letter')
+    writer = FileWriter()
+    ok = 0
+
+    with redirect_stdout(output):
+        for field in fields:
+            try:
+                name = str(field['Name']).strip()
+                pivotpoint = (float(field['PP_Longitude']), float(field['PP_Latitude']))
+                sprayer_width = float(field['Sprayer_width']) * 0.3048
+
+                boundary_polygon = field.get('boundary_polygon') or None
+                pivot_tracks = [float(r) for r in (field.get('pivot_tracks') or [])]
+
+                if boundary_polygon:
+                    radius = max(
+                        math.sqrt((e**2 + n**2))
+                        for e, n in latlon_list_to_enu(boundary_polygon, pivotpoint[0], pivotpoint[1])
+                    ) * 1.05
+                    boundary_enu = latlon_list_to_enu(boundary_polygon, pivotpoint[0], pivotpoint[1])
+                else:
+                    radius = float(field['Radius']) * conv
+                    boundary_enu = None
+
+                # Spray_angle takes priority; fall back to Seed_angle for CSV imports
+                seed_angle = float(field.get('Spray_angle') or field.get('Seed_angle') or 0)
+
+                # When a boundary polygon is present, shelters go at wing-tips (lat_offset=0)
+                # so the first shelter row is on the pivot centre line.
+                # For legacy CSV fields that still carry Lateral_offset, honour it.
+                if boundary_enu is not None:
+                    lat_offset = 0.0
+                else:
+                    lat_offset_raw = field.get('Lateral_offset') or ''
+                    lat_offset = float(lat_offset_raw) * conv if lat_offset_raw != '' else 0.0
+                    fbpw_raw = field.get('Female_bays_per_width') or ''
+                    female_bays = float(fbpw_raw) if fbpw_raw != '' else None
+                    if female_bays and not lat_offset:
+                        lat_offset = sprayer_width / female_bays / 2 * 0.75
+
+                # Limits only used when there is no boundary polygon
+                def _lim(key):
+                    v = field.get(key) or ''
+                    return float(v) * conv if v != '' else radius
+
+                north_limit = radius if boundary_enu else _lim('North_limit')
+                east_limit  = radius if boundary_enu else _lim('East_limit')
+                south_limit = radius if boundary_enu else _lim('South_limit')
+                west_limit  = radius if boundary_enu else _lim('West_limit')
+
+                # Pie slice only used for legacy CSV fields
+                pie_slice = None
+                if boundary_enu is None:
+                    ps = field.get('Pie_start') or ''
+                    pe_v = field.get('Pie_end') or ''
+                    if ps != '' and pe_v != '':
+                        pie_slice = (int(ps), int(pe_v))
+
+                # Experimental rows (legacy CSV only)
+                exp_raw = field.get('Experimental') or ''
+                exp_rows = [int(x) for x in exp_raw.split(',') if x.strip()] if exp_raw else None
+                exp_start_odd = bool(field.get('Experimental_start_odd') or False)
+
+                ns_raw = field.get('# of Structures') or field.get('num_structures') or ''
+                num_tents = int(ns_raw) if ns_raw != '' else None
+                if num_tents and pie_slice:
+                    s, e_ = pie_slice
+                    arc = (360 - s + e_) if s > e_ else (e_ - s)
+                    num_tents = int(num_tents / (arc / 360))
+
+                sp_raw = field.get('spacing') or ''
+                spacing = float(sp_raw) * conv if sp_raw != '' else None
+
+                do_raw = field.get('directional_offset') or ''
+                directional_offset = float(do_raw) * conv if do_raw != '' else 0.0
+
+                # Pivot track exclusion in metres (from field dict, default 10 ft)
+                excl_ft = float(field.get('track_exclusion_ft') or 10)
+                excl_m  = excl_ft * 0.3048
+
+                print("Processing: %s (%.6f, %.6f)" % (name, pivotpoint[0], pivotpoint[1]))
+                pdfwriter.add_page()
+                make_pdf_circle_bays(pdfwriter, {
+                    'Name': name, 'Radius': radius, 'pie_slice': pie_slice,
+                    'North_limit': north_limit, 'East_limit': east_limit,
+                    'South_limit': south_limit, 'West_limit': west_limit,
+                    'Sprayer_width': sprayer_width, 'spacing': spacing,
+                    '# of Structures': num_tents, 'Seed_angle': seed_angle,
+                    'Lateral_offset': lat_offset, 'directional_offset': directional_offset,
+                    'Female_bays_per_width': None,
+                })
+
+                field_dir = os.path.join(dirpath, "AgGPS/Data/TNTBees/BeeTents/%s" % name)
+                make_files(writer, field_dir, name, pivotpoint)
+
+                count = make_tents(writer, dirpath, name,
+                                   pivotpoint=pivotpoint, radius=radius,
+                                   width=sprayer_width, lat_shift=lat_offset,
+                                   angle=seed_angle, pie_slice=pie_slice,
+                                   northlimit=north_limit, eastlimit=east_limit,
+                                   southlimit=south_limit, westlimit=west_limit,
+                                   exp_rows=exp_rows, exp_rows_start_odd=exp_start_odd,
+                                   pdf=pdfwriter, num_tents=num_tents, spacing=spacing,
+                                   directional_offset=directional_offset,
+                                   boundary_polygon_enu=boundary_enu,
+                                   pivot_tracks_m=pivot_tracks,
+                                   pivot_track_exclusion_m=excl_m)
+                print("  → %d shelters placed" % count)
+
+                make_line(writer, field_dir, pivotpoint, lat_offset, seed_angle)
+                ok += 1
+            except Exception:
+                print("ERROR processing %s:\n%s" % (field.get('Name', '?'), traceback.format_exc()))
+
+        pdfwriter.output(os.path.join(dirpath, 'TNTFields.pdf'), 'F')
+        print("\nDone. %d/%d fields processed." % (ok, len(fields)))
+
+    return output.getvalue(), ok
+
 
 def process_csvfile(csv_file, path = None, use_zip = None, timestamp = None, use_metric = False):
 
@@ -697,8 +1118,7 @@ def process_csvfile(csv_file, path = None, use_zip = None, timestamp = None, use
 
         width, height = 612,792 #72 dpi
 
-        # TODO place this is the zip file
-        if args.zip:
+        if use_zip:
             pdfpath = os.path.dirname(os.path.abspath(use_zip))
         else:
             pdfpath = dirpath

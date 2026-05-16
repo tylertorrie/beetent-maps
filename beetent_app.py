@@ -1,0 +1,1577 @@
+#!/usr/bin/python3
+"""
+Bee Tent Maps — modern GUI for leafcutter bee shelter layout generation.
+"""
+import tkinter as tk
+import tkinter.filedialog, tkinter.messagebox, tkinter.simpledialog
+import customtkinter as ctk
+import tkintermapview
+import math, os, sys, threading, json, re, csv, datetime, zipfile
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import maketentgrid
+import utmish
+
+ctk.set_appearance_mode("dark")
+ctk.set_default_color_theme("blue")
+
+SATELLITE_URL = "https://mt0.google.com/vt/lyrs=s&hl=en&x={x}&y={y}&z={z}&s=Ga"
+STREET_URL    = "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png"
+DATA_DIR      = Path.home() / "Documents" / "BeetentMaps"
+DEFAULT_LAT, DEFAULT_LON, DEFAULT_ZOOM = 49.86, -111.96, 10
+
+# ── Prairie LLD geocoder ───────────────────────────────────────────────────────
+_MERIDIANS = {1:-97.4551, 2:-102.0, 3:-106.0, 4:-110.0, 5:-114.0, 6:-118.0}
+_QUARTER   = {"NE":(0.75,0.25),"NW":(0.75,0.75),"SE":(0.25,0.25),"SW":(0.25,0.75)}
+_HALF      = {"N":(0.5,1.0,0.0,1.0),"S":(0.0,0.5,0.0,1.0),
+              "E":(0.0,1.0,0.0,0.5),"W":(0.0,1.0,0.5,1.0)}
+
+def _sec_pos(sec):
+    idx=sec-1; row=idx//6
+    return row, (idx%6) if row%2==0 else (5-idx%6)
+
+def geocode_lld(query):
+    q = re.sub(r"[-\s,]+","-",query.strip().upper())
+    twp=rng=mer=sec=quarter=half=None
+    m=re.match(r"^(NE|NW|SE|SW)-(\d+)-(\d+)-(\d+)-W(\d)M?$",q)
+    if m: quarter,sec,twp,rng,mer=m.group(1),int(m.group(2)),int(m.group(3)),int(m.group(4)),int(m.group(5))
+    if twp is None:
+        m=re.match(r"^([NSEW])-(\d+)-(\d+)-(\d+)-W(\d)M?$",q)
+        if m and int(m.group(2))<=36:
+            half,sec,twp,rng,mer=m.group(1),int(m.group(2)),int(m.group(3)),int(m.group(4)),int(m.group(5))
+    if twp is None:
+        m=re.match(r"^(\d{1,2})-(\d{1,2})-(\d+)-(\d+)-W(\d)M?$",q)
+        if m and int(m.group(1))<=16 and int(m.group(2))<=36:
+            sec,twp,rng,mer=int(m.group(2)),int(m.group(3)),int(m.group(4)),int(m.group(5))
+    if twp is None:
+        m=re.match(r"^(\d+)-(\d+)-(\d+)-W(\d)M?$",q)
+        if m and int(m.group(1))<=36: sec,twp,rng,mer=int(m.group(1)),int(m.group(2)),int(m.group(3)),int(m.group(4))
+    if twp is None:
+        m=re.match(r"^(\d+)-(\d+)-W(\d)M?$",q)
+        if m: twp,rng,mer=int(m.group(1)),int(m.group(2)),int(m.group(3))
+    if twp is None or mer not in _MERIDIANS: return None
+    mlon=_MERIDIANS[mer]; h=9.6561
+    sw=49.0+(twp-1)*h/111.12; clat=sw+0.5*h/111.12
+    lkm=1.0/(111.12*math.cos(math.radians(clat)))
+    twp_s=sw; twp_n=sw+h/111.12
+    twp_e=mlon-(rng-1)*h*lkm; twp_w=mlon-rng*h*lkm
+    lat,lon=clat,mlon-(rng-0.5)*h*lkm
+    label="Twp %d Rng %d W%dM"%(twp,rng,mer)
+    bnd_s,bnd_n,bnd_e,bnd_w=twp_s,twp_n,twp_e,twp_w
+    if sec is not None:
+        sr,sc=_sec_pos(sec)
+        sec_s=sw+sr*h/6/111.12; sec_n=sw+(sr+1)*h/6/111.12
+        sec_e=mlon-(rng-1)*h*lkm-sc*h/6*lkm; sec_w=mlon-(rng-1)*h*lkm-(sc+1)*h/6*lkm
+        sec_h=sec_n-sec_s; sec_span=sec_w-sec_e
+        lat=(sec_s+sec_n)/2; lon=(sec_e+sec_w)/2
+        label="Sec %d Twp %d Rng %d W%dM"%(sec,twp,rng,mer)
+        bnd_s,bnd_n,bnd_e,bnd_w=sec_s,sec_n,sec_e,sec_w
+        if half is not None:
+            fn_s,fn_e,fe_s,fe_e=_HALF[half]
+            q_s=sec_s+fn_s*sec_h; q_n=sec_s+fn_e*sec_h
+            q_e=sec_e+fe_s*sec_span; q_w=sec_e+fe_e*sec_span
+            lat=(q_s+q_n)/2; lon=(q_e+q_w)/2
+            label="%s½ Sec %d Twp %d Rng %d W%dM"%(half,sec,twp,rng,mer)
+            bnd_s,bnd_n,bnd_e,bnd_w=q_s,q_n,q_e,q_w
+        elif quarter is not None:
+            fs,fe=_QUARTER[quarter]
+            q_s=sec_s+(fs-0.25)*sec_h; q_n=sec_s+(fs+0.25)*sec_h
+            q_e=sec_e+(fe-0.25)*sec_span; q_w=sec_e+(fe+0.25)*sec_span
+            lat=(q_s+q_n)/2; lon=(q_e+q_w)/2
+            label="%s Sec %d Twp %d Rng %d W%dM"%(quarter,sec,twp,rng,mer)
+            bnd_s,bnd_n,bnd_e,bnd_w=q_s,q_n,q_e,q_w
+    corners=[(bnd_s,bnd_w),(bnd_n,bnd_w),(bnd_n,bnd_e),(bnd_s,bnd_e)]
+    return lat,lon,label,corners
+
+# ── Geometry helpers ──────────────────────────────────────────────────────────
+def haversine_m(lat1,lon1,lat2,lon2):
+    R=6378137.0; dlat=math.radians(lat2-lat1); dlon=math.radians(lon2-lon1)
+    a=math.sin(dlat/2)**2+math.cos(math.radians(lat1))*math.cos(math.radians(lat2))*math.sin(dlon/2)**2
+    return 2*R*math.asin(math.sqrt(a))
+
+def circle_pts(lat,lon,r_m,n=90):
+    pts=[]
+    for i in range(n):
+        b=math.radians(i*360/n)
+        pts.append((lat+r_m/111111*math.cos(b), lon+r_m/(111111*math.cos(math.radians(lat)))*math.sin(b)))
+    return pts
+
+def latlon_to_enu(lat,lon,pivot_lat,pivot_lon):
+    pe,pn=utmish.from_lonlat(pivot_lon,pivot_lat,pivot_lon)
+    e,n=utmish.from_lonlat(lon,lat,pivot_lon)
+    return e-pe, n-pn
+
+def enu_to_latlon(e,n,pivot_lat,pivot_lon):
+    pe,pn=utmish.from_lonlat(pivot_lon,pivot_lat,pivot_lon)
+    lon2,lat2=utmish.to_lonlat(pe+e,pn+n,pivot_lon)
+    return lat2,lon2
+
+def inset_polygon_enu(poly_enu, dist):
+    """Offset every edge of poly_enu inward by dist metres. Works for convex polygons."""
+    n=len(poly_enu)
+    if n<3: return []
+    cx=sum(e for e,_ in poly_enu)/n; cn=sum(nn for _,nn in poly_enu)/n
+    edges=[]
+    for i in range(n):
+        e1,n1=poly_enu[i]; e2,n2=poly_enu[(i+1)%n]
+        dx2,dy2=e2-e1,n2-n1; L=math.sqrt(dx2*dx2+dy2*dy2)
+        if L<1e-9: continue
+        nx,ny=-dy2/L,dx2/L
+        me,mn=(e1+e2)/2,(n1+n2)/2
+        if (cx-me)*nx+(cn-mn)*ny<0: nx,ny=-nx,-ny
+        edges.append(((e1+dist*nx,n1+dist*ny),(e2+dist*nx,n2+dist*ny)))
+    if len(edges)<3: return []
+    result=[]
+    for i in range(len(edges)):
+        a=edges[i]; b=edges[(i+1)%len(edges)]
+        ax,ay=a[1][0]-a[0][0],a[1][1]-a[0][1]
+        bx,by=b[1][0]-b[0][0],b[1][1]-b[0][1]
+        det=ax*(-by)-(-bx)*ay
+        if abs(det)<1e-9:
+            result.append(((a[1][0]+b[0][0])/2,(a[1][1]+b[0][1])/2))
+        else:
+            ddx=b[0][0]-a[0][0]; ddy=b[0][1]-a[0][1]
+            t=(ddx*(-by)-ddy*(-bx))/det
+            result.append((a[0][0]+t*ax,a[0][1]+t*ay))
+    return result
+
+def clip_line_to_polygon(px,py,dx,dy,polygon):
+    ts=[]
+    n=len(polygon)
+    for i in range(n):
+        x1,y1=polygon[i]; x2,y2=polygon[(i+1)%n]
+        ex,ey=x2-x1,y2-y1
+        denom=dx*ey-dy*ex
+        if abs(denom)<1e-9: continue
+        t=((x1-px)*ey-(y1-py)*ex)/denom
+        u=((x1-px)*dy-(y1-py)*dx)/denom
+        if -1e-9<=u<=1+1e-9: ts.append(t)
+    if len(ts)<2: return None
+    ts.sort(); return ts[0],ts[-1]
+
+# ── Storage ───────────────────────────────────────────────────────────────────
+def blank_field(company="",year=""):
+    return dict(Name="",company=company,year=year,
+                PP_Latitude="",PP_Longitude="",
+                Spray_angle="0",Sprayer_width="133",
+                num_structures="",spacing="",shelter_spacing="",directional_offset="",
+                row_spacing_in="22",num_female_rows="8",num_male_rows="2",planter_width_ft="",
+                outside_sprayer_pass="No",
+                boundary_polygon=None,pivot_tracks=[],corner_arms=[[],[]],
+                shelter_overrides={})
+
+def _field_dir(company,year):
+    d=DATA_DIR/company/str(year); d.mkdir(parents=True,exist_ok=True); return d
+
+def save_field(f):
+    if not f.get("Name"): return
+    p=_field_dir(f.get("company","Default"),f.get("year",str(datetime.date.today().year)))/(f["Name"]+".json")
+    with open(p,"w") as fp: json.dump(f,fp,indent=2)
+
+def load_field(company,year,name):
+    p=DATA_DIR/company/str(year)/(name+".json")
+    return json.load(open(p)) if p.exists() else None
+
+def delete_field_file(company,year,name):
+    p=DATA_DIR/company/str(year)/(name+".json")
+    if p.exists(): p.unlink()
+
+def list_companies():
+    return sorted(d.name for d in DATA_DIR.iterdir() if d.is_dir()) if DATA_DIR.exists() else []
+
+def list_years(co):
+    d=DATA_DIR/co
+    return sorted((x.name for x in d.iterdir() if x.is_dir()),reverse=True) if d.exists() else []
+
+def list_fields(co,yr):
+    d=DATA_DIR/co/str(yr)
+    return sorted(p.stem for p in d.glob("*.json")) if d.exists() else []
+
+
+# ── Application ───────────────────────────────────────────────────────────────
+class BeetentApp(ctk.CTk):
+    def __init__(self):
+        super().__init__()
+        self.title("Bee Tent Maps")
+        self.geometry("1340x840")
+        self.minsize(1000,650)
+
+        self.current_field = blank_field()
+        self.click_mode    = None
+
+        # Map overlays
+        self.pivot_marker     = None
+        self.field_circle     = None
+        self.boundary_poly    = None
+        self.boundary_pts     = []
+        self.boundary_markers = []
+        self.track_circles    = []
+        self.track_handles    = []
+        self.pass_paths       = []
+        self.outer_sprayer_poly = None
+        self.bay_polygons     = []
+        self.lld_boundary_poly  = None
+        self.corner_arm_paths   = [None, None]
+        self.corner_arm_pts     = []
+        self.corner_arm_drawing_idx = None
+        self.corner_arm_temp_markers = []
+        self.show_passes      = tk.BooleanVar(value=False)
+        self.show_bays        = tk.BooleanVar(value=False)
+        self.show_tracks      = tk.BooleanVar(value=True)
+        self.shelter_markers    = []
+        self.shelter_circle_polys = []
+        self.shelter_positions  = []
+        self.show_shelters      = tk.BooleanVar(value=False)
+        self.show_shelter_labels= tk.BooleanVar(value=False)
+        self.moving_shelter_idx = None
+        self._shelter_refresh_id= None
+        self._all_popups        = []
+        self.shelter_circle_var = tk.BooleanVar(value=False)
+        self.field_labels       = {}
+
+        # Drag system
+        self._drag_registry = {}
+        self._drag_item = None
+        self._drag_last_latlon = None
+        self._drag_start_xy = None
+        self._drag_temp_oval = None   # canvas item ID (not a tkintermapview marker)
+        self._drag_moved = False
+        self._just_dragged = False
+
+        self._build_toolbar()
+        self._build_body()
+        self._init_map()
+        self._refresh_unit_labels()
+        self._refresh_company_list()
+        self._refresh_preset_list()
+        self.bind("<Escape>", lambda e: self._close_all_popups())
+        self.after(300, self._bind_drag_system)
+
+    # ── Toolbar ────────────────────────────────────────────────────────────────
+    def _build_toolbar(self):
+        bar=ctk.CTkFrame(self,height=44,corner_radius=0)
+        bar.pack(fill="x",side="top")
+        ctk.CTkLabel(bar,text="Legal Land Description:").pack(side="left",padx=(10,4),pady=8)
+        self.lld_entry=ctk.CTkEntry(bar,width=230,placeholder_text="e.g. NW-32-14-22-W4")
+        self.lld_entry.pack(side="left",pady=8)
+        self.lld_entry.bind("<Return>",lambda e:self._search_lld())
+        ctk.CTkButton(bar,text="Go",width=48,command=self._search_lld).pack(side="left",padx=(4,20),pady=8)
+        ctk.CTkLabel(bar,text="Map:").pack(side="left",padx=(0,4))
+        seg=ctk.CTkSegmentedButton(bar,values=["Satellite","Street"],command=self._switch_tiles)
+        seg.set("Satellite"); seg.pack(side="left",pady=8)
+        self.status_lbl=ctk.CTkLabel(bar,text="",text_color="#aaa",width=340,anchor="w")
+        self.status_lbl.pack(side="left",padx=16)
+        ctk.CTkLabel(bar,text="Units:").pack(side="right",padx=(0,4))
+        self.unit_var=tk.StringVar(value="Feet")
+        ctk.CTkComboBox(bar,variable=self.unit_var,values=["Feet","Metres"],
+                        width=90,command=self._on_unit_change).pack(side="right",padx=(0,12))
+
+    # ── Popup menu helpers ─────────────────────────────────────────────────────
+    def _make_menu_btn(self, bar, label, items, color="#2b2b2b"):
+        popup = ctk.CTkFrame(self, fg_color="#1e1e1e", border_width=1, border_color="#555", corner_radius=4)
+        for item_label, item_cmd in items:
+            ctk.CTkButton(popup, text=item_label, anchor="w", height=30,
+                          fg_color="transparent", hover_color="#3a3a3a",
+                          command=lambda p=popup, c=item_cmd: (p.place_forget(), c())
+                          ).pack(fill="x", padx=2, pady=1)
+        btn_ref = [None]
+        btn = ctk.CTkButton(bar, text=label+" ▾", fg_color=color,
+                            command=lambda p=popup, r=btn_ref: self._toggle_popup(p, r[0]))
+        btn_ref[0] = btn
+        self._all_popups.append(popup)
+        return btn
+
+    def _toggle_popup(self, popup, btn):
+        if popup.winfo_ismapped():
+            popup.place_forget(); return
+        for p in self._all_popups:
+            if p.winfo_exists(): p.place_forget()
+        if btn is None: return
+        btn.update_idletasks()
+        rx = btn.winfo_rootx() - self.winfo_rootx()
+        ry = btn.winfo_rooty() - self.winfo_rooty() + btn.winfo_height() + 2
+        popup.place(x=rx, y=ry)
+        popup.lift()
+
+    def _close_all_popups(self, event=None):
+        for p in self._all_popups:
+            if p.winfo_exists(): p.place_forget()
+
+    def _show_context_btn(self, text, cmd):
+        self.btn_context.configure(text=text, command=cmd, state="normal", fg_color="#225588")
+
+    def _hide_context_btn(self):
+        self.btn_context.configure(state="disabled", text="", command=lambda: None, fg_color="#333333")
+
+    # ── Body ───────────────────────────────────────────────────────────────────
+    def _build_body(self):
+        body=ctk.CTkFrame(self,corner_radius=0)
+        body.pack(fill="both",expand=True)
+        body.columnconfigure(0,weight=3); body.columnconfigure(1,weight=0); body.rowconfigure(0,weight=1)
+
+        # Map frame
+        mf=ctk.CTkFrame(body,corner_radius=8)
+        mf.grid(row=0,column=0,sticky="nsew",padx=(8,4),pady=8)
+
+        # ── Dropdown button bar ──
+        bb=ctk.CTkFrame(mf,fg_color="transparent")
+        bb.pack(fill="x",padx=6,pady=(6,2))
+
+        self._pp_btn = self._make_menu_btn(bb, "📍 Pivot Point", [
+            ("Set",    self._mode_pivot),
+            ("Delete", self._delete_pivot),
+        ], color="#1a6b3a")
+        self._pp_btn.pack(side="left", padx=(0,4))
+
+        self._bnd_btn = self._make_menu_btn(bb, "✏️ Boundary", [
+            ("Draw",         self._mode_boundary),
+            ("Edit",         self._mode_edit_boundary),
+            ("Upload File",  self._upload_boundary),
+            ("Delete",       self._clear_boundary),
+        ], color="#5a3a8a")
+        self._bnd_btn.pack(side="left", padx=(0,4))
+
+        self._trk_btn = self._make_menu_btn(bb, "🔵 Pivot Tracks", [
+            ("Toggle on/off", self._toggle_tracks),
+            ("Draw Circle",  self._mode_track),
+            ("Draw Path 1",  lambda: self._mode_corner_arm(0)),
+            ("Draw Path 2",  lambda: self._mode_corner_arm(1)),
+            ("Edit",         self._mode_edit_track),
+            ("Delete",       self._mode_delete_track_ui),
+        ], color="#8b5a00")
+        self._trk_btn.pack(side="left", padx=(0,4))
+
+        self._sp_btn = self._make_menu_btn(bb, "🌊 Sprayer Passes", [
+            ("Toggle on/off", self._toggle_passes),
+            ("Edit",          self._mode_edit_passes),
+            ("Add File",      self._import_jd_passes),
+        ], color="#2a5a4a")
+        self._sp_btn.pack(side="left", padx=(0,4))
+
+        self._pl_btn = self._make_menu_btn(bb, "🌾 Planter Passes", [
+            ("Toggle on/off", self._toggle_bays),
+            ("Edit",          self._mode_edit_bays),
+        ], color="#3a5a1a")
+        self._pl_btn.pack(side="left", padx=(0,4))
+
+        # Context action button (shown when a mode needs a "Done" action)
+        self.btn_context = ctk.CTkButton(bb, text="", width=130, fg_color="#333333",
+                                          state="disabled", command=lambda: None)
+        self.btn_context.pack(side="right", padx=(4,0))
+
+        # ── Shelter controls row ──
+        bb2=ctk.CTkFrame(mf,fg_color="transparent")
+        bb2.pack(fill="x",padx=6,pady=(0,6))
+
+        self.btn_shelters=ctk.CTkButton(bb2,text="🏠 Show Shelters",width=145,fg_color="#5a3000",
+                                         command=self._toggle_shelters)
+        self.btn_shelters.pack(side="left",padx=(0,4))
+        self.btn_shelter_labels=ctk.CTkButton(bb2,text="🔢 Show Numbers",width=140,fg_color="#3a3a3a",
+                                               state="disabled",command=self._toggle_shelter_labels)
+        self.btn_shelter_labels.pack(side="left",padx=(0,4))
+        ctk.CTkButton(bb2,text="↺ Reset Moves",width=120,fg_color="#4a2a00",
+                      command=self._reset_shelter_overrides).pack(side="left",padx=(0,4))
+        ctk.CTkCheckBox(bb2,text="10 ft buffer circles",variable=self.shelter_circle_var,
+                        command=self._redraw_shelters).pack(side="left",padx=(8,0))
+
+        self.map_frame=mf
+
+        # ── Right panel (scrollable) ──
+        right_outer=ctk.CTkFrame(body,width=370,corner_radius=8)
+        right_outer.grid(row=0,column=1,sticky="nsew",padx=(4,8),pady=8)
+        right_outer.pack_propagate(False)
+
+        right=ctk.CTkScrollableFrame(right_outer,fg_color="transparent")
+        right.pack(fill="both",expand=True)
+
+        # Company / Year
+        for label,var_attr,cb_attr,new_cmd,values_init in [
+            ("Company:","company_var","company_cb",self._new_company,[]),
+            ("Year:",   "year_var",   "year_cb",   self._new_year,   [str(datetime.date.today().year)])
+        ]:
+            row=ctk.CTkFrame(right,fg_color="transparent")
+            row.pack(fill="x",padx=8,pady=(6,0))
+            ctk.CTkLabel(row,text=label,width=65,anchor="e").pack(side="left")
+            var=tk.StringVar(value=values_init[0] if values_init else "")
+            setattr(self,var_attr,var)
+            cb=ctk.CTkComboBox(row,variable=var,values=values_init,width=140,
+                               command=self._on_company_change if "company" in var_attr else self._on_year_change)
+            cb.pack(side="left",padx=4); setattr(self,cb_attr,cb)
+            ctk.CTkButton(row,text="+",width=30,command=new_cmd).pack(side="left")
+
+        ctk.CTkFrame(right,height=1,fg_color="#444").pack(fill="x",padx=8,pady=6)
+
+        # Field list
+        ctk.CTkLabel(right,text="Fields",font=ctk.CTkFont(size=13,weight="bold")).pack()
+        lf=ctk.CTkFrame(right); lf.pack(fill="x",padx=8)
+        self.field_lb=tk.Listbox(lf,bg="#2b2b2b",fg="white",selectbackground="#1f6aa5",
+                                  relief="flat",font=("Segoe UI",11),height=5,
+                                  activestyle="none",highlightthickness=0)
+        self.field_lb.pack(fill="x")
+        self.field_lb.bind("<<ListboxSelect>>",self._on_field_select)
+        br=ctk.CTkFrame(right,fg_color="transparent"); br.pack(fill="x",padx=8,pady=(3,0))
+        ctk.CTkButton(br,text="+ New",width=70,command=self._new_field).pack(side="left")
+        ctk.CTkButton(br,text="Load CSV",width=80,fg_color="#555",command=self._load_csv).pack(side="left",padx=4)
+        ctk.CTkButton(br,text="Delete",width=70,fg_color="#8b1a1a",command=self._delete_field).pack(side="right")
+
+        ctk.CTkFrame(right,height=1,fg_color="#444").pack(fill="x",padx=8,pady=6)
+
+        # Field Details form
+        ctk.CTkLabel(right,text="Field Details",font=ctk.CTkFont(size=13,weight="bold")).pack()
+        fs=ctk.CTkFrame(right); fs.pack(fill="x",padx=8,pady=(4,0))
+        self.fv={}; self.hint_labels={}; self.field_labels={}
+        form_rows=[
+            ("Name",               "Name",                  "Field name — used as folder/file name", False),
+            ("PP_Latitude",        "Pivot Latitude",         "Decimal degrees — or click 📍 on map",  False),
+            ("PP_Longitude",       "Pivot Longitude",        "Decimal degrees",                        False),
+            ("Spray_angle",        "Spray Angle (°)",        "0=N↑  90=E→  180=S↓  270=W←",           False),
+            ("Sprayer_width",      "Sprayer Width (ft)",     "",                                       False),
+            ("num_structures",     "Number of Shelters",     "Exact count to place (e.g. 135)",        False),
+            ("spacing",            "Shelter Spacing",        "Desired distance between shelters. Leave blank to auto-calculate.", True),
+            ("directional_offset", "Directional Offset",     "Positive = in spray direction; blank = none", True),
+        ]
+        for key,display,hint,unit_dep in form_rows:
+            lbl=ctk.CTkLabel(fs,text=display,anchor="w",font=ctk.CTkFont(size=11,weight="bold"))
+            lbl.pack(fill="x")
+            if unit_dep: self.field_labels[key]=lbl
+            if hint:
+                hl=ctk.CTkLabel(fs,text=hint,anchor="w",text_color="#999",font=ctk.CTkFont(size=10))
+                hl.pack(fill="x")
+                if unit_dep: self.hint_labels[key]=hl
+            v=tk.StringVar(); ctk.CTkEntry(fs,textvariable=v).pack(fill="x",pady=(0,5))
+            self.fv[key]=v
+
+        # Outside Sprayer Pass
+        ctk.CTkLabel(fs,text="Outside Sprayer Pass",anchor="w",
+                     font=ctk.CTkFont(size=11,weight="bold")).pack(fill="x")
+        ctk.CTkLabel(fs,text="If yes, shelters are excluded from one pass-width inside the boundary",
+                     anchor="w",text_color="#999",font=ctk.CTkFont(size=10)).pack(fill="x")
+        self.outside_pass_var=tk.StringVar(value="No")
+        ctk.CTkSegmentedButton(fs,values=["Yes","No"],variable=self.outside_pass_var,
+                               command=lambda v: self._on_form_change()).pack(fill="x",pady=(2,8))
+
+        self.fv["Spray_angle"].set("0"); self.fv["Sprayer_width"].set("133")
+
+        ctk.CTkFrame(right,height=1,fg_color="#444").pack(fill="x",padx=8,pady=6)
+
+        # Bay calculator
+        ctk.CTkLabel(right,text="Bay Calculator",font=ctk.CTkFont(size=13,weight="bold")).pack()
+        bc=ctk.CTkFrame(right); bc.pack(fill="x",padx=8,pady=(4,0))
+
+        # Preset row
+        preset_row=ctk.CTkFrame(bc,fg_color="transparent")
+        preset_row.pack(fill="x",pady=(2,2))
+        ctk.CTkLabel(preset_row,text="Preset:",width=55,anchor="w").pack(side="left")
+        self.preset_var=tk.StringVar()
+        self.preset_cb=ctk.CTkComboBox(preset_row,variable=self.preset_var,values=[""],width=160,
+                                        command=self._on_preset_selected)
+        self.preset_cb.pack(side="left",padx=(2,2))
+        ctk.CTkButton(preset_row,text="+",width=30,command=self._save_new_preset).pack(side="left",padx=(0,2))
+        ctk.CTkButton(preset_row,text="🗑",width=30,command=self._delete_preset).pack(side="left")
+
+        ctk.CTkFrame(bc,height=1,fg_color="#444").pack(fill="x",pady=(2,4))
+
+        bay_rows=[
+            ("row_spacing_in",   "Row Spacing (inches)"),
+            ("planter_width_ft", "Planter Width (ft)"),
+            ("num_female_rows",  "Female Rows"),
+            ("num_male_rows",    "Male Rows"),
+        ]
+        for key,label in bay_rows:
+            ctk.CTkLabel(bc,text=label,anchor="w",font=ctk.CTkFont(size=11,weight="bold")).pack(fill="x")
+            v=tk.StringVar(); ctk.CTkEntry(bc,textvariable=v).pack(fill="x",pady=(0,4))
+            self.fv[key]=v
+        self.female_bay_lbl=ctk.CTkLabel(bc,text="Female bay width: —",anchor="w",text_color="#5599FF")
+        self.female_bay_lbl.pack(fill="x")
+        self.male_bay_lbl=ctk.CTkLabel(bc,text="Male bay width: —",anchor="w",text_color="#55BB55")
+        self.male_bay_lbl.pack(fill="x")
+        ctk.CTkButton(bc,text="Recalculate Bays → Update Sprayer Width",
+                      command=self._calc_bays).pack(fill="x",pady=(6,4))
+        self._setup_form_traces()
+
+        ctk.CTkFrame(right,height=1,fg_color="#444").pack(fill="x",padx=8,pady=6)
+
+        ctk.CTkButton(right,text="💾 Save Field",height=32,command=self._save_field).pack(fill="x",padx=8,pady=(0,4))
+        ctk.CTkButton(right,text="⚙ Generate Output Files",height=40,
+                      fg_color="#1a5c8a",font=ctk.CTkFont(size=13,weight="bold"),
+                      command=self._generate).pack(fill="x",padx=8,pady=(0,4))
+
+        self.log=ctk.CTkTextbox(right,height=85,font=ctk.CTkFont(size=10))
+        self.log.pack(fill="x",padx=8,pady=(0,8))
+        self.log.configure(state="disabled")
+
+        # Hidden track list widget — kept for internal track management logic
+        _hidden_frame=tk.Frame(self)  # never packed
+        self.track_lb=tk.Listbox(_hidden_frame)
+        self.excl_var=tk.StringVar(value="10")
+
+    def _setup_form_traces(self):
+        for v in self.fv.values():
+            v.trace_add("write", self._on_form_change)
+
+    def _on_form_change(self, *_):
+        if not self.show_shelters.get(): return
+        if self._shelter_refresh_id:
+            self.after_cancel(self._shelter_refresh_id)
+        self._shelter_refresh_id = self.after(600, self._redraw_shelters)
+
+    def _init_map(self):
+        self.map_widget=tkintermapview.TkinterMapView(self.map_frame,corner_radius=6)
+        self.map_widget.pack(fill="both",expand=True,padx=6,pady=(4,6))
+        self.map_widget.set_tile_server(SATELLITE_URL,max_zoom=21)
+        self.map_widget.set_position(DEFAULT_LAT,DEFAULT_LON)
+        self.map_widget.set_zoom(DEFAULT_ZOOM)
+        self.map_widget.add_left_click_map_command(self._on_map_click)
+
+    # ── Bay Presets ────────────────────────────────────────────────────────────
+    def _load_bay_presets(self):
+        try:
+            p=DATA_DIR/"bay_presets.json"
+            if p.exists():
+                return json.loads(p.read_text(encoding="utf-8"))
+        except Exception: pass
+        return []
+
+    def _save_bay_presets(self, presets):
+        try:
+            DATA_DIR.mkdir(parents=True,exist_ok=True)
+            (DATA_DIR/"bay_presets.json").write_text(json.dumps(presets,indent=2),encoding="utf-8")
+        except Exception as ex:
+            tkinter.messagebox.showerror("Preset Error",str(ex))
+
+    def _refresh_preset_list(self):
+        presets=self._load_bay_presets()
+        names=[""]+[p["name"] for p in presets]
+        self.preset_cb.configure(values=names)
+
+    def _on_preset_selected(self, name):
+        if not name: return
+        presets=self._load_bay_presets()
+        for p in presets:
+            if p["name"]==name:
+                for k in ("row_spacing_in","planter_width_ft","num_female_rows","num_male_rows"):
+                    if k in p and k in self.fv: self.fv[k].set(str(p[k]))
+                break
+
+    def _save_new_preset(self):
+        name=tkinter.simpledialog.askstring("Save Preset","Preset name:")
+        if not name: return
+        presets=self._load_bay_presets()
+        entry={"name":name,
+               "row_spacing_in":self.fv["row_spacing_in"].get(),
+               "planter_width_ft":self.fv["planter_width_ft"].get(),
+               "num_female_rows":self.fv["num_female_rows"].get(),
+               "num_male_rows":self.fv["num_male_rows"].get()}
+        presets=[p for p in presets if p["name"]!=name]
+        presets.append(entry)
+        self._save_bay_presets(presets)
+        self._refresh_preset_list()
+        self.preset_var.set(name)
+
+    def _delete_preset(self):
+        name=self.preset_var.get()
+        if not name: return
+        presets=[p for p in self._load_bay_presets() if p["name"]!=name]
+        self._save_bay_presets(presets)
+        self._refresh_preset_list()
+        self.preset_var.set("")
+
+    # ── Company / Year ─────────────────────────────────────────────────────────
+    def _refresh_company_list(self):
+        cos=list_companies() or ["Default"]
+        self.company_cb.configure(values=cos)
+        self.company_var.set(cos[0]); self._on_company_change(cos[0])
+
+    def _on_company_change(self,val=None):
+        co=self.company_var.get()
+        yrs=list_years(co) or [str(datetime.date.today().year)]
+        self.year_cb.configure(values=yrs); self.year_var.set(yrs[0]); self._refresh_field_list()
+
+    def _on_year_change(self,val=None): self._refresh_field_list()
+
+    def _new_company(self):
+        n=tkinter.simpledialog.askstring("New Company","Company name:")
+        if n: (DATA_DIR/n).mkdir(parents=True,exist_ok=True); self._refresh_company_list(); self.company_var.set(n); self._on_company_change()
+
+    def _new_year(self):
+        y=tkinter.simpledialog.askstring("New Year","Year:",initialvalue=str(datetime.date.today().year))
+        if y: (DATA_DIR/self.company_var.get()/y).mkdir(parents=True,exist_ok=True); self._on_company_change(); self.year_var.set(y); self._refresh_field_list()
+
+    # ── Field list ─────────────────────────────────────────────────────────────
+    def _refresh_field_list(self):
+        self.field_lb.delete(0,tk.END)
+        for n in list_fields(self.company_var.get(),self.year_var.get()): self.field_lb.insert(tk.END,n)
+
+    def _on_field_select(self,_=None):
+        sel=self.field_lb.curselection()
+        if not sel: return
+        f=load_field(self.company_var.get(),self.year_var.get(),self.field_lb.get(sel[0]))
+        if f: self.current_field=f; self._form_from_field(); self._redraw_all()
+
+    def _new_field(self):
+        self.current_field=blank_field(self.company_var.get(),self.year_var.get())
+        self._form_from_field(); self._clear_all_overlays(); self._status("")
+
+    def _delete_field(self):
+        sel=self.field_lb.curselection()
+        if not sel: return
+        n=self.field_lb.get(sel[0])
+        if tkinter.messagebox.askyesno("Delete",f"Delete '{n}'?"):
+            delete_field_file(self.company_var.get(),self.year_var.get(),n); self._refresh_field_list()
+
+    # ── Form helpers ───────────────────────────────────────────────────────────
+    def _form_from_field(self):
+        f=self.current_field
+        bf=blank_field()
+        for k,v in self.fv.items():
+            val=f.get(k)
+            v.set(str(bf.get(k,"")) if val is None else str(val))
+        self.outside_pass_var.set(f.get("outside_sprayer_pass","No"))
+        self._refresh_track_list()
+        self.current_field.setdefault("corner_arms",[[],[]])
+        self.current_field.setdefault("shelter_overrides",{})
+
+    def _field_from_form(self):
+        f=self.current_field
+        for k,v in self.fv.items(): f[k]=v.get().strip()
+        f["outside_sprayer_pass"]=self.outside_pass_var.get()
+        f["company"]=self.company_var.get(); f["year"]=self.year_var.get()
+        return f
+
+    def _refresh_track_list(self):
+        self.track_lb.delete(0,tk.END)
+        for r in (self.current_field.get("pivot_tracks") or []):
+            self.track_lb.insert(tk.END,"%.1f m  (%.1f ft)"%(r,r/0.3048))
+
+    def _on_track_select(self,_=None): pass
+
+    # ── Map ────────────────────────────────────────────────────────────────────
+    def _switch_tiles(self,mode):
+        self.map_widget.set_tile_server(SATELLITE_URL if mode=="Satellite" else STREET_URL,max_zoom=21)
+
+    def _search_lld(self):
+        res=geocode_lld(self.lld_entry.get())
+        if res is None: self._status("❌ Could not parse LLD"); return
+        lat,lon,label,corners=res
+        self.map_widget.set_position(lat,lon)
+        zoom=15 if label[:2] in ("NE","NW","SE","SW") or label[1:2]=="½" else 13 if label.startswith("Sec") else 11
+        self.map_widget.set_zoom(zoom)
+        if self.lld_boundary_poly:
+            try: self.lld_boundary_poly.delete()
+            except Exception: pass
+        self.lld_boundary_poly=self.map_widget.set_polygon(
+            corners,fill_color=None,outline_color="#FFFF88",border_width=2)
+        self._status(f"→ {label}")
+
+    def _mode_pivot(self):
+        self._close_all_popups()
+        self.click_mode="pivot"; self._status("Click pivot point on map…")
+
+    def _delete_pivot(self):
+        self._close_all_popups()
+        if self.pivot_marker:
+            self.pivot_marker.delete(); self.pivot_marker=None
+        self._unregister_drag_prefix("pivot")
+        self.fv["PP_Latitude"].set(""); self.fv["PP_Longitude"].set("")
+        self._status("Pivot deleted.")
+
+    def _mode_boundary(self):
+        self._close_all_popups()
+        self.click_mode="boundary"; self.boundary_pts=[]; self._clear_boundary_overlays()
+        self._show_context_btn("✔ Close Boundary", self._close_boundary)
+        self._status("Click map to add boundary vertices. ✔ Close when done.")
+
+    def _mode_edit_boundary(self):
+        self._close_all_popups()
+        bp=self.current_field.get("boundary_polygon")
+        if not bp or len(bp)<3:
+            self._status("Draw a boundary first."); return
+        self.boundary_pts=[tuple(p) for p in bp]
+        self._clear_boundary_overlays()
+        self._unregister_drag_prefix("bnd_")
+        self.boundary_markers=[]
+        for i,(lat,lon) in enumerate(self.boundary_pts):
+            m=self.map_widget.set_marker(lat,lon,text=str(i+1),
+                                          marker_color_circle="#FFD700",marker_color_outside="#B8860B",
+                                          command=self._make_bnd_vertex_cb(i))
+            self.boundary_markers.append(m)
+            self._register_drag(f"bnd_{i}",lat,lon,str(i+1),"#FFD700","#B8860B",
+                                lambda la,lo,i=i: self._on_bnd_vertex_drag(i,la,lo))
+        self._update_bnd_preview()
+        self.click_mode="boundary_edit"
+        self._show_context_btn("✔ Done Editing", self._close_boundary)
+        self._status("Click a vertex to move it, then click the new location. ✔ Done when finished.")
+
+    def _make_bnd_vertex_cb(self,idx):
+        def cb(marker):
+            if self._just_dragged:
+                self._just_dragged=False; return
+            self.click_mode=("move_boundary_vertex",idx)
+            self._status(f"Click new location for vertex {idx+1}")
+        return cb
+
+    def _upload_boundary(self):
+        self._close_all_popups()
+        path=tkinter.filedialog.askopenfilename(
+            title="Open boundary file",
+            filetypes=[("Boundary files","*.shp *.kml *.kmz"),
+                       ("Shapefiles","*.shp"),("KML","*.kml"),("KMZ","*.kmz"),("All","*.*")])
+        if not path: return
+        try:
+            ext=Path(path).suffix.lower()
+            pts=[]
+            if ext==".shp":
+                import shapefile as sf_mod
+                r=sf_mod.Reader(path)
+                shape=r.shape(0)
+                pts=[(lat,lon) for lon,lat in shape.points]
+            elif ext==".kml":
+                pts=self._parse_kml_coords(path)
+            elif ext==".kmz":
+                with zipfile.ZipFile(path) as zf:
+                    kml_name=next(n for n in zf.namelist() if n.endswith(".kml"))
+                    kml_text=zf.read(kml_name).decode("utf-8")
+                pts=self._parse_kml_coords_text(kml_text)
+            if len(pts)<3:
+                tkinter.messagebox.showerror("Upload Error","Boundary must have at least 3 points."); return
+            self.current_field["boundary_polygon"]=[list(p) for p in pts]
+            self.boundary_pts=pts
+            self._redraw_boundary()
+            self._status(f"Boundary loaded: {len(pts)} vertices from {Path(path).name}")
+        except Exception as ex:
+            tkinter.messagebox.showerror("Upload Error",str(ex))
+
+    def _parse_kml_coords(self,path):
+        with open(path,encoding="utf-8") as fh: text=fh.read()
+        return self._parse_kml_coords_text(text)
+
+    def _parse_kml_coords_text(self,text):
+        root=ET.fromstring(text)
+        ns_match=re.match(r'\{[^}]+\}',root.tag)
+        ns=ns_match.group(0) if ns_match else ""
+        for elem in root.iter(f"{ns}coordinates"):
+            raw=elem.text.strip()
+            pts=[]
+            for token in raw.split():
+                parts=token.split(",")
+                if len(parts)>=2:
+                    lon,lat=float(parts[0]),float(parts[1])
+                    pts.append((lat,lon))
+            if pts: return pts
+        return []
+
+    def _mode_track(self):
+        self._close_all_popups()
+        if not self.fv["PP_Latitude"].get(): self._status("Set pivot first."); return
+        self.click_mode="track"; self._status("Click on map to set track radius from pivot…")
+
+    def _on_map_click(self,coords):
+        lat,lon=coords
+        mode=self.click_mode
+
+        if mode=="pivot":
+            self.fv["PP_Latitude"].set(f"{lat:.7f}"); self.fv["PP_Longitude"].set(f"{lon:.7f}")
+            if self.pivot_marker: self.pivot_marker.delete()
+            self.pivot_marker=self.map_widget.set_marker(lat,lon,text="Pivot",
+                                                          marker_color_circle="red",
+                                                          marker_color_outside="darkred")
+            self._register_drag("pivot",lat,lon,"Pivot","red","darkred",self._on_pivot_drag)
+            self.click_mode=None; self._status(f"Pivot: {lat:.5f}, {lon:.5f}")
+            self._redraw_boundary(); self._redraw_passes(); self._redraw_tracks()
+
+        elif mode=="boundary":
+            self.boundary_pts.append((lat,lon))
+            m=self.map_widget.set_marker(lat,lon,text=str(len(self.boundary_pts)),
+                                          marker_color_circle="#FFD700",marker_color_outside="#B8860B")
+            self.boundary_markers.append(m); self._update_bnd_preview()
+
+        elif mode=="boundary_edit":
+            pass
+
+        elif isinstance(mode,tuple) and mode[0]=="move_boundary_vertex":
+            idx=mode[1]
+            self.boundary_pts[idx]=(lat,lon)
+            try: self.boundary_markers[idx].delete()
+            except Exception: pass
+            m=self.map_widget.set_marker(lat,lon,text=str(idx+1),
+                                          marker_color_circle="#FFD700",marker_color_outside="#B8860B",
+                                          command=self._make_bnd_vertex_cb(idx))
+            self.boundary_markers[idx]=m
+            self._register_drag(f"bnd_{idx}",lat,lon,str(idx+1),"#FFD700","#B8860B",
+                                lambda la,lo,i=idx: self._on_bnd_vertex_drag(i,la,lo))
+            self._update_bnd_preview()
+            self.click_mode="boundary_edit"
+            self._status("Vertex moved. Click another vertex or ✔ Done Editing.")
+
+        elif mode=="track":
+            try:
+                plat=float(self.fv["PP_Latitude"].get()); plon=float(self.fv["PP_Longitude"].get())
+            except ValueError: self._status("Set pivot first."); return
+            r_m=haversine_m(plat,plon,lat,lon)
+            self.current_field.setdefault("pivot_tracks",[]).append(round(r_m,2))
+            self.click_mode=None; self._status(f"Track added: {r_m:.1f} m ({r_m/0.3048:.1f} ft)")
+            self._refresh_track_list(); self._redraw_tracks()
+
+        elif isinstance(mode,tuple) and mode[0]=="resize_track":
+            idx=mode[1]
+            try: self.map_widget.canvas.unbind("<Motion>")
+            except AttributeError: pass
+            try:
+                plat=float(self.fv["PP_Latitude"].get()); plon=float(self.fv["PP_Longitude"].get())
+            except ValueError: self.click_mode=None; return
+            r_m=haversine_m(plat,plon,lat,lon)
+            self.current_field["pivot_tracks"][idx]=round(r_m,2)
+            self.click_mode=None; self._status(f"Track {idx+1} set: {r_m:.1f} m ({r_m/0.3048:.1f} ft)")
+            self._refresh_track_list(); self._redraw_tracks()
+
+        elif isinstance(mode,tuple) and mode[0]=="move_shelter":
+            idx=mode[1]
+            overrides=self.current_field.setdefault("shelter_overrides",{})
+            overrides[str(idx)]=[lat,lon]
+            self.click_mode=None; self.moving_shelter_idx=None
+            self._status(f"Shelter #{idx+1} moved — save field to keep.")
+            self._redraw_shelters()
+
+        elif mode=="corner_arm":
+            self.corner_arm_pts.append([lat,lon])
+            arm_colors=["#CC44FF","#44CCFF"]
+            col=arm_colors[self.corner_arm_drawing_idx]
+            m=self.map_widget.set_marker(lat,lon,text=str(len(self.corner_arm_pts)),
+                                          marker_color_circle=col,marker_color_outside=col)
+            self.corner_arm_temp_markers.append(m)
+            self._update_arm_preview()
+            self._status(f"Arm {self.corner_arm_drawing_idx+1}: {len(self.corner_arm_pts)} pts — click to add more, ✔ Done when finished")
+
+    # ── Boundary ───────────────────────────────────────────────────────────────
+    def _close_boundary(self):
+        if len(self.boundary_pts)<3: self._status("Need ≥ 3 points."); return
+        self.current_field["boundary_polygon"]=[list(p) for p in self.boundary_pts]
+        self.click_mode=None
+        self._hide_context_btn()
+        self._clear_boundary_markers(); self._redraw_boundary()
+        self._status(f"Boundary set ({len(self.boundary_pts)} vertices).")
+        self.boundary_pts=[]; self._redraw_passes()
+        if self.show_shelters.get(): self._redraw_shelters()
+
+    def _clear_boundary(self):
+        self._close_all_popups()
+        self.current_field["boundary_polygon"]=None; self.boundary_pts=[]; self.click_mode=None
+        self._hide_context_btn(); self._clear_boundary_overlays()
+        self._status("Boundary cleared."); self._clear_passes(); self._clear_shelters()
+
+    def _clear_boundary_markers(self):
+        for m in self.boundary_markers:
+            try: m.delete()
+            except Exception: pass
+        self.boundary_markers=[]
+
+    def _clear_boundary_overlays(self):
+        self._unregister_drag_prefix("bnd_")
+        self._clear_boundary_markers()
+        if self.boundary_poly: self.boundary_poly.delete(); self.boundary_poly=None
+
+    def _update_bnd_preview(self):
+        if self.boundary_poly: self.boundary_poly.delete()
+        if len(self.boundary_pts)>=2:
+            self.boundary_poly=self.map_widget.set_polygon(
+                self.boundary_pts,fill_color=None,outline_color="#FFD700",border_width=2)
+
+    def _redraw_boundary(self):
+        if self.boundary_poly: self.boundary_poly.delete(); self.boundary_poly=None
+        bp=self.current_field.get("boundary_polygon")
+        if bp and len(bp)>=3:
+            self.boundary_poly=self.map_widget.set_polygon(
+                [tuple(p) for p in bp],fill_color=None,outline_color="#00FF88",border_width=2)
+
+    def _on_bnd_vertex_drag(self,idx,lat,lon):
+        self.boundary_pts[idx]=(lat,lon)
+        try: self.boundary_markers[idx].delete()
+        except Exception: pass
+        m=self.map_widget.set_marker(lat,lon,text=str(idx+1),
+                                      marker_color_circle="#FFD700",marker_color_outside="#B8860B",
+                                      command=self._make_bnd_vertex_cb(idx))
+        self.boundary_markers[idx]=m
+        self._register_drag(f"bnd_{idx}",lat,lon,str(idx+1),"#FFD700","#B8860B",
+                            lambda la,lo,i=idx: self._on_bnd_vertex_drag(i,la,lo))
+        self._update_bnd_preview()
+
+    # ── Pivot tracks ───────────────────────────────────────────────────────────
+    def _add_track_manual(self):
+        use_m=self.unit_var.get()=="Metres"
+        unit_label="metres" if use_m else "feet"
+        val=tkinter.simpledialog.askfloat("Pivot Track",f"Radius from pivot ({unit_label}):")
+        if val is None: return
+        r_m=val if use_m else val*0.3048
+        self.current_field.setdefault("pivot_tracks",[]).append(round(r_m,2))
+        self._refresh_track_list(); self._redraw_tracks()
+
+    def _remove_track(self):
+        sel=self.track_lb.curselection()
+        if not sel: return
+        del self.current_field["pivot_tracks"][sel[0]]
+        self._refresh_track_list(); self._redraw_tracks()
+        if self.show_shelters.get(): self._redraw_shelters()
+
+    def _toggle_tracks(self):
+        self._close_all_popups()
+        self.show_tracks.set(not self.show_tracks.get())
+        self._redraw_tracks()
+
+    def _mode_edit_track(self):
+        self._close_all_popups()
+        tracks=self.current_field.get("pivot_tracks") or []
+        if not tracks:
+            self._status("No pivot tracks — use Draw Circle to add one."); return
+        self._status("Click and drag the ↔ handle to resize a track.")
+
+    def _mode_delete_track_ui(self):
+        self._close_all_popups()
+        tracks=self.current_field.get("pivot_tracks") or []
+        if not tracks:
+            self._status("No pivot tracks to delete."); return
+        win=ctk.CTkToplevel(self)
+        win.title("Delete Pivot Track")
+        win.geometry("320x220")
+        win.grab_set()
+        ctk.CTkLabel(win,text="Select track to delete:").pack(pady=(12,4))
+        lb=tk.Listbox(win,bg="#2b2b2b",fg="#FFA040",selectbackground="#4a3010",
+                      relief="flat",font=("Segoe UI",11),height=5,
+                      activestyle="none",highlightthickness=0)
+        for i,r in enumerate(tracks):
+            lb.insert(tk.END,f"Track {i+1}: {r:.1f} m  ({r/0.3048:.1f} ft)")
+        lb.pack(fill="x",padx=10,pady=4)
+        def do_delete():
+            sel=lb.curselection()
+            if not sel: return
+            del self.current_field["pivot_tracks"][sel[0]]
+            self._refresh_track_list(); self._redraw_tracks()
+            if self.show_shelters.get(): self._redraw_shelters()
+            win.destroy(); self._status("Track deleted.")
+        ctk.CTkButton(win,text="Delete Selected",fg_color="#6b1a1a",command=do_delete).pack(pady=(4,2))
+        ctk.CTkButton(win,text="Cancel",command=win.destroy).pack()
+
+    def _make_resize_cb(self,idx):
+        pass  # replaced by drag system
+
+    def _on_track_resize_motion(self,event):
+        pass  # replaced by drag system
+
+    def _redraw_tracks(self):
+        self._unregister_drag_prefix("track_")
+        for o in self.track_circles:
+            try: o.delete()
+            except Exception: pass
+        for h in self.track_handles:
+            try: h.delete()
+            except Exception: pass
+        self.track_circles=[]; self.track_handles=[]
+        if not self.show_tracks.get(): return
+        try:
+            plat=float(self.fv["PP_Latitude"].get()); plon=float(self.fv["PP_Longitude"].get())
+        except (ValueError,TypeError): return
+        excl_m=float(self.excl_var.get() or "10")*0.3048
+        for i,r_m in enumerate(self.current_field.get("pivot_tracks") or []):
+            for r,col,w in [(r_m+excl_m,"#FF6600",2),(max(1,r_m-excl_m),"#FF6600",1)]:
+                self.track_circles.append(self.map_widget.set_polygon(
+                    circle_pts(plat,plon,r),fill_color=None,outline_color=col,border_width=w))
+            hlat=plat; hlon=plon+r_m/(111111*math.cos(math.radians(plat)))
+            h=self.map_widget.set_marker(hlat,hlon,text="↔",marker_color_circle="#999999",
+                                          marker_color_outside="#555555")
+            self.track_handles.append(h)
+            self._register_drag(f"track_{i}",hlat,hlon,"↔","#999999","#555555",
+                                lambda la,lo,i=i: self._on_track_drag(i,la,lo))
+        if self.show_shelters.get(): self._redraw_shelters()
+
+    def _on_track_drag(self,idx,lat,lon):
+        try:
+            plat=float(self.fv["PP_Latitude"].get()); plon=float(self.fv["PP_Longitude"].get())
+        except ValueError: return
+        r_m=haversine_m(plat,plon,lat,lon)
+        self.current_field["pivot_tracks"][idx]=round(r_m,2)
+        self._status(f"Track {idx+1}: {r_m:.1f} m ({r_m/0.3048:.1f} ft)")
+        self._refresh_track_list(); self._redraw_tracks()
+
+    # ── Corner arms ───────────────────────────────────────────────────────────
+    def _mode_corner_arm(self,idx):
+        self._close_all_popups()
+        self._cancel_corner_arm_drawing()
+        self.corner_arm_drawing_idx=idx; self.corner_arm_pts=[]
+        self.click_mode="corner_arm"
+        self._show_context_btn("✔ Done Arm", self._finish_corner_arm)
+        self._status(f"Drawing Corner Arm {idx+1} — click map to place path points, ✔ Done when finished")
+
+    def _update_arm_preview(self):
+        if len(self.corner_arm_pts)<2: return
+        arm_colors=["#CC44FF","#44CCFF"]
+        col=arm_colors[self.corner_arm_drawing_idx]
+        if self.corner_arm_paths[self.corner_arm_drawing_idx]:
+            try: self.corner_arm_paths[self.corner_arm_drawing_idx].delete()
+            except Exception: pass
+        try:
+            self.corner_arm_paths[self.corner_arm_drawing_idx]=self.map_widget.set_path(
+                [(lat,lon) for lat,lon in self.corner_arm_pts],color=col,width=3)
+        except Exception: pass
+
+    def _finish_corner_arm(self):
+        if self.corner_arm_drawing_idx is None: return
+        if len(self.corner_arm_pts)<2:
+            self._status("Need at least 2 points for a corner arm path."); return
+        arms=self.current_field.setdefault("corner_arms",[[],[]])
+        while len(arms)<=self.corner_arm_drawing_idx: arms.append([])
+        arms[self.corner_arm_drawing_idx]=[list(p) for p in self.corner_arm_pts]
+        self._clear_corner_arm_temp()
+        self.click_mode=None
+        self._hide_context_btn()
+        self._status(f"Corner Arm {self.corner_arm_drawing_idx+1} saved ({len(self.corner_arm_pts)} pts).")
+        self.corner_arm_drawing_idx=None; self.corner_arm_pts=[]
+        self._redraw_corner_arms()
+
+    def _cancel_corner_arm_drawing(self):
+        self._clear_corner_arm_temp()
+        self.click_mode=None
+        self._hide_context_btn()
+        self.corner_arm_drawing_idx=None; self.corner_arm_pts=[]
+
+    def _clear_corner_arm_temp(self):
+        for m in self.corner_arm_temp_markers:
+            try: m.delete()
+            except Exception: pass
+        self.corner_arm_temp_markers=[]
+
+    def _clear_corner_arm(self,idx):
+        self._cancel_corner_arm_drawing()
+        arms=self.current_field.get("corner_arms") or [[],[]]
+        if idx<len(arms): arms[idx]=[]
+        if self.corner_arm_paths[idx]:
+            try: self.corner_arm_paths[idx].delete()
+            except Exception: pass
+            self.corner_arm_paths[idx]=None
+        self._status(f"Corner Arm {idx+1} cleared.")
+
+    def _redraw_corner_arms(self):
+        arm_colors=["#CC44FF","#44CCFF"]
+        arms=self.current_field.get("corner_arms") or [[],[]]
+        for idx in range(2):
+            if self.corner_arm_paths[idx]:
+                try: self.corner_arm_paths[idx].delete()
+                except Exception: pass
+                self.corner_arm_paths[idx]=None
+            pts=arms[idx] if idx<len(arms) else []
+            if len(pts)>=2:
+                try:
+                    self.corner_arm_paths[idx]=self.map_widget.set_path(
+                        [(p[0],p[1]) for p in pts],color=arm_colors[idx],width=3)
+                except Exception: pass
+
+    # ── Sprayer passes extras ──────────────────────────────────────────────────
+    def _mode_edit_passes(self):
+        self._close_all_popups()
+        self._status("Sprayer pass editing: adjust Spray Angle or Sprayer Width in Field Details, then Toggle on/off to refresh.")
+
+    def _import_jd_passes(self):
+        self._close_all_popups()
+        path=tkinter.filedialog.askopenfilename(
+            title="Open John Deere Operation GeoJSON",
+            filetypes=[("GeoJSON","*.geojson *.json"),("All","*.*")])
+        if not path: return
+        try:
+            with open(path,encoding="utf-8") as fh:
+                gj=json.load(fh)
+            self._clear_passes()
+            count=0
+            features=gj.get("features",[]) if isinstance(gj,dict) else []
+            for feat in features:
+                geom=feat.get("geometry") or {}
+                gtype=geom.get("type","")
+                coords=geom.get("coordinates",[])
+                lines=[]
+                if gtype=="LineString": lines=[coords]
+                elif gtype=="MultiLineString": lines=coords
+                for line in lines:
+                    pts=[(c[1],c[0]) for c in line if len(c)>=2]
+                    if len(pts)>=2:
+                        try:
+                            p=self.map_widget.set_path(pts,color="#FF3333",width=1)
+                            self.pass_paths.append(p); count+=1
+                        except Exception: pass
+            self.show_passes.set(True)
+            self._status(f"Loaded {count} pass lines from {Path(path).name}")
+        except Exception as ex:
+            tkinter.messagebox.showerror("Import Error",str(ex))
+
+    # ── Planter passes extras ──────────────────────────────────────────────────
+    def _mode_edit_bays(self):
+        self._close_all_popups()
+        self._status("Bay editing: adjust Row Spacing / Female Rows / Male Rows in Bay Calculator, then recalculate.")
+
+    # ── Shelter preview ────────────────────────────────────────────────────────
+    def _toggle_shelters(self):
+        self.show_shelters.set(not self.show_shelters.get())
+        if self.show_shelters.get():
+            self.btn_shelters.configure(fg_color="#8a5000",text="🏠 Hide Shelters")
+            self.btn_shelter_labels.configure(state="normal")
+            self._redraw_shelters()
+        else:
+            self.btn_shelters.configure(fg_color="#5a3000",text="🏠 Show Shelters")
+            self.btn_shelter_labels.configure(state="disabled")
+            self._clear_shelters()
+
+    def _toggle_shelter_labels(self):
+        self.show_shelter_labels.set(not self.show_shelter_labels.get())
+        if self.show_shelter_labels.get():
+            self.btn_shelter_labels.configure(fg_color="#1a5a8a",text="🔢 Hide Numbers")
+        else:
+            self.btn_shelter_labels.configure(fg_color="#3a3a3a",text="🔢 Show Numbers")
+        if self.show_shelters.get():
+            self._redraw_shelters()
+
+    def _clear_shelters(self):
+        self._unregister_drag_prefix("shelter_")
+        for m in self.shelter_markers:
+            try: m.delete()
+            except Exception: pass
+        self.shelter_markers=[]
+        for p in self.shelter_circle_polys:
+            try: p.delete()
+            except Exception: pass
+        self.shelter_circle_polys=[]
+
+    def _reset_shelter_overrides(self):
+        self.current_field["shelter_overrides"]={}
+        if self.show_shelters.get(): self._redraw_shelters()
+        self._status("Shelter position overrides cleared.")
+
+    def _make_shelter_move_cb(self,idx):
+        def cb(marker):
+            self.moving_shelter_idx=idx
+            self.click_mode=("move_shelter",idx)
+            self._status(f"Click new location for shelter #{idx+1} (or click elsewhere to cancel)")
+        return cb
+
+    def _on_shelter_drag(self,idx,lat,lon):
+        overrides=self.current_field.setdefault("shelter_overrides",{})
+        overrides[str(idx)]=[lat,lon]
+        self._status(f"Shelter #{idx+1} moved — save field to keep.")
+        self._redraw_shelters()
+
+    def _redraw_shelters(self):
+        self._clear_shelters()
+        if not self.show_shelters.get(): return
+        f=self._field_from_form()
+        use_m=self.unit_var.get()=="Metres"
+        positions=maketentgrid.get_tent_positions(f,use_metric=use_m)
+        if not positions:
+            self._status("⚠ No shelter positions — check field details and boundary.")
+            return
+        overrides=self.current_field.get("shelter_overrides") or {}
+        merged=list(positions)
+        for k,v in overrides.items():
+            try:
+                idx=int(k)
+                if 0<=idx<len(merged): merged[idx]=tuple(v)
+            except (ValueError,TypeError): pass
+        self.shelter_positions=list(merged)
+        show_lbl=self.show_shelter_labels.get()
+        show_circles=self.shelter_circle_var.get()
+        BUFFER_M=1.524  # 5 ft radius = 10 ft diameter
+        for i,(lat,lon) in enumerate(merged):
+            lbl=str(i+1) if show_lbl else "•"
+            cc="#FFFF00" if show_lbl else "#FFD700"
+            oc="#B8860B"
+            try:
+                m=self.map_widget.set_marker(lat,lon,text=lbl,
+                                              marker_color_circle=cc,
+                                              marker_color_outside=oc)
+                self.shelter_markers.append(m)
+                self._register_drag(f"shelter_{i}",lat,lon,lbl,cc,oc,
+                                    lambda la,lo,i=i: self._on_shelter_drag(i,la,lo))
+            except Exception: pass
+            if show_circles:
+                try:
+                    p=self.map_widget.set_polygon(
+                        circle_pts(lat,lon,BUFFER_M,n=36),
+                        fill_color=None,outline_color="#FF4400",border_width=1)
+                    self.shelter_circle_polys.append(p)
+                except Exception: pass
+        self._status(f"{len(merged)} shelters displayed.")
+
+    # ── Sprayer pass overlay ───────────────────────────────────────────────────
+    def _toggle_passes(self):
+        self._close_all_popups()
+        self.show_passes.set(not self.show_passes.get())
+        if self.show_passes.get():
+            self._redraw_passes()
+        else:
+            self._clear_passes()
+
+    def _clear_passes(self):
+        for p in self.pass_paths:
+            try: p.delete()
+            except Exception: pass
+        self.pass_paths=[]
+        if self.outer_sprayer_poly:
+            try: self.outer_sprayer_poly.delete()
+            except Exception: pass
+            self.outer_sprayer_poly=None
+
+    def _redraw_passes(self):
+        self._clear_passes()
+        try:
+            plat=float(self.fv["PP_Latitude"].get()); plon=float(self.fv["PP_Longitude"].get())
+            angle=float(self.fv["Spray_angle"].get() or 0)
+            width_ft=float(self.fv["Sprayer_width"].get() or 133)
+            width_m=width_ft*0.3048
+            bp=self.current_field.get("boundary_polygon")
+        except (ValueError,TypeError): return
+        if not bp or len(bp)<3: return
+
+        poly_enu=[(latlon_to_enu(lat,lon,plat,plon)) for lat,lon in bp]
+        max_r=max(math.sqrt(e*e+n*n) for e,n in poly_enu)*1.1
+
+        # Always draw the outer sprayer limit — one sprayer-width inside the boundary
+        inset=inset_polygon_enu(poly_enu,width_m)
+        if len(inset)>=3:
+            lpts=[enu_to_latlon(e,n,plat,plon) for e,n in inset]
+            try:
+                self.outer_sprayer_poly=self.map_widget.set_polygon(
+                    lpts,fill_color=None,outline_color="#FF2200",border_width=2)
+            except Exception: pass
+
+        if not self.show_passes.get(): return
+
+        rot=math.radians((0-angle+180)%360-180)
+        cos_r,sin_r=math.cos(rot),math.sin(rot)
+        tdx=-sin_r; tdy=cos_r
+
+        max_rows=int(max_r/width_m)+2
+        for r in range(-max_rows,max_rows+1):
+            lat_e=r*width_m; lat_n=0
+            pe=lat_e*cos_r-lat_n*sin_r; pn=lat_n*cos_r+lat_e*sin_r
+
+            res=clip_line_to_polygon(pe,pn,tdx,tdy,poly_enu)
+            if res is None: continue
+            t1,t2=res
+            e1,n1=pe+t1*tdx,pn+t1*tdy
+            e2,n2=pe+t2*tdx,pn+t2*tdy
+            lat1,lon1=enu_to_latlon(e1,n1,plat,plon)
+            lat2,lon2=enu_to_latlon(e2,n2,plat,plon)
+            try:
+                path=self.map_widget.set_path([(lat1,lon1),(lat2,lon2)],color="#FF3333",width=1)
+                self.pass_paths.append(path)
+            except Exception:
+                pass
+
+    # ── Unit label refresh ─────────────────────────────────────────────────────
+    def _on_unit_change(self,val=None):
+        self._refresh_unit_labels()
+
+    def _refresh_unit_labels(self):
+        u=self.unit_var.get(); m=u=="Metres"; abb="m" if m else "ft"
+        if "spacing" in self.field_labels:
+            self.field_labels["spacing"].configure(text=f"Shelter Spacing ({abb})")
+        if "directional_offset" in self.field_labels:
+            self.field_labels["directional_offset"].configure(text=f"Directional Offset ({abb})")
+        if hasattr(self,"female_bay_lbl"):
+            txt=self.female_bay_lbl.cget("text")
+            if txt!="Female bay width: —": self._calc_bays()
+
+    # ── Bay layout overlay ─────────────────────────────────────────────────────
+    def _calc_bays(self):
+        try:
+            rs=float(self.fv["row_spacing_in"].get() or 22)
+            nf=int(self.fv["num_female_rows"].get() or 8)
+            nm=int(self.fv["num_male_rows"].get() or 2)
+        except (ValueError,TypeError):
+            self._status("Enter numeric values for row spacing and row counts."); return
+        f_in=(nf+1)*rs; m_in=(nm+1)*rs
+        f_ft=f_in/12; m_ft=m_in/12; f_m=f_ft*0.3048; m_m=m_ft*0.3048
+        use_m=self.unit_var.get()=="Metres"
+        if use_m:
+            self.female_bay_lbl.configure(text=f'Female bay: {f_in:.1f}" = {f_m:.3f} m')
+            self.male_bay_lbl.configure(text=f'Male bay:   {m_in:.1f}" = {m_m:.3f} m')
+        else:
+            self.female_bay_lbl.configure(text=f'Female bay: {f_in:.1f}" = {f_ft:.3f} ft')
+            self.male_bay_lbl.configure(text=f'Male bay:   {m_in:.1f}" = {m_ft:.3f} ft')
+        total_ft=f_ft+m_ft
+        self.fv["Sprayer_width"].set(f"{total_ft:.3f}")
+        self._status(f"Bay layout: female {f_in:.0f}\" ({f_ft:.2f} ft), male {m_in:.0f}\" ({m_ft:.2f} ft)")
+        if self.show_bays.get(): self._redraw_bays()
+        if self.show_shelters.get(): self._redraw_shelters()
+
+    def _toggle_bays(self):
+        self._close_all_popups()
+        self.show_bays.set(not self.show_bays.get())
+        if self.show_bays.get():
+            self._redraw_bays()
+        else:
+            self._clear_bays()
+
+    def _clear_bays(self):
+        for p in self.bay_polygons:
+            try: p.delete()
+            except Exception: pass
+        self.bay_polygons=[]
+
+    def _band_polygon_enu(self,x1,x2,tdx,tdy,ldx,ldy,poly_enu):
+        p1e,p1n=x1*ldx,x1*ldy; p2e,p2n=x2*ldx,x2*ldy
+        r1=clip_line_to_polygon(p1e,p1n,tdx,tdy,poly_enu)
+        r2=clip_line_to_polygon(p2e,p2n,tdx,tdy,poly_enu)
+        if r1 is None and r2 is None: return None
+        if r1 is None: r1=r2
+        if r2 is None: r2=r1
+        t0=min(r1[0],r2[0]); t1=max(r1[1],r2[1])
+        return [(p1e+t0*tdx,p1n+t0*tdy),(p2e+t0*tdx,p2n+t0*tdy),
+                (p2e+t1*tdx,p2n+t1*tdy),(p1e+t1*tdx,p1n+t1*tdy)]
+
+    def _redraw_bays(self):
+        self._clear_bays()
+        if not self.show_bays.get(): return
+        try:
+            plat=float(self.fv["PP_Latitude"].get()); plon=float(self.fv["PP_Longitude"].get())
+            angle=float(self.fv["Spray_angle"].get() or 0)
+            rs=float(self.fv["row_spacing_in"].get() or 22)
+            nf=int(self.fv["num_female_rows"].get() or 8)
+            nm=int(self.fv["num_male_rows"].get() or 2)
+            bp=self.current_field.get("boundary_polygon")
+        except (ValueError,TypeError): return
+        if not bp or len(bp)<3: return
+        row_m=rs*0.0254; female_m=(nf+1)*row_m; male_m=(nm+1)*row_m
+        poly_enu=[latlon_to_enu(lat,lon,plat,plon) for lat,lon in bp]
+        max_r=max(math.sqrt(e*e+n*n) for e,n in poly_enu)*1.1
+        rot=math.radians((180-angle)%360-180)
+        cos_r,sin_r=math.cos(rot),math.sin(rot)
+        tdx=-sin_r; tdy=cos_r
+        ldx=cos_r; ldy=sin_r
+        unit=female_m+male_m
+        n_units=int(max_r/unit)+2
+        for i in range(-n_units,n_units+1):
+            cx=i*unit
+            band=self._band_polygon_enu(cx-female_m/2,cx+female_m/2,tdx,tdy,ldx,ldy,poly_enu)
+            if band:
+                lpts=[enu_to_latlon(e,n,plat,plon) for e,n in band]
+                try:
+                    p=self.map_widget.set_polygon(lpts,fill_color="#002266",outline_color="#002266",border_width=0)
+                    self.bay_polygons.append(p)
+                except Exception: pass
+            band=self._band_polygon_enu(cx+female_m/2,cx+female_m/2+male_m,tdx,tdy,ldx,ldy,poly_enu)
+            if band:
+                lpts=[enu_to_latlon(e,n,plat,plon) for e,n in band]
+                try:
+                    p=self.map_widget.set_polygon(lpts,fill_color="#003300",outline_color="#003300",border_width=0)
+                    self.bay_polygons.append(p)
+                except Exception: pass
+
+    # ── Full overlay refresh ───────────────────────────────────────────────────
+    def _redraw_all(self):
+        f=self.current_field
+        try:
+            plat=float(f.get("PP_Latitude",0) or 0); plon=float(f.get("PP_Longitude",0) or 0)
+            if plat and plon:
+                self.map_widget.set_position(plat,plon); self.map_widget.set_zoom(14)
+                if self.pivot_marker: self.pivot_marker.delete()
+                self.pivot_marker=self.map_widget.set_marker(plat,plon,text="Pivot",
+                                                              marker_color_circle="red",
+                                                              marker_color_outside="darkred")
+                self._register_drag("pivot",plat,plon,"Pivot","red","darkred",self._on_pivot_drag)
+        except (ValueError,TypeError): pass
+        self._redraw_boundary(); self._redraw_tracks(); self._redraw_passes(); self._redraw_bays(); self._redraw_corner_arms(); self._redraw_shelters()
+
+    def _clear_all_overlays(self):
+        if self.pivot_marker: self.pivot_marker.delete(); self.pivot_marker=None
+        self._unregister_drag_prefix("pivot")
+        self._clear_boundary_overlays(); self._clear_passes(); self._clear_bays()
+        for o in self.track_circles:
+            try: o.delete()
+            except Exception: pass
+        for h in self.track_handles:
+            try: h.delete()
+            except Exception: pass
+        self.track_circles=[]; self.track_handles=[]
+        self._clear_corner_arm(0); self._clear_corner_arm(1)
+        self._clear_shelters()
+
+    # ── Pivot drag handler ─────────────────────────────────────────────────────
+    def _on_pivot_drag(self,lat,lon):
+        self.fv["PP_Latitude"].set(f"{lat:.7f}"); self.fv["PP_Longitude"].set(f"{lon:.7f}")
+        if self.pivot_marker:
+            try: self.pivot_marker.delete()
+            except Exception: pass
+        self.pivot_marker=self.map_widget.set_marker(lat,lon,text="Pivot",
+                                                      marker_color_circle="red",
+                                                      marker_color_outside="darkred")
+        self._register_drag("pivot",lat,lon,"Pivot","red","darkred",self._on_pivot_drag)
+        self._status(f"Pivot moved: {lat:.5f}, {lon:.5f}")
+        self._redraw_boundary(); self._redraw_passes(); self._redraw_tracks()
+
+    # ── Drag system ────────────────────────────────────────────────────────────
+    def _register_drag(self,key,lat,lon,text,cc,oc,update_fn):
+        self._drag_registry[key]=dict(lat=lat,lon=lon,text=text,
+                                       circle_color=cc,outside_color=oc,update_fn=update_fn)
+
+    def _unregister_drag_prefix(self,prefix):
+        for k in [k for k in self._drag_registry if k.startswith(prefix)]:
+            del self._drag_registry[k]
+
+    def _pixel_scale(self):
+        try:
+            mw=self.map_widget
+            w,h=mw.winfo_width()//2,mw.winfo_height()//2
+            la,lo=mw.convert_canvas_coords_to_decimal_coords(w,h)
+            la2,lo2=mw.convert_canvas_coords_to_decimal_coords(w+1,h)
+            return haversine_m(la,lo,la2,lo2)
+        except Exception:
+            return 5.0
+
+    def _bind_drag_system(self):
+        canvas=self.map_widget.canvas
+        # Replace tkintermapview's handlers entirely; forward to them when not dragging a pin
+        canvas.bind("<ButtonPress-1>",self._drag_press)
+        canvas.bind("<ButtonRelease-1>",self._drag_release)
+        canvas.bind("<B1-Motion>",self._b1_motion)
+        # Remove any leftover temp ovals from previous sessions
+        try: canvas.delete("drag_temp")
+        except Exception: pass
+
+    def _drag_press(self,event):
+        best_id=None
+        if self._drag_registry:
+            try:
+                lat0,lon0=self.map_widget.convert_canvas_coords_to_decimal_coords(event.x,event.y)
+                mpp=self._pixel_scale()
+                threshold_m=max(50*mpp,30.0)
+                best_dist=threshold_m
+                for did,info in self._drag_registry.items():
+                    d=haversine_m(info['lat'],info['lon'],lat0,lon0)
+                    if d<best_dist:
+                        best_dist=d; best_id=did
+            except Exception:
+                best_id=None
+        if best_id:
+            self._drag_item=best_id
+            self._drag_last_latlon=(lat0,lon0)
+            self._drag_start_xy=(event.x,event.y)
+            self._drag_moved=False
+            # Park tkintermapview's scan reference so it won't pan while we drag the pin
+            try: self.map_widget.canvas.scan_mark(event.x,event.y)
+            except Exception: pass
+        else:
+            # Not hitting a pin — let tkintermapview handle panning normally
+            try: self.map_widget.button_press(event)
+            except Exception:
+                try: self.map_widget.canvas.scan_mark(event.x,event.y)
+                except Exception: pass
+
+    def _b1_motion(self,event):
+        if self._drag_item:
+            # Keep resetting tkintermapview's scan reference so the canvas doesn't pan
+            try: self.map_widget.canvas.scan_mark(event.x,event.y)
+            except Exception: pass
+            try:
+                lat,lon=self.map_widget.convert_canvas_coords_to_decimal_coords(event.x,event.y)
+            except Exception: return
+            sx,sy=self._drag_start_xy
+            if abs(event.x-sx)>4 or abs(event.y-sy)>4:
+                self._drag_moved=True
+            if self._drag_moved:
+                # Use a plain canvas oval — avoids tkintermapview's canvas.update()
+                # inside delete() which would cause re-entrant motion events and
+                # orphaned markers accumulating on the map.
+                canvas=self.map_widget.canvas
+                r=10
+                if self._drag_temp_oval is None:
+                    info=self._drag_registry.get(self._drag_item)
+                    col=info.get('circle_color','#FFD700') if info else '#FFD700'
+                    self._drag_temp_oval=canvas.create_oval(
+                        event.x-r,event.y-r,event.x+r,event.y+r,
+                        fill=col,outline="#333333",width=2,tags="drag_temp")
+                else:
+                    canvas.coords(self._drag_temp_oval,
+                                  event.x-r,event.y-r,event.x+r,event.y+r)
+                self._drag_last_latlon=(lat,lon)
+        else:
+            try: self.map_widget.mouse_move(event)
+            except AttributeError:
+                try: self.map_widget._move_map(event)
+                except AttributeError: pass
+
+    def _drag_release(self,event):
+        was_pin_drag=bool(self._drag_item)
+        if self._drag_temp_oval is not None:
+            try: self.map_widget.canvas.delete(self._drag_temp_oval)
+            except Exception: pass
+            self._drag_temp_oval=None
+        if was_pin_drag and self._drag_moved and self._drag_last_latlon:
+            lat,lon=self._drag_last_latlon
+            info=self._drag_registry.get(self._drag_item)
+            if info:
+                info['lat']=lat; info['lon']=lon
+                try: info['update_fn'](lat,lon)
+                except Exception: pass
+            self._just_dragged=True
+        self._drag_item=None; self._drag_moved=False
+        self._drag_start_xy=None; self._drag_last_latlon=None
+        if not was_pin_drag:
+            # Let tkintermapview finish the pan/click normally
+            try: self.map_widget.button_release(event)
+            except Exception: pass
+
+    # ── Save / Load ────────────────────────────────────────────────────────────
+    def _save_field(self):
+        f=self._field_from_form()
+        if not f.get("Name"): self._status("Enter a field name."); return
+        if not f.get("boundary_polygon"): self._status("⚠ No boundary drawn — field saved but cannot generate without one.");
+        save_field(f); self._refresh_field_list(); self._status(f"Saved: {f['Name']}")
+
+    def _load_csv(self):
+        path=tkinter.filedialog.askopenfilename(filetypes=[("CSV","*.csv"),("All","*.*")])
+        if not path: return
+        co=self.company_var.get(); yr=self.year_var.get(); loaded=0
+        with open(path,newline="") as fh:
+            for row in csv.DictReader(fh):
+                f=blank_field(co,yr)
+                for k in ("Name","PP_Latitude","PP_Longitude","Sprayer_width","directional_offset"):
+                    if k in row: f[k]=row[k]
+                f["Spray_angle"]=row.get("Seed_angle","0")
+                f["num_structures"]=row.get("# of Structures","")
+                f["spacing"]=row.get("spacing","")
+                if f.get("Name"): save_field(f); loaded+=1
+        self._refresh_field_list(); self._log(f"Loaded {loaded} field(s) from CSV.")
+
+    # ── Generate ───────────────────────────────────────────────────────────────
+    def _generate(self):
+        names=list_fields(self.company_var.get(),self.year_var.get())
+        if not names: tkinter.messagebox.showwarning("No fields","Save at least one field first."); return
+        out_dir=tkinter.filedialog.askdirectory(title="Choose output folder")
+        if not out_dir: return
+        fields=[]
+        for name in names:
+            f=load_field(self.company_var.get(),self.year_var.get(),name)
+            if f:
+                f["# of Structures"]=f.get("num_structures","")
+                f["Seed_angle"]=f.get("Spray_angle","0")
+                fields.append(f)
+        metric=self.unit_var.get()=="Metres"
+        self._log("Generating…"); self.update()
+        def run():
+            try:
+                text,ok=maketentgrid.process_field_data(fields,out_dir,use_metric=metric)
+                self.after(0,lambda:self._log(text))
+                self.after(0,lambda:tkinter.messagebox.showinfo("Done",f"{ok}/{len(fields)} fields written to:\n{out_dir}"))
+            except Exception:
+                import traceback as tb; msg=tb.format_exc()
+                self.after(0,lambda:self._log("ERROR:\n"+msg))
+                self.after(0,lambda:tkinter.messagebox.showerror("Error",msg[:400]))
+        threading.Thread(target=run,daemon=True).start()
+
+    # ── Helpers ────────────────────────────────────────────────────────────────
+    def _status(self,msg): self.status_lbl.configure(text=msg)
+
+    def _log(self,text):
+        self.log.configure(state="normal"); self.log.insert("end",str(text).strip()+"\n")
+        self.log.see("end"); self.log.configure(state="disabled")
+
+
+if __name__=="__main__":
+    app=BeetentApp(); app.mainloop()

@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.swp
+*.swo
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Nuitka build output
+beetent_trimble/
+*.dist/
+*.build/
+*.onefile-build/
+nuitka-crash-report.xml
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+*.bak
+*.tmp
+
+# Claude Code worktrees and session data (keep CLAUDE.md itself)
+.claude/worktrees/
+.claude/projects/
+.claude/todos/
+
+# Sensitive / large data files
+*.csv
+*.ods
+*.xlsx
+
+# Compiled/installed dependencies that ship with the source
+# (shapefile.py, simplekml, utm, fpdf are vendored — DO track them)
