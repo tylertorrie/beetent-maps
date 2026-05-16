@@ -248,6 +248,7 @@ class BeetentApp(ctk.CTk):
         self._refresh_preset_list()
         self.bind("<Escape>", lambda e: self._close_all_popups())
         self.after(300, self._bind_drag_system)
+        self.after(1000, self._git_pull)  # pull latest on startup
 
     # ── Toolbar ────────────────────────────────────────────────────────────────
     def _build_toolbar(self):
@@ -538,6 +539,7 @@ class BeetentApp(ctk.CTk):
         try:
             DATA_DIR.mkdir(parents=True,exist_ok=True)
             (DATA_DIR/"bay_presets.json").write_text(json.dumps(presets,indent=2),encoding="utf-8")
+            self._git_push("sync bay presets")
         except Exception as ex:
             tkinter.messagebox.showerror("Preset Error",str(ex))
 
@@ -619,7 +621,7 @@ class BeetentApp(ctk.CTk):
         if not sel: return
         n=self.field_lb.get(sel[0])
         if tkinter.messagebox.askyesno("Delete",f"Delete '{n}'?"):
-            delete_field_file(self.company_var.get(),self.year_var.get(),n); self._refresh_field_list()
+            delete_field_file(self.company_var.get(),self.year_var.get(),n); self._refresh_field_list(); self._git_push(f"delete field: {n}")
 
     # ── Form helpers ───────────────────────────────────────────────────────────
     def _form_from_field(self):
@@ -1512,11 +1514,50 @@ class BeetentApp(ctk.CTk):
             except Exception: pass
 
     # ── Save / Load ────────────────────────────────────────────────────────────
+    # ── Git auto-sync ──────────────────────────────────────────────────────────
+    def _git_pull(self):
+        """Pull latest changes from GitHub on startup (background thread)."""
+        import subprocess
+        repo=Path(__file__).parent
+        def run():
+            try:
+                r=subprocess.run(["git","pull","--rebase"],cwd=repo,
+                                 capture_output=True,timeout=30)
+                if b"Already up to date" not in r.stdout:
+                    self.after(0,self._refresh_field_list)
+                    self.after(0,self._refresh_preset_list)
+                    self.after(0,lambda:self._status("☁ Pulled latest changes"))
+            except Exception: pass
+        threading.Thread(target=run,daemon=True).start()
+
+    def _git_push(self,message="auto-sync"):
+        """Commit fields/ changes and push to GitHub (background thread)."""
+        import subprocess
+        repo=Path(__file__).parent
+        def run():
+            try:
+                self.after(0,lambda:self._status("☁ Syncing…"))
+                subprocess.run(["git","add","fields/"],cwd=repo,
+                               capture_output=True,timeout=10)
+                has_changes=subprocess.run(
+                    ["git","diff","--cached","--quiet"],
+                    cwd=repo,capture_output=True).returncode!=0
+                if has_changes:
+                    subprocess.run(["git","commit","-m",message],
+                                   cwd=repo,capture_output=True,timeout=10)
+                    subprocess.run(["git","push"],cwd=repo,
+                                   capture_output=True,timeout=30)
+                self.after(0,lambda:self._status("☁ Synced"))
+            except Exception:
+                self.after(0,lambda:self._status(""))
+        threading.Thread(target=run,daemon=True).start()
+
     def _save_field(self):
         f=self._field_from_form()
         if not f.get("Name"): self._status("Enter a field name."); return
         if not f.get("boundary_polygon"): self._status("⚠ No boundary drawn — field saved but cannot generate without one.");
         save_field(f); self._refresh_field_list(); self._status(f"Saved: {f['Name']}")
+        self._git_push(f"save field: {f['Name']}")
 
     def _load_csv(self):
         path=tkinter.filedialog.askopenfilename(filetypes=[("CSV","*.csv"),("All","*.*")])
