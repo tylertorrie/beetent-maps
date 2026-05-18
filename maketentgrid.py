@@ -736,12 +736,33 @@ def get_tent_positions(field_dict, use_metric=True):
 
         user_spacing = bool(sp_raw)
 
+        # eff_row_width: the E-W spacing between shelter rows used for grid generation.
+        # For num_tents mode we compute an optimal skip factor k so the grid is roughly
+        # square (uniform 2D density) rather than 179 columns × 1 shelter each.
+        eff_row_width = tent_row_width
+
         if sp_raw:
             spacing = float(sp_raw) * conv
         elif num_tents:
-            # Dense placement (~5× target), then uniform sub-sample after NW-snake sort.
-            # find_exact_spacing produces huge spacing that creates banding at large counts.
-            spacing = calculate_spacing(radius, tent_row_width, num_tents=num_tents * 5)
+            # Compute field area to find optimal square grid spacing.
+            if boundary_enu:
+                n = len(boundary_enu)
+                area = abs(sum(
+                    boundary_enu[i][0] * boundary_enu[(i+1) % n][1] -
+                    boundary_enu[(i+1) % n][0] * boundary_enu[i][1]
+                    for i in range(n))) / 2
+            else:
+                area = math.pi * radius * radius
+            # k = how many bay columns to skip between shelter rows
+            grid_sp = math.sqrt(max(area / num_tents, tent_row_width ** 2))
+            k = max(1, round(grid_sp / tent_row_width))
+            eff_row_width = k * tent_row_width
+            kw = dict(directional_offset=directional_offset,
+                      boundary_polygon_enu=boundary_enu,
+                      pivot_tracks_m=pivot_tracks,
+                      pivot_track_exclusion_m=excl_m)
+            spacing = find_exact_spacing(num_tents, pivotpoint, radius, eff_row_width,
+                                         lat_offset, seed_angle, **kw)
         else:
             spacing = calculate_spacing(radius, tent_row_width)
 
@@ -755,14 +776,14 @@ def get_tent_positions(field_dict, use_metric=True):
         easting, northing = utmish.from_lonlat(pivotpoint[0], pivotpoint[1], pivotpoint[0])
         radius_sqr = radius * radius
 
-        rows = range(-int(radius / tent_row_width), int(radius / tent_row_width) + 1)
+        rows = range(-int(radius / eff_row_width), int(radius / eff_row_width) + 1)
 
         # Collect valid positions with their row index for snake-sort
         raw = []  # (east_enu, north_enu, row_r)
         for r in rows:
             odd = r % 2
             for c in range(-int(radius / spacing) - 1, int(radius / spacing) + 1):
-                pre_e = r * tent_row_width + lat_offset
+                pre_e = r * eff_row_width + lat_offset
                 pre_n = (c * spacing + spacing / 2 + directional_offset) if odd else (c * spacing + directional_offset)
                 east  = pre_e * cos_r - pre_n * sin_r
                 north = pre_n * cos_r + pre_e * sin_r
@@ -787,6 +808,41 @@ def get_tent_positions(field_dict, use_metric=True):
         for e, n, r in raw:
             row_groups[r].append((e, n))
 
+        # Per-row proportional sub-sampling: assign each row a target count
+        # proportional to that row's available positions, then sub-sample uniformly
+        # within each row. This gives even spatial density regardless of row length.
+        if not user_spacing and num_tents:
+            total_dense = sum(len(pts) for pts in row_groups.values())
+            if total_dense > num_tents:
+                targets = {}
+                for r, pts in row_groups.items():
+                    targets[r] = round(num_tents * len(pts) / total_dense)
+                # Fix rounding so sum == num_tents exactly
+                diff = num_tents - sum(targets.values())
+                for r in sorted(row_groups.keys(), key=lambda r: len(row_groups[r]), reverse=True):
+                    if diff == 0:
+                        break
+                    if diff > 0:
+                        targets[r] = min(targets[r] + 1, len(row_groups[r]))
+                        diff -= 1
+                    else:
+                        if targets[r] > 0:
+                            targets[r] -= 1
+                            diff += 1
+                # Sub-sample each row uniformly (sorted along-row before sampling)
+                new_groups = {}
+                for r, pts in row_groups.items():
+                    pts_sorted = sorted(pts, key=lambda en: en[0]*tdx + en[1]*tdy)
+                    t = targets.get(r, 0)
+                    if t <= 0:
+                        new_groups[r] = []
+                    elif t >= len(pts_sorted):
+                        new_groups[r] = pts_sorted
+                    else:
+                        step = len(pts_sorted) / t
+                        new_groups[r] = [pts_sorted[int(i * step + step / 2)] for i in range(t)]
+                row_groups = defaultdict(list, {r: v for r, v in new_groups.items() if v})
+
         # Sort rows by lateral coord ascending (most negative = most NW-ward)
         def row_lat_coord(r):
             pts = row_groups[r]
@@ -805,11 +861,6 @@ def get_tent_positions(field_dict, use_metric=True):
             if descending:
                 pts = list(reversed(pts))
             ordered.extend(pts)
-
-        # Uniform sub-sample to exact count after NW-snake order is established
-        if not user_spacing and num_tents and len(ordered) > num_tents:
-            step = len(ordered) / num_tents
-            ordered = [ordered[int(i * step)] for i in range(num_tents)]
 
         result = []
         for e, n in ordered:
