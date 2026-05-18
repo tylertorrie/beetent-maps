@@ -2,8 +2,8 @@
   "Name": "#3",
   "company": "Corteva",
   "year": "2026",
-  "PP_Latitude": "49.9119451",
-  "PP_Longitude": "-111.7728735",
+  "PP_Latitude": "49.9119563",
+  "PP_Longitude": "-111.7728849",
   "Radius": "",
   "Seed_angle": "0",
   "Lateral_offset": "",
@@ -127,7 +127,27 @@
     ]
   ],
   "pivot_tracks": [
-    37.01,
-    74.38
-  ]
+    38.25,
+    76.4
+  ],
+  "corner_arms": [
+    [],
+    []
+  ],
+  "shelter_overrides": {
+    "75": [
+      49.90887479463883,
+      -111.77221233608951
+    ],
+    "72": [
+      49.90888947716592,
+      -111.77240009072055
+    ]
+  },
+  "Spray_angle": "0",
+  "row_spacing_in": "22",
+  "planter_width_ft": "36.66",
+  "num_female_rows": "8",
+  "num_male_rows": "2",
+  "outside_sprayer_pass": "Yes"
 }

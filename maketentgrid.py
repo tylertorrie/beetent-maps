@@ -739,12 +739,9 @@ def get_tent_positions(field_dict, use_metric=True):
         if sp_raw:
             spacing = float(sp_raw) * conv
         elif num_tents:
-            kw = dict(directional_offset=directional_offset,
-                      boundary_polygon_enu=boundary_enu,
-                      pivot_tracks_m=pivot_tracks,
-                      pivot_track_exclusion_m=excl_m)
-            spacing = find_exact_spacing(num_tents, pivotpoint, radius, tent_row_width,
-                                         lat_offset, seed_angle, **kw)
+            # Dense placement (~5× target), then uniform sub-sample after NW-snake sort.
+            # find_exact_spacing produces huge spacing that creates banding at large counts.
+            spacing = calculate_spacing(radius, tent_row_width, num_tents=num_tents * 5)
         else:
             spacing = calculate_spacing(radius, tent_row_width)
 
@@ -778,10 +775,6 @@ def get_tent_positions(field_dict, use_metric=True):
                     if any(abs(d - tr) < excl_m for tr in pivot_tracks): continue
                 raw.append((east, north, r))
 
-        # Trim to exact count only when using find_exact_spacing (not user-given spacing)
-        if not user_spacing and num_tents and len(raw) > num_tents:
-            raw = raw[:num_tents]
-
         # NW-snake sort
         # Lateral direction in ENU (between rows): (cos_r, sin_r)
         # Travel direction in ENU (along a row): (-sin_r, cos_r)
@@ -812,6 +805,11 @@ def get_tent_positions(field_dict, use_metric=True):
             if descending:
                 pts = list(reversed(pts))
             ordered.extend(pts)
+
+        # Uniform sub-sample to exact count after NW-snake order is established
+        if not user_spacing and num_tents and len(ordered) > num_tents:
+            step = len(ordered) / num_tents
+            ordered = [ordered[int(i * step)] for i in range(num_tents)]
 
         result = []
         for e, n in ordered:
