@@ -158,8 +158,8 @@ def blank_field(company="",year=""):
                 Spray_angle="0",Sprayer_width="133",
                 num_structures="",spacing="",shelter_spacing="",directional_offset="",
                 row_spacing_in="22",num_female_rows="8",num_male_rows="2",planter_width_ft="",
-                outside_sprayer_pass="No",
-                boundary_polygon=None,pivot_tracks=[],corner_arms=[[],[]],
+                outside_sprayer_pass="No",track_exclusion_ft="10",
+                boundary_polygon=None,pivot_tracks=[],corner_arms=[],
                 shelter_overrides={})
 
 def _field_dir(company,year):
@@ -213,9 +213,9 @@ class BeetentApp(ctk.CTk):
         self.outer_sprayer_poly = None
         self.bay_polygons     = []
         self.lld_boundary_poly  = None
-        self.corner_arm_paths   = [None, None]
-        self.corner_arm_pts     = []
-        self.corner_arm_drawing_idx = None
+        self.corner_arm_overlays    = []   # list of map path/polygon objects
+        self.corner_arm_pts         = []   # points being drawn for in-progress path
+        self.corner_arm_circle_center = None  # (lat,lon) for in-progress circle
         self.corner_arm_temp_markers = []
         self.show_passes      = tk.BooleanVar(value=False)
         self.show_bays        = tk.BooleanVar(value=False)
@@ -239,6 +239,9 @@ class BeetentApp(ctk.CTk):
         self._drag_temp_oval = None   # canvas item ID (not a tkintermapview marker)
         self._drag_moved = False
         self._just_dragged = False
+        self._pan_start_xy = None
+        self._selected_bnd_vertex = None
+        self._map_tool = "select"   # "pan" or "select"
 
         self._build_toolbar()
         self._build_body()
@@ -246,7 +249,11 @@ class BeetentApp(ctk.CTk):
         self._refresh_unit_labels()
         self._refresh_company_list()
         self._refresh_preset_list()
-        self.bind("<Escape>", lambda e: self._close_all_popups())
+        self.bind("<Escape>", self._on_escape)
+        self.bind("<Delete>", self._on_delete_key)
+        for key in ("<Left>","<Right>","<Up>","<Down>",
+                    "<Shift-Left>","<Shift-Right>","<Shift-Up>","<Shift-Down>"):
+            self.bind(key, self._on_arrow_key)
         self.after(300, self._bind_drag_system)
         self.after(1000, self._git_pull)  # pull latest on startup
 
@@ -335,12 +342,13 @@ class BeetentApp(ctk.CTk):
         self._bnd_btn.pack(side="left", padx=(0,4))
 
         self._trk_btn = self._make_menu_btn(bb, "🔵 Pivot Tracks", [
-            ("Toggle on/off", self._toggle_tracks),
-            ("Draw Circle",  self._mode_track),
-            ("Draw Path 1",  lambda: self._mode_corner_arm(0)),
-            ("Draw Path 2",  lambda: self._mode_corner_arm(1)),
-            ("Edit",         self._mode_edit_track),
-            ("Delete",       self._mode_delete_track_ui),
+            ("Toggle on/off",       self._toggle_tracks),
+            ("Draw Track Circle",   self._mode_track),
+            ("Edit Track",          self._mode_edit_track),
+            ("Delete Track",        self._mode_delete_track_ui),
+            ("Add Corner Circle",   self._mode_add_corner_circle),
+            ("Add Corner Path",     self._mode_add_corner_path),
+            ("Delete Corner Zone",  self._mode_delete_corner_ui),
         ], color="#8b5a00")
         self._trk_btn.pack(side="left", padx=(0,4))
 
@@ -431,7 +439,7 @@ class BeetentApp(ctk.CTk):
             ("Sprayer_width",      "Sprayer Width (ft)",     "",                                       False),
             ("num_structures",     "Number of Shelters",     "Exact count to place (e.g. 135)",        False),
             ("spacing",            "Shelter Spacing",        "Desired distance between shelters. Leave blank to auto-calculate.", True),
-            ("directional_offset", "Directional Offset",     "Positive = in spray direction; blank = none", True),
+            ("track_exclusion_ft", "Track Exclusion (ft)",  "Clear zone each side of pivot tracks (default 10 ft)", False),
         ]
         for key,display,hint,unit_dep in form_rows:
             lbl=ctk.CTkLabel(fs,text=display,anchor="w",font=ctk.CTkFont(size=11,weight="bold"))
@@ -486,7 +494,7 @@ class BeetentApp(ctk.CTk):
             self.fv[key]=v
         self.female_bay_lbl=ctk.CTkLabel(bc,text="Female bay width: —",anchor="w",text_color="#5599FF")
         self.female_bay_lbl.pack(fill="x")
-        self.male_bay_lbl=ctk.CTkLabel(bc,text="Male bay width: —",anchor="w",text_color="#55BB55")
+        self.male_bay_lbl=ctk.CTkLabel(bc,text="Male bay width: —",anchor="w",text_color="#5599FF")
         self.male_bay_lbl.pack(fill="x")
         ctk.CTkButton(bc,text="Recalculate Bays → Update Sprayer Width",
                       command=self._calc_bays).pack(fill="x",pady=(6,4))
@@ -519,12 +527,23 @@ class BeetentApp(ctk.CTk):
         self._shelter_refresh_id = self.after(600, self._redraw_shelters)
 
     def _init_map(self):
-        self.map_widget=tkintermapview.TkinterMapView(self.map_frame,corner_radius=6)
+        _cache=str(Path(__file__).parent/"tile_cache.db")
+        self.map_widget=tkintermapview.TkinterMapView(self.map_frame,corner_radius=6,database_path=_cache)
         self.map_widget.pack(fill="both",expand=True,padx=6,pady=(4,6))
         self.map_widget.set_tile_server(SATELLITE_URL,max_zoom=21)
         self.map_widget.set_position(DEFAULT_LAT,DEFAULT_LON)
         self.map_widget.set_zoom(DEFAULT_ZOOM)
-        self.map_widget.add_left_click_map_command(self._on_map_click)
+        # Tool toggle buttons overlaid at bottom-right of map
+        tool_bar=ctk.CTkFrame(self.map_frame,fg_color="#1e1e1e",corner_radius=6)
+        tool_bar.place(relx=1.0,rely=1.0,anchor="se",x=-14,y=-14)
+        self._btn_pan_tool=ctk.CTkButton(tool_bar,text="✋ Pan",width=72,height=34,
+                                          fg_color="#2b2b2b",hover_color="#3a3a3a",
+                                          command=lambda:self._set_map_tool("pan"))
+        self._btn_pan_tool.pack(side="left",padx=(4,2),pady=4)
+        self._btn_select_tool=ctk.CTkButton(tool_bar,text="↖ Select",width=80,height=34,
+                                             fg_color="#1f6aa5",hover_color="#2a7ab5",
+                                             command=lambda:self._set_map_tool("select"))
+        self._btn_select_tool.pack(side="left",padx=(2,4),pady=4)
 
     # ── Bay Presets ────────────────────────────────────────────────────────────
     def _load_bay_presets(self):
@@ -632,7 +651,16 @@ class BeetentApp(ctk.CTk):
             v.set(str(bf.get(k,"")) if val is None else str(val))
         self.outside_pass_var.set(f.get("outside_sprayer_pass","No"))
         self._refresh_track_list()
-        self.current_field.setdefault("corner_arms",[[],[]])
+        # Migrate old corner_arms [[pts],[pts]] format → new [{type,pts/lat/lon/radius_m}] format
+        old = self.current_field.get("corner_arms")
+        if isinstance(old, list) and old and not isinstance(old[0], dict):
+            migrated = []
+            for item in old:
+                if isinstance(item, list) and len(item) >= 2:
+                    migrated.append({"type": "path", "pts": item})
+            self.current_field["corner_arms"] = migrated
+        else:
+            self.current_field.setdefault("corner_arms", [])
         self.current_field.setdefault("shelter_overrides",{})
 
     def _field_from_form(self):
@@ -652,6 +680,17 @@ class BeetentApp(ctk.CTk):
     # ── Map ────────────────────────────────────────────────────────────────────
     def _switch_tiles(self,mode):
         self.map_widget.set_tile_server(SATELLITE_URL if mode=="Satellite" else STREET_URL,max_zoom=21)
+
+    def _set_map_tool(self,tool):
+        self._map_tool=tool
+        if tool=="pan":
+            self._btn_pan_tool.configure(fg_color="#1f6aa5")
+            self._btn_select_tool.configure(fg_color="#2b2b2b")
+            self._status("Pan mode — drag to move the map")
+        else:
+            self._btn_pan_tool.configure(fg_color="#2b2b2b")
+            self._btn_select_tool.configure(fg_color="#1f6aa5")
+            self._status("Select mode — click or drag pins")
 
     def _search_lld(self):
         res=geocode_lld(self.lld_entry.get())
@@ -703,16 +742,91 @@ class BeetentApp(ctk.CTk):
                                 lambda la,lo,i=i: self._on_bnd_vertex_drag(i,la,lo))
         self._update_bnd_preview()
         self.click_mode="boundary_edit"
+        self._selected_bnd_vertex=None
         self._show_context_btn("✔ Done Editing", self._close_boundary)
-        self._status("Click a vertex to move it, then click the new location. ✔ Done when finished.")
+        self._status("Click a vertex to select it (drag to move, 🗑 Delete to remove). Esc to deselect. ✔ Done when finished.")
 
     def _make_bnd_vertex_cb(self,idx):
         def cb(marker):
             if self._just_dragged:
                 self._just_dragged=False; return
-            self.click_mode=("move_boundary_vertex",idx)
-            self._status(f"Click new location for vertex {idx+1}")
+            self._select_bnd_vertex(idx)
         return cb
+
+    def _select_bnd_vertex(self,idx):
+        if self._selected_bnd_vertex==idx:
+            self._deselect_bnd_vertex(); return
+        if self._selected_bnd_vertex is not None:
+            self._redraw_bnd_vertex(self._selected_bnd_vertex,selected=False)
+        self._selected_bnd_vertex=idx
+        self._redraw_bnd_vertex(idx,selected=True)
+        self._show_context_btn("🗑 Delete Vertex",self._delete_selected_bnd_vertex)
+        self._status(f"Vertex {idx+1} selected — drag to move, click 🗑 Delete or press Del to remove.")
+
+    def _deselect_bnd_vertex(self):
+        if self._selected_bnd_vertex is not None:
+            self._redraw_bnd_vertex(self._selected_bnd_vertex,selected=False)
+        self._selected_bnd_vertex=None
+        self._show_context_btn("✔ Done Editing",self._close_boundary)
+        self._status("Click a vertex to select it (drag to move, 🗑 Delete to remove). ✔ Done when finished.")
+
+    def _redraw_bnd_vertex(self,idx,selected=False):
+        if idx>=len(self.boundary_pts) or idx>=len(self.boundary_markers): return
+        lat,lon=self.boundary_pts[idx]
+        try: self.boundary_markers[idx].delete()
+        except Exception: pass
+        cc="#FF6600" if selected else "#FFD700"
+        oc="#CC3300" if selected else "#B8860B"
+        m=self.map_widget.set_marker(lat,lon,text=str(idx+1),
+                                      marker_color_circle=cc,marker_color_outside=oc,
+                                      command=self._make_bnd_vertex_cb(idx))
+        self.boundary_markers[idx]=m
+        self._register_drag(f"bnd_{idx}",lat,lon,str(idx+1),cc,oc,
+                            lambda la,lo,i=idx: self._on_bnd_vertex_drag(i,la,lo))
+
+    def _delete_selected_bnd_vertex(self):
+        idx=self._selected_bnd_vertex
+        if idx is None: return
+        if len(self.boundary_pts)<=3:
+            self._status("Cannot delete — boundary needs at least 3 vertices."); return
+        self.boundary_pts.pop(idx)
+        self.current_field["boundary_polygon"]=[list(p) for p in self.boundary_pts]
+        self._selected_bnd_vertex=None
+        self._mode_edit_boundary()
+        self._status(f"Vertex deleted. {len(self.boundary_pts)} vertices remain.")
+
+    def _on_delete_key(self,event):
+        if self._selected_bnd_vertex is not None:
+            self._delete_selected_bnd_vertex()
+
+    def _on_arrow_key(self,event):
+        if self._selected_bnd_vertex is None: return
+        idx=self._selected_bnd_vertex
+        if idx>=len(self.boundary_pts): return
+        lat,lon=self.boundary_pts[idx]
+        step_m=5.0 if "Shift" in event.keysym else 0.5
+        dlat=step_m/111111.0
+        dlon=step_m/(111111.0*math.cos(math.radians(lat)))
+        if   event.keysym in ("Up",    "Shift_Up"):    lat+=dlat
+        elif event.keysym in ("Down",  "Shift_Down"):  lat-=dlat
+        elif event.keysym in ("Right", "Shift_Right"): lon+=dlon
+        elif event.keysym in ("Left",  "Shift_Left"):  lon-=dlon
+        else:
+            k=event.keysym.replace("Shift_","")
+            if   k=="Up":    lat+=dlat
+            elif k=="Down":  lat-=dlat
+            elif k=="Right": lon+=dlon
+            elif k=="Left":  lon-=dlon
+        self.boundary_pts[idx]=(lat,lon)
+        self._redraw_bnd_vertex(idx,selected=True)
+        self._update_bnd_preview()
+        return "break"  # prevent arrow keys from scrolling the sidebar
+
+    def _on_escape(self,event=None):
+        if self._selected_bnd_vertex is not None:
+            self._deselect_bnd_vertex()
+        else:
+            self._close_all_popups()
 
     def _upload_boundary(self):
         self._close_all_popups()
@@ -790,7 +904,7 @@ class BeetentApp(ctk.CTk):
             self.boundary_markers.append(m); self._update_bnd_preview()
 
         elif mode=="boundary_edit":
-            pass
+            self._deselect_bnd_vertex()
 
         elif isinstance(mode,tuple) and mode[0]=="move_boundary_vertex":
             idx=mode[1]
@@ -836,19 +950,39 @@ class BeetentApp(ctk.CTk):
             self._status(f"Shelter #{idx+1} moved — save field to keep.")
             self._redraw_shelters()
 
-        elif mode=="corner_arm":
+        elif mode=="corner_arm_path":
             self.corner_arm_pts.append([lat,lon])
-            arm_colors=["#CC44FF","#44CCFF"]
-            col=arm_colors[self.corner_arm_drawing_idx]
             m=self.map_widget.set_marker(lat,lon,text=str(len(self.corner_arm_pts)),
-                                          marker_color_circle=col,marker_color_outside=col)
+                                          marker_color_circle="#CC44FF",marker_color_outside="#9900CC")
             self.corner_arm_temp_markers.append(m)
-            self._update_arm_preview()
-            self._status(f"Arm {self.corner_arm_drawing_idx+1}: {len(self.corner_arm_pts)} pts — click to add more, ✔ Done when finished")
+            self._update_arm_path_preview()
+            self._status(f"Corner path: {len(self.corner_arm_pts)} pts — click to add more, ✔ Done when finished")
+
+        elif mode=="corner_arm_circle_center":
+            self.corner_arm_circle_center=(lat,lon)
+            m=self.map_widget.set_marker(lat,lon,text="⊙",
+                                          marker_color_circle="#CC44FF",marker_color_outside="#9900CC")
+            self.corner_arm_temp_markers.append(m)
+            self.click_mode="corner_arm_circle_edge"
+            self._status("Circle center set — click on the map to set the radius edge")
+
+        elif mode=="corner_arm_circle_edge":
+            if self.corner_arm_circle_center:
+                clat,clon=self.corner_arm_circle_center
+                r_m=haversine_m(clat,clon,lat,lon)
+                arms=self.current_field.setdefault("corner_arms",[])
+                arms.append({"type":"circle","lat":clat,"lon":clon,"radius_m":round(r_m,2)})
+                self._clear_corner_arm_temp()
+                self.click_mode=None; self._hide_context_btn()
+                self.corner_arm_circle_center=None
+                self._status(f"Corner circle added: r={r_m:.1f} m ({r_m/0.3048:.1f} ft)")
+                self._redraw_corner_arms()
+                if self.show_shelters.get(): self._redraw_shelters()
 
     # ── Boundary ───────────────────────────────────────────────────────────────
     def _close_boundary(self):
         if len(self.boundary_pts)<3: self._status("Need ≥ 3 points."); return
+        self._selected_bnd_vertex=None
         self.current_field["boundary_polygon"]=[list(p) for p in self.boundary_pts]
         self.click_mode=None
         self._hide_context_btn()
@@ -888,6 +1022,9 @@ class BeetentApp(ctk.CTk):
                 [tuple(p) for p in bp],fill_color=None,outline_color="#00FF88",border_width=2)
 
     def _on_bnd_vertex_drag(self,idx,lat,lon):
+        if self._selected_bnd_vertex==idx:
+            self._selected_bnd_vertex=None
+            self._show_context_btn("✔ Done Editing",self._close_boundary)
         self.boundary_pts[idx]=(lat,lon)
         try: self.boundary_markers[idx].delete()
         except Exception: pass
@@ -973,7 +1110,7 @@ class BeetentApp(ctk.CTk):
         try:
             plat=float(self.fv["PP_Latitude"].get()); plon=float(self.fv["PP_Longitude"].get())
         except (ValueError,TypeError): return
-        excl_m=float(self.excl_var.get() or "10")*0.3048
+        excl_m=float(self.fv.get("track_exclusion_ft",self.excl_var).get() or "10")*0.3048
         for i,r_m in enumerate(self.current_field.get("pivot_tracks") or []):
             for r,col,w in [(r_m+excl_m,"#FF6600",2),(max(1,r_m-excl_m),"#FF6600",1)]:
                 self.track_circles.append(self.map_widget.set_polygon(
@@ -995,46 +1132,67 @@ class BeetentApp(ctk.CTk):
         self._status(f"Track {idx+1}: {r_m:.1f} m ({r_m/0.3048:.1f} ft)")
         self._refresh_track_list(); self._redraw_tracks()
 
-    # ── Corner arms ───────────────────────────────────────────────────────────
-    def _mode_corner_arm(self,idx):
+    # ── Corner zones (paths and circles — unlimited) ──────────────────────────
+    def _mode_add_corner_path(self):
         self._close_all_popups()
         self._cancel_corner_arm_drawing()
-        self.corner_arm_drawing_idx=idx; self.corner_arm_pts=[]
-        self.click_mode="corner_arm"
-        self._show_context_btn("✔ Done Arm", self._finish_corner_arm)
-        self._status(f"Drawing Corner Arm {idx+1} — click map to place path points, ✔ Done when finished")
+        self.corner_arm_pts=[]
+        self.click_mode="corner_arm_path"
+        self._show_context_btn("✔ Done Path", self._finish_corner_path)
+        self._status("Corner path — click map to place points, ✔ Done when finished")
 
-    def _update_arm_preview(self):
+    def _mode_add_corner_circle(self):
+        self._close_all_popups()
+        self._cancel_corner_arm_drawing()
+        self.corner_arm_circle_center=None
+        self.click_mode="corner_arm_circle_center"
+        self._show_context_btn("✖ Cancel", self._cancel_corner_arm_drawing)
+        self._status("Corner circle — click map to place center")
+
+    def _update_arm_path_preview(self):
         if len(self.corner_arm_pts)<2: return
-        arm_colors=["#CC44FF","#44CCFF"]
-        col=arm_colors[self.corner_arm_drawing_idx]
-        if self.corner_arm_paths[self.corner_arm_drawing_idx]:
-            try: self.corner_arm_paths[self.corner_arm_drawing_idx].delete()
-            except Exception: pass
+        # remove old preview overlays drawn during this session
+        for o in list(self.corner_arm_overlays):
+            if getattr(o,"_is_preview",False):
+                try: o.delete()
+                except Exception: pass
+                self.corner_arm_overlays.remove(o)
         try:
-            self.corner_arm_paths[self.corner_arm_drawing_idx]=self.map_widget.set_path(
-                [(lat,lon) for lat,lon in self.corner_arm_pts],color=col,width=3)
+            p=self.map_widget.set_path(
+                [(lat,lon) for lat,lon in self.corner_arm_pts],color="#CC44FF",width=3)
+            p._is_preview=True
+            self.corner_arm_overlays.append(p)
         except Exception: pass
 
-    def _finish_corner_arm(self):
-        if self.corner_arm_drawing_idx is None: return
+    def _finish_corner_path(self):
         if len(self.corner_arm_pts)<2:
-            self._status("Need at least 2 points for a corner arm path."); return
-        arms=self.current_field.setdefault("corner_arms",[[],[]])
-        while len(arms)<=self.corner_arm_drawing_idx: arms.append([])
-        arms[self.corner_arm_drawing_idx]=[list(p) for p in self.corner_arm_pts]
+            self._status("Need at least 2 points for a corner path."); return
+        # remove preview overlay
+        for o in list(self.corner_arm_overlays):
+            if getattr(o,"_is_preview",False):
+                try: o.delete()
+                except Exception: pass
+                self.corner_arm_overlays.remove(o)
+        arms=self.current_field.setdefault("corner_arms",[])
+        arms.append({"type":"path","pts":[list(p) for p in self.corner_arm_pts]})
         self._clear_corner_arm_temp()
-        self.click_mode=None
-        self._hide_context_btn()
-        self._status(f"Corner Arm {self.corner_arm_drawing_idx+1} saved ({len(self.corner_arm_pts)} pts).")
-        self.corner_arm_drawing_idx=None; self.corner_arm_pts=[]
+        self.click_mode=None; self._hide_context_btn()
+        n=len(arms)
+        self._status(f"Corner path #{n} saved ({len(self.corner_arm_pts)} pts).")
+        self.corner_arm_pts=[]
         self._redraw_corner_arms()
+        if self.show_shelters.get(): self._redraw_shelters()
 
     def _cancel_corner_arm_drawing(self):
         self._clear_corner_arm_temp()
-        self.click_mode=None
-        self._hide_context_btn()
-        self.corner_arm_drawing_idx=None; self.corner_arm_pts=[]
+        # remove any preview overlays
+        for o in list(self.corner_arm_overlays):
+            if getattr(o,"_is_preview",False):
+                try: o.delete()
+                except Exception: pass
+                self.corner_arm_overlays.remove(o)
+        self.click_mode=None; self._hide_context_btn()
+        self.corner_arm_pts=[]; self.corner_arm_circle_center=None
 
     def _clear_corner_arm_temp(self):
         for m in self.corner_arm_temp_markers:
@@ -1042,30 +1200,56 @@ class BeetentApp(ctk.CTk):
             except Exception: pass
         self.corner_arm_temp_markers=[]
 
-    def _clear_corner_arm(self,idx):
-        self._cancel_corner_arm_drawing()
-        arms=self.current_field.get("corner_arms") or [[],[]]
-        if idx<len(arms): arms[idx]=[]
-        if self.corner_arm_paths[idx]:
-            try: self.corner_arm_paths[idx].delete()
-            except Exception: pass
-            self.corner_arm_paths[idx]=None
-        self._status(f"Corner Arm {idx+1} cleared.")
+    def _mode_delete_corner_ui(self):
+        self._close_all_popups()
+        arms=self.current_field.get("corner_arms") or []
+        if not arms:
+            self._status("No corner zones to delete."); return
+        win=ctk.CTkToplevel(self)
+        win.title("Delete Corner Zone"); win.geometry("360x240"); win.grab_set()
+        ctk.CTkLabel(win,text="Select zone to delete:").pack(pady=(12,4))
+        lb=tk.Listbox(win,bg="#2b2b2b",fg="#CC44FF",selectbackground="#4a1070",
+                      relief="flat",font=("Segoe UI",11),height=6,
+                      activestyle="none",highlightthickness=0)
+        for i,arm in enumerate(arms):
+            if arm.get("type")=="circle":
+                lb.insert(tk.END,f"Circle {i+1}: r={arm['radius_m']:.1f} m ({arm['radius_m']/0.3048:.1f} ft)")
+            else:
+                lb.insert(tk.END,f"Path {i+1}: {len(arm.get('pts',[]))} pts")
+        lb.pack(fill="x",padx=10,pady=4)
+        def do_delete():
+            sel=lb.curselection()
+            if not sel: return
+            del self.current_field["corner_arms"][sel[0]]
+            self._redraw_corner_arms()
+            if self.show_shelters.get(): self._redraw_shelters()
+            win.destroy(); self._status("Corner zone deleted.")
+        ctk.CTkButton(win,text="Delete Selected",fg_color="#6b1a1a",command=do_delete).pack(pady=(4,2))
+        ctk.CTkButton(win,text="Cancel",command=win.destroy).pack()
 
     def _redraw_corner_arms(self):
-        arm_colors=["#CC44FF","#44CCFF"]
-        arms=self.current_field.get("corner_arms") or [[],[]]
-        for idx in range(2):
-            if self.corner_arm_paths[idx]:
-                try: self.corner_arm_paths[idx].delete()
+        for o in self.corner_arm_overlays:
+            if not getattr(o,"_is_preview",False):
+                try: o.delete()
                 except Exception: pass
-                self.corner_arm_paths[idx]=None
-            pts=arms[idx] if idx<len(arms) else []
-            if len(pts)>=2:
-                try:
-                    self.corner_arm_paths[idx]=self.map_widget.set_path(
-                        [(p[0],p[1]) for p in pts],color=arm_colors[idx],width=3)
-                except Exception: pass
+        self.corner_arm_overlays=[o for o in self.corner_arm_overlays if getattr(o,"_is_preview",False)]
+        arms=self.current_field.get("corner_arms") or []
+        colors=["#CC44FF","#44CCFF","#FF44AA","#44FFCC","#FF9944","#44AAFF"]
+        for i,arm in enumerate(arms):
+            col=colors[i % len(colors)]
+            try:
+                if arm.get("type")=="circle":
+                    o=self.map_widget.set_polygon(
+                        circle_pts(arm["lat"],arm["lon"],arm["radius_m"]),
+                        fill_color=None,outline_color=col,border_width=2)
+                else:
+                    pts=arm.get("pts") or []
+                    if len(pts)>=2:
+                        o=self.map_widget.set_path([(p[0],p[1]) for p in pts],color=col,width=3)
+                    else:
+                        continue
+                self.corner_arm_overlays.append(o)
+            except Exception: pass
 
     # ── Sprayer passes extras ──────────────────────────────────────────────────
     def _mode_edit_passes(self):
@@ -1232,7 +1416,9 @@ class BeetentApp(ctk.CTk):
         poly_enu=[(latlon_to_enu(lat,lon,plat,plon)) for lat,lon in bp]
         max_r=max(math.sqrt(e*e+n*n) for e,n in poly_enu)*1.1
 
-        # Always draw the outer sprayer limit — one sprayer-width inside the boundary
+        if not self.show_passes.get(): return
+
+        # Outer sprayer limit — one sprayer-width inside the boundary
         inset=inset_polygon_enu(poly_enu,width_m)
         if len(inset)>=3:
             lpts=[enu_to_latlon(e,n,plat,plon) for e,n in inset]
@@ -1240,8 +1426,6 @@ class BeetentApp(ctk.CTk):
                 self.outer_sprayer_poly=self.map_widget.set_polygon(
                     lpts,fill_color=None,outline_color="#FF2200",border_width=2)
             except Exception: pass
-
-        if not self.show_passes.get(): return
 
         rot=math.radians((0-angle+180)%360-180)
         cos_r,sin_r=math.cos(rot),math.sin(rot)
@@ -1273,8 +1457,6 @@ class BeetentApp(ctk.CTk):
         u=self.unit_var.get(); m=u=="Metres"; abb="m" if m else "ft"
         if "spacing" in self.field_labels:
             self.field_labels["spacing"].configure(text=f"Shelter Spacing ({abb})")
-        if "directional_offset" in self.field_labels:
-            self.field_labels["directional_offset"].configure(text=f"Directional Offset ({abb})")
         if hasattr(self,"female_bay_lbl"):
             txt=self.female_bay_lbl.cget("text")
             if txt!="Female bay width: —": self._calc_bays()
@@ -1296,8 +1478,6 @@ class BeetentApp(ctk.CTk):
         else:
             self.female_bay_lbl.configure(text=f'Female bay: {f_in:.1f}" = {f_ft:.3f} ft')
             self.male_bay_lbl.configure(text=f'Male bay:   {m_in:.1f}" = {m_ft:.3f} ft')
-        total_ft=f_ft+m_ft
-        self.fv["Sprayer_width"].set(f"{total_ft:.3f}")
         self._status(f"Bay layout: female {f_in:.0f}\" ({f_ft:.2f} ft), male {m_in:.0f}\" ({m_ft:.2f} ft)")
         if self.show_bays.get(): self._redraw_bays()
         if self.show_shelters.get(): self._redraw_shelters()
@@ -1355,7 +1535,7 @@ class BeetentApp(ctk.CTk):
             if band:
                 lpts=[enu_to_latlon(e,n,plat,plon) for e,n in band]
                 try:
-                    p=self.map_widget.set_polygon(lpts,fill_color="#003300",outline_color="#003300",border_width=0)
+                    p=self.map_widget.set_polygon(lpts,fill_color="#001F7A",outline_color="#001F7A",border_width=0)
                     self.bay_polygons.append(p)
                 except Exception: pass
 
@@ -1431,49 +1611,42 @@ class BeetentApp(ctk.CTk):
         except Exception: pass
 
     def _drag_press(self,event):
-        best_id=None
-        if self._drag_registry:
-            try:
-                lat0,lon0=self.map_widget.convert_canvas_coords_to_decimal_coords(event.x,event.y)
-                mpp=self._pixel_scale()
-                threshold_m=max(50*mpp,30.0)
-                best_dist=threshold_m
-                for did,info in self._drag_registry.items():
-                    d=haversine_m(info['lat'],info['lon'],lat0,lon0)
-                    if d<best_dist:
-                        best_dist=d; best_id=did
-            except Exception:
-                best_id=None
+        self._pan_start_xy=(event.x,event.y)
+        self._drag_moved=False
+        try: self.map_widget.canvas.scan_mark(event.x,event.y)
+        except Exception: pass
+        if self._map_tool=="pan":
+            return
+        # Select mode: find nearest registered pin
+        best_id=None; lat0=lon0=None
+        try:
+            lat0,lon0=self.map_widget.convert_canvas_coords_to_decimal_coords(event.x,event.y)
+            mpp=self._pixel_scale()
+            threshold_m=max(50*mpp,30.0)
+            best_dist=threshold_m
+            for did,info in self._drag_registry.items():
+                d=haversine_m(info['lat'],info['lon'],lat0,lon0)
+                if d<best_dist:
+                    best_dist=d; best_id=did
+        except Exception:
+            best_id=None
         if best_id:
             self._drag_item=best_id
             self._drag_last_latlon=(lat0,lon0)
             self._drag_start_xy=(event.x,event.y)
-            self._drag_moved=False
-            # Park tkintermapview's scan reference so it won't pan while we drag the pin
-            try: self.map_widget.canvas.scan_mark(event.x,event.y)
-            except Exception: pass
-        else:
-            # Not hitting a pin — let tkintermapview handle panning normally
-            try: self.map_widget.button_press(event)
-            except Exception:
-                try: self.map_widget.canvas.scan_mark(event.x,event.y)
-                except Exception: pass
 
     def _b1_motion(self,event):
-        if self._drag_item:
-            # Keep resetting tkintermapview's scan reference so the canvas doesn't pan
+        sx,sy=self._pan_start_xy if self._pan_start_xy else (event.x,event.y)
+        if abs(event.x-sx)>4 or abs(event.y-sy)>4:
+            self._drag_moved=True
+        if self._drag_item and self._map_tool=="select":
+            # Pin drag — park scan_mark so map won't pan underneath
             try: self.map_widget.canvas.scan_mark(event.x,event.y)
             except Exception: pass
             try:
                 lat,lon=self.map_widget.convert_canvas_coords_to_decimal_coords(event.x,event.y)
             except Exception: return
-            sx,sy=self._drag_start_xy
-            if abs(event.x-sx)>4 or abs(event.y-sy)>4:
-                self._drag_moved=True
             if self._drag_moved:
-                # Use a plain canvas oval — avoids tkintermapview's canvas.update()
-                # inside delete() which would cause re-entrant motion events and
-                # orphaned markers accumulating on the map.
                 canvas=self.map_widget.canvas
                 r=10
                 if self._drag_temp_oval is None:
@@ -1487,10 +1660,9 @@ class BeetentApp(ctk.CTk):
                                   event.x-r,event.y-r,event.x+r,event.y+r)
                 self._drag_last_latlon=(lat,lon)
         else:
-            try: self.map_widget.mouse_move(event)
-            except AttributeError:
-                try: self.map_widget._move_map(event)
-                except AttributeError: pass
+            # Pan the map
+            try: self.map_widget.canvas.scan_dragto(event.x,event.y,gain=1)
+            except Exception: pass
 
     def _drag_release(self,event):
         was_pin_drag=bool(self._drag_item)
@@ -1506,12 +1678,14 @@ class BeetentApp(ctk.CTk):
                 try: info['update_fn'](lat,lon)
                 except Exception: pass
             self._just_dragged=True
-        self._drag_item=None; self._drag_moved=False
-        self._drag_start_xy=None; self._drag_last_latlon=None
-        if not was_pin_drag:
-            # Let tkintermapview finish the pan/click normally
-            try: self.map_widget.button_release(event)
+        elif not was_pin_drag and not self._drag_moved and self._map_tool=="select":
+            # No pin hit, mouse didn't move — treat as a map click
+            try:
+                lat,lon=self.map_widget.convert_canvas_coords_to_decimal_coords(event.x,event.y)
+                self._on_map_click((lat,lon))
             except Exception: pass
+        self._drag_item=None; self._drag_moved=False
+        self._drag_start_xy=None; self._drag_last_latlon=None; self._pan_start_xy=None
 
     # ── Save / Load ────────────────────────────────────────────────────────────
     # ── Git auto-sync ──────────────────────────────────────────────────────────

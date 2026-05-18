@@ -776,6 +776,28 @@ def get_tent_positions(field_dict, use_metric=True):
 
         rows = range(-int(radius / eff_row_width), int(radius / eff_row_width) + 1)
 
+        # Precompute corner arm exclusion zones in ENU coordinates
+        corner_excl = []
+        for arm in (field_dict.get('corner_arms') or []):
+            if not isinstance(arm, dict): continue
+            if arm.get('type') == 'circle':
+                try:
+                    ce, cn = utmish.from_lonlat(arm['lon'], arm['lat'], pivotpoint[0])
+                    corner_excl.append(('circle', ce - easting, cn - northing,
+                                        float(arm['radius_m']) ** 2))
+                except Exception: pass
+            elif arm.get('type') == 'path':
+                pts = arm.get('pts') or []
+                if len(pts) >= 2:
+                    try:
+                        enu_pts = []
+                        for p in pts:
+                            pe, pn = utmish.from_lonlat(p[1], p[0], pivotpoint[0])
+                            enu_pts.append((pe - easting, pn - northing))
+                        corner_excl.append(('path', enu_pts))
+                    except Exception: pass
+        excl_m2 = excl_m * excl_m
+
         # Collect valid positions with their row index for snake-sort
         raw = []  # (east_enu, north_enu, row_r)
         for r in rows:
@@ -792,6 +814,26 @@ def get_tent_positions(field_dict, use_metric=True):
                 if pivot_tracks:
                     d = math.sqrt(east*east + north*north)
                     if any(abs(d - tr) < excl_m for tr in pivot_tracks): continue
+                if corner_excl:
+                    skip = False
+                    for zone in corner_excl:
+                        if zone[0] == 'circle':
+                            _, ce, cn, cr2 = zone
+                            if (east-ce)**2 + (north-cn)**2 < cr2:
+                                skip = True; break
+                        elif zone[0] == 'path':
+                            for j in range(len(zone[1])-1):
+                                ax, ay = zone[1][j]; bx, by = zone[1][j+1]
+                                dx, dy = bx-ax, by-ay; seg2 = dx*dx+dy*dy
+                                if seg2 > 0:
+                                    t = max(0.0, min(1.0, ((east-ax)*dx+(north-ay)*dy)/seg2))
+                                    px, py = ax+t*dx, ay+t*dy
+                                else:
+                                    px, py = ax, ay
+                                if (east-px)**2+(north-py)**2 < excl_m2:
+                                    skip = True; break
+                            if skip: break
+                    if skip: continue
                 raw.append((east, north, r))
 
         # NW-snake sort
