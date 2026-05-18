@@ -753,16 +753,14 @@ def get_tent_positions(field_dict, use_metric=True):
                     for i in range(n))) / 2
             else:
                 area = math.pi * radius * radius
-            # k = how many bay columns to skip between shelter rows
+            # k = how many bay columns to skip between shelter rows (square grid)
             grid_sp = math.sqrt(max(area / num_tents, tent_row_width ** 2))
             k = max(1, round(grid_sp / tent_row_width))
             eff_row_width = k * tent_row_width
-            kw = dict(directional_offset=directional_offset,
-                      boundary_polygon_enu=boundary_enu,
-                      pivot_tracks_m=pivot_tracks,
-                      pivot_track_exclusion_m=excl_m)
-            spacing = find_exact_spacing(num_tents, pivotpoint, radius, eff_row_width,
-                                         lat_offset, seed_angle, **kw)
+            # Dense N-S spacing so each row has many candidates; per-row
+            # proportional sub-sampling then distributes exactly num_tents evenly.
+            # This avoids fixed-interval positions landing on pivot track rings.
+            spacing = max(grid_sp / 10.0, 1.0)
         else:
             spacing = calculate_spacing(radius, tent_row_width)
 
