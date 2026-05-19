@@ -678,21 +678,27 @@ def get_tent_positions(field_dict, use_metric=True):
     """
     Compute shelter positions from a field dict, return [(lat, lon), ...] in NW-snake
     numbering order. Returns [] on any error or missing data.
-    NW-snake: start at the northwest-most shelter, number south along the first row,
-    then snake (next row goes north, then south, alternating).
 
-    Spacing priority:
-      1. user-given spacing → use as-is, do NOT trim to num_tents
-      2. num_tents given (no spacing) → find_exact_spacing, then trim to num_tents
-      3. neither → calculate_spacing auto
+    When num_structures is set (no user spacing): uses a POLAR RING approach.
+      - Shelters placed on concentric circles at radii = k * sprayer_width (pass edges)
+      - Radially shifted by lat_offset into the female bay
+      - Angularly spaced tent_row_width apart on each ring
+      - Rings limited to [first_pivot_track, last_pivot_track] radial zone
+      - Per-ring proportional sub-sampling for uniform density
+      - Guarantees: pass-edge placement, never mid-pass, never on pivot tracks
+
+    When user spacing is given: rectangular grid pass-through (unchanged).
+    When neither: auto-spacing rectangular grid.
     """
     try:
+        from collections import defaultdict
+
         conv = 1.0 if use_metric else 0.3048
         pivotpoint = (float(field_dict['PP_Longitude']), float(field_dict['PP_Latitude']))
-        sprayer_width = float(field_dict['Sprayer_width']) * 0.3048  # Sprayer_width always in feet
+        sprayer_width = float(field_dict['Sprayer_width']) * 0.3048  # always in feet → metres
 
         boundary_polygon = field_dict.get('boundary_polygon') or None
-        pivot_tracks = [float(r) for r in (field_dict.get('pivot_tracks') or [])]
+        pivot_tracks = sorted(float(r) for r in (field_dict.get('pivot_tracks') or []))
         excl_m = float(field_dict.get('track_exclusion_ft') or 10) * 0.3048
 
         if boundary_polygon:
@@ -707,11 +713,9 @@ def get_tent_positions(field_dict, use_metric=True):
 
         seed_angle = float(field_dict.get('Spray_angle') or field_dict.get('Seed_angle') or 0)
 
-        # Compute lat_offset and effective row width from bay parameters when available.
-        # tent_row_width is used for the shelter grid lateral spacing; it MUST equal
-        # female_m + male_m so that each shelter row centre falls on a female bay centre.
-        # Using the user-entered Sprayer_width instead would misalign rows whenever
-        # Sprayer_width != female_m + male_m (e.g. user left the default 133 ft).
+        # Bay parameters → tent_row_width and lat_offset.
+        # tent_row_width = female_m + male_m so each row aligns with a female bay centre.
+        # lat_offset places the shelter 4 ft (1.2192 m) from the male bay edge.
         nf_raw = str(field_dict.get('num_female_rows') or '').strip()
         nm_raw = str(field_dict.get('num_male_rows') or '').strip()
         rs_in_raw = str(field_dict.get('row_spacing_in') or '').strip()
@@ -733,49 +737,7 @@ def get_tent_positions(field_dict, use_metric=True):
         ns_raw = str(field_dict.get('num_structures') or field_dict.get('# of Structures') or '').strip()
         num_tents = int(ns_raw) if ns_raw else None
         directional_offset = float(do_raw) * conv if do_raw else 0.0
-
         user_spacing = bool(sp_raw)
-        use_stagger = True  # overridden to False for num_tents mode (keeps shelters on pass edges)
-        inner_r2 = 0.0        # no inner radial limit by default
-        outer_r2 = float('inf')  # no outer radial limit by default
-
-        # eff_row_width: the E-W spacing between shelter rows used for grid generation.
-        # For num_tents mode we compute an optimal skip factor k so the grid is roughly
-        # square (uniform 2D density) rather than 179 columns × 1 shelter each.
-        eff_row_width = tent_row_width
-
-        if sp_raw:
-            spacing = float(sp_raw) * conv
-        elif num_tents:
-            # Compute field area to find optimal square grid spacing.
-            if boundary_enu:
-                n = len(boundary_enu)
-                area = abs(sum(
-                    boundary_enu[i][0] * boundary_enu[(i+1) % n][1] -
-                    boundary_enu[(i+1) % n][0] * boundary_enu[i][1]
-                    for i in range(n))) / 2
-            else:
-                area = math.pi * radius * radius
-            # k = how many bay columns to skip between shelter rows (square grid)
-            grid_sp = math.sqrt(max(area / num_tents, tent_row_width ** 2))
-            k = max(1, round(grid_sp / tent_row_width))
-            eff_row_width = k * tent_row_width
-            # N-S spacing = one sprayer pass width so every candidate lands on a
-            # pass edge (not mid-pass). No row stagger so odd rows stay on edges too.
-            spacing = max(sprayer_width, 1.0)
-            use_stagger = False
-            # Radial limits: no shelters inside the first sprayer pass ring or
-            # beyond the last full sprayer pass ring.  Keeps coverage uniform
-            # across the irrigated zone and avoids the center hub.
-            inner_r = sprayer_width                              # first pass
-            outer_r = math.floor((radius / 1.05) / max(sprayer_width, 1.0)) * max(sprayer_width, 1.0)
-            inner_r2 = inner_r * inner_r
-            outer_r2 = outer_r * outer_r
-        else:
-            spacing = calculate_spacing(radius, tent_row_width)
-
-        if spacing <= 0:
-            return []
 
         rotate = (0 - seed_angle + 180) % 360 - 180
         rot_r = math.radians(rotate)
@@ -783,8 +745,6 @@ def get_tent_positions(field_dict, use_metric=True):
 
         easting, northing = utmish.from_lonlat(pivotpoint[0], pivotpoint[1], pivotpoint[0])
         radius_sqr = radius * radius
-
-        rows = range(-int(radius / eff_row_width), int(radius / eff_row_width) + 1)
 
         # Precompute corner arm exclusion zones in ENU coordinates
         corner_excl = []
@@ -808,108 +768,215 @@ def get_tent_positions(field_dict, use_metric=True):
                     except Exception: pass
         excl_m2 = excl_m * excl_m
 
-        # Collect valid positions with their row index for snake-sort
-        raw = []  # (east_enu, north_enu, row_r)
+        def _in_corner_excl(east, north):
+            for zone in corner_excl:
+                if zone[0] == 'circle':
+                    _, ce, cn, cr2 = zone
+                    if (east - ce)**2 + (north - cn)**2 < cr2:
+                        return True
+                elif zone[0] == 'path':
+                    for j in range(len(zone[1]) - 1):
+                        ax, ay = zone[1][j]; bx, by = zone[1][j + 1]
+                        dx, dy = bx - ax, by - ay; seg2 = dx*dx + dy*dy
+                        if seg2 > 0:
+                            t = max(0.0, min(1.0, ((east-ax)*dx + (north-ay)*dy) / seg2))
+                            px, py = ax + t*dx, ay + t*dy
+                        else:
+                            px, py = ax, ay
+                        if (east - px)**2 + (north - py)**2 < excl_m2:
+                            return True
+            return False
+
+        # =====================================================================
+        # POLAR RING approach — used when num_tents is set and user gave no spacing.
+        # Shelters are placed on concentric circles at integer multiples of
+        # sprayer_width (the actual pass-edge radii for a circular pivot field).
+        # =====================================================================
+        if not user_spacing and num_tents:
+            # Determine the allowed radial zone from pivot_tracks.
+            # No shelters inside the innermost track or outside the outermost track.
+            if pivot_tracks:
+                inner_r = min(pivot_tracks) + excl_m
+                outer_r = max(pivot_tracks) - excl_m
+            else:
+                inner_r = sprayer_width * 0.5
+                outer_r = radius / 1.05
+
+            if outer_r <= inner_r or sprayer_width <= 0:
+                return []
+
+            # Build list of valid pass-edge radii within [inner_r, outer_r].
+            # Each ring is at r_pass = k * sprayer_width; skip rings that are
+            # within the exclusion zone of any pivot track.
+            pass_rings = []
+            k = 1
+            while True:
+                r_pass = k * sprayer_width
+                if r_pass > outer_r + sprayer_width:
+                    break
+                if inner_r <= r_pass <= outer_r:
+                    if not pivot_tracks or not any(abs(r_pass - tr) < excl_m for tr in pivot_tracks):
+                        pass_rings.append(r_pass)
+                k += 1
+
+            if not pass_rings:
+                return []
+
+            # Generate candidate positions on each valid ring.
+            raw = []  # (east, north, ring_idx)
+            for ring_idx, r_pass in enumerate(pass_rings):
+                # Shelter sits lat_offset radially beyond the pass edge (into female bay).
+                r_shelter = r_pass + lat_offset
+                if r_shelter <= 0:
+                    continue
+                # Angular positions spaced tent_row_width apart around the ring.
+                n_cols = max(1, round(2 * math.pi * r_shelter / tent_row_width))
+                for j in range(n_cols):
+                    theta = 2 * math.pi * j / n_cols
+                    # Pre-rotation ENU position on the ring
+                    pre_e = r_shelter * math.cos(theta)
+                    pre_n = r_shelter * math.sin(theta)
+                    # Apply seed_angle rotation
+                    east  = pre_e * cos_r - pre_n * sin_r
+                    north = pre_n * cos_r + pre_e * sin_r
+
+                    # Boundary filter
+                    if boundary_enu:
+                        if not _point_in_polygon(east, north, boundary_enu): continue
+                    else:
+                        if east*east + north*north > radius_sqr: continue
+
+                    # Pivot track exclusion (belt-and-suspenders: ring selection
+                    # should already exclude these, but floating-point may drift)
+                    if pivot_tracks:
+                        d = math.sqrt(east*east + north*north)
+                        if any(abs(d - tr) < excl_m for tr in pivot_tracks): continue
+
+                    # Corner arm exclusion
+                    if corner_excl and _in_corner_excl(east, north): continue
+
+                    raw.append((east, north, ring_idx))
+
+            if not raw:
+                return []
+
+            # Group by ring index
+            ring_groups = defaultdict(list)
+            for e, n, ring_idx in raw:
+                ring_groups[ring_idx].append((e, n))
+
+            # Per-ring proportional sub-sampling: keep num_tents total,
+            # distributed proportionally by each ring's available candidate count.
+            total_dense = sum(len(pts) for pts in ring_groups.values())
+            if total_dense > num_tents:
+                targets = {}
+                for ring_idx, pts in ring_groups.items():
+                    targets[ring_idx] = round(num_tents * len(pts) / total_dense)
+                # Correct rounding so sum == num_tents exactly
+                diff = num_tents - sum(targets.values())
+                for ring_idx in sorted(ring_groups.keys(),
+                                       key=lambda r: len(ring_groups[r]), reverse=True):
+                    if diff == 0: break
+                    if diff > 0:
+                        targets[ring_idx] = min(targets[ring_idx] + 1, len(ring_groups[ring_idx]))
+                        diff -= 1
+                    else:
+                        if targets[ring_idx] > 0:
+                            targets[ring_idx] -= 1
+                            diff += 1
+                new_groups = {}
+                for ring_idx, pts in ring_groups.items():
+                    # Sort by angle before sub-sampling for uniform distribution
+                    pts_sorted = sorted(pts, key=lambda en: math.atan2(en[1], en[0]))
+                    t = targets.get(ring_idx, 0)
+                    if t <= 0:
+                        new_groups[ring_idx] = []
+                    elif t >= len(pts_sorted):
+                        new_groups[ring_idx] = pts_sorted
+                    else:
+                        step = len(pts_sorted) / t
+                        new_groups[ring_idx] = [pts_sorted[int(i * step + step / 2)] for i in range(t)]
+                ring_groups = defaultdict(list, {r: v for r, v in new_groups.items() if v})
+
+            # NW-snake sort for rings: inner ring first, start from NW angle,
+            # alternate clockwise/CCW direction each successive ring.
+            nw_angle = math.pi * 3 / 4  # 135° from east = northwest direction
+
+            def angle_from_nw(en):
+                a = math.atan2(en[1], en[0])
+                d = a - nw_angle
+                while d < 0: d += 2 * math.pi
+                return d
+
+            sorted_ring_idxs = sorted(ring_groups.keys())
+            ordered = []
+            for i, ring_idx in enumerate(sorted_ring_idxs):
+                pts = sorted(ring_groups[ring_idx], key=angle_from_nw)
+                if i % 2 == 1:
+                    pts = list(reversed(pts))
+                ordered.extend(pts)
+
+            result = []
+            for e, n in ordered:
+                lon, lat = utmish.to_lonlat(e + easting, n + northing, pivotpoint[0])
+                result.append((lat, lon))
+            return result
+
+        # =====================================================================
+        # RECTANGULAR GRID — used when user gave an explicit spacing, or neither
+        # spacing nor num_tents was provided (auto-spacing).
+        # =====================================================================
+        eff_row_width = tent_row_width
+        use_stagger = True
+
+        if sp_raw:
+            spacing = float(sp_raw) * conv
+        else:
+            spacing = calculate_spacing(radius, tent_row_width)
+
+        if spacing <= 0:
+            return []
+
+        rows = range(-int(radius / eff_row_width), int(radius / eff_row_width) + 1)
+        ldx, ldy = cos_r, sin_r      # lateral direction (between rows)
+        tdx, tdy = -sin_r, cos_r    # travel direction (along a row)
+
+        raw = []
         for r in rows:
             odd = r % 2
             for c in range(-int(radius / spacing) - 1, int(radius / spacing) + 1):
                 pre_e = r * eff_row_width + lat_offset
-                pre_n = (c * spacing + spacing / 2 + directional_offset) if (odd and use_stagger) else (c * spacing + directional_offset)
+                pre_n = (c * spacing + spacing / 2 + directional_offset) if (odd and use_stagger) \
+                        else (c * spacing + directional_offset)
                 east  = pre_e * cos_r - pre_n * sin_r
                 north = pre_n * cos_r + pre_e * sin_r
                 if boundary_enu:
                     if not _point_in_polygon(east, north, boundary_enu): continue
                 else:
                     if east*east + north*north > radius_sqr: continue
-                d_sq = east*east + north*north
-                if d_sq < inner_r2 or d_sq > outer_r2: continue
                 if pivot_tracks:
-                    d = math.sqrt(d_sq)
+                    d = math.sqrt(east*east + north*north)
                     if any(abs(d - tr) < excl_m for tr in pivot_tracks): continue
-                if corner_excl:
-                    skip = False
-                    for zone in corner_excl:
-                        if zone[0] == 'circle':
-                            _, ce, cn, cr2 = zone
-                            if (east-ce)**2 + (north-cn)**2 < cr2:
-                                skip = True; break
-                        elif zone[0] == 'path':
-                            for j in range(len(zone[1])-1):
-                                ax, ay = zone[1][j]; bx, by = zone[1][j+1]
-                                dx, dy = bx-ax, by-ay; seg2 = dx*dx+dy*dy
-                                if seg2 > 0:
-                                    t = max(0.0, min(1.0, ((east-ax)*dx+(north-ay)*dy)/seg2))
-                                    px, py = ax+t*dx, ay+t*dy
-                                else:
-                                    px, py = ax, ay
-                                if (east-px)**2+(north-py)**2 < excl_m2:
-                                    skip = True; break
-                            if skip: break
-                    if skip: continue
+                if corner_excl and _in_corner_excl(east, north): continue
                 raw.append((east, north, r))
 
-        # NW-snake sort
-        # Lateral direction in ENU (between rows): (cos_r, sin_r)
-        # Travel direction in ENU (along a row): (-sin_r, cos_r)
-        ldx, ldy = cos_r, sin_r
-        tdx, tdy = -sin_r, cos_r
-
-        # Group by row index r
-        from collections import defaultdict
         row_groups = defaultdict(list)
         for e, n, r in raw:
             row_groups[r].append((e, n))
 
-        # Per-row proportional sub-sampling: assign each row a target count
-        # proportional to that row's available positions, then sub-sample uniformly
-        # within each row. This gives even spatial density regardless of row length.
-        if not user_spacing and num_tents:
-            total_dense = sum(len(pts) for pts in row_groups.values())
-            if total_dense > num_tents:
-                targets = {}
-                for r, pts in row_groups.items():
-                    targets[r] = round(num_tents * len(pts) / total_dense)
-                # Fix rounding so sum == num_tents exactly
-                diff = num_tents - sum(targets.values())
-                for r in sorted(row_groups.keys(), key=lambda r: len(row_groups[r]), reverse=True):
-                    if diff == 0:
-                        break
-                    if diff > 0:
-                        targets[r] = min(targets[r] + 1, len(row_groups[r]))
-                        diff -= 1
-                    else:
-                        if targets[r] > 0:
-                            targets[r] -= 1
-                            diff += 1
-                # Sub-sample each row uniformly (sorted along-row before sampling)
-                new_groups = {}
-                for r, pts in row_groups.items():
-                    pts_sorted = sorted(pts, key=lambda en: en[0]*tdx + en[1]*tdy)
-                    t = targets.get(r, 0)
-                    if t <= 0:
-                        new_groups[r] = []
-                    elif t >= len(pts_sorted):
-                        new_groups[r] = pts_sorted
-                    else:
-                        step = len(pts_sorted) / t
-                        new_groups[r] = [pts_sorted[int(i * step + step / 2)] for i in range(t)]
-                row_groups = defaultdict(list, {r: v for r, v in new_groups.items() if v})
-
-        # Sort rows by lateral coord ascending (most negative = most NW-ward)
         def row_lat_coord(r):
             pts = row_groups[r]
             return sum(e*ldx + n*ldy for e, n in pts) / len(pts)
         sorted_rows = sorted(row_groups.keys(), key=row_lat_coord)
 
-        # First row: start from NW end.
-        # NW direction = (-1,1). If dot(travel_dir, NW) > 0, NW end has max travel → sort desc.
         travel_nw = tdx * (-1) + tdy * 1
         first_row_descending = travel_nw > 0
 
         ordered = []
         for i, r in enumerate(sorted_rows):
             pts = sorted(row_groups[r], key=lambda en: en[0]*tdx + en[1]*tdy)
-            descending = (i % 2 == 0 and first_row_descending) or (i % 2 == 1 and not first_row_descending)
+            descending = (i % 2 == 0 and first_row_descending) or \
+                         (i % 2 == 1 and not first_row_descending)
             if descending:
                 pts = list(reversed(pts))
             ordered.extend(pts)
