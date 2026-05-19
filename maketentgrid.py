@@ -735,6 +735,7 @@ def get_tent_positions(field_dict, use_metric=True):
         directional_offset = float(do_raw) * conv if do_raw else 0.0
 
         user_spacing = bool(sp_raw)
+        use_stagger = True  # overridden to False for num_tents mode (keeps shelters on pass edges)
 
         # eff_row_width: the E-W spacing between shelter rows used for grid generation.
         # For num_tents mode we compute an optimal skip factor k so the grid is roughly
@@ -757,10 +758,10 @@ def get_tent_positions(field_dict, use_metric=True):
             grid_sp = math.sqrt(max(area / num_tents, tent_row_width ** 2))
             k = max(1, round(grid_sp / tent_row_width))
             eff_row_width = k * tent_row_width
-            # Dense N-S spacing so each row has many candidates; per-row
-            # proportional sub-sampling then distributes exactly num_tents evenly.
-            # This avoids fixed-interval positions landing on pivot track rings.
-            spacing = max(grid_sp / 10.0, 1.0)
+            # N-S spacing = one sprayer pass width so every candidate lands on a
+            # pass edge (not mid-pass). No row stagger so odd rows stay on edges too.
+            spacing = max(sprayer_width, 1.0)
+            use_stagger = False
         else:
             spacing = calculate_spacing(radius, tent_row_width)
 
@@ -804,7 +805,7 @@ def get_tent_positions(field_dict, use_metric=True):
             odd = r % 2
             for c in range(-int(radius / spacing) - 1, int(radius / spacing) + 1):
                 pre_e = r * eff_row_width + lat_offset
-                pre_n = (c * spacing + spacing / 2 + directional_offset) if odd else (c * spacing + directional_offset)
+                pre_n = (c * spacing + spacing / 2 + directional_offset) if (odd and use_stagger) else (c * spacing + directional_offset)
                 east  = pre_e * cos_r - pre_n * sin_r
                 north = pre_n * cos_r + pre_e * sin_r
                 if boundary_enu:
