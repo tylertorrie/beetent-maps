@@ -736,6 +736,8 @@ def get_tent_positions(field_dict, use_metric=True):
 
         user_spacing = bool(sp_raw)
         use_stagger = True  # overridden to False for num_tents mode (keeps shelters on pass edges)
+        inner_r2 = 0.0        # no inner radial limit by default
+        outer_r2 = float('inf')  # no outer radial limit by default
 
         # eff_row_width: the E-W spacing between shelter rows used for grid generation.
         # For num_tents mode we compute an optimal skip factor k so the grid is roughly
@@ -762,6 +764,13 @@ def get_tent_positions(field_dict, use_metric=True):
             # pass edge (not mid-pass). No row stagger so odd rows stay on edges too.
             spacing = max(sprayer_width, 1.0)
             use_stagger = False
+            # Radial limits: no shelters inside the first sprayer pass ring or
+            # beyond the last full sprayer pass ring.  Keeps coverage uniform
+            # across the irrigated zone and avoids the center hub.
+            inner_r = sprayer_width                              # first pass
+            outer_r = math.floor((radius / 1.05) / max(sprayer_width, 1.0)) * max(sprayer_width, 1.0)
+            inner_r2 = inner_r * inner_r
+            outer_r2 = outer_r * outer_r
         else:
             spacing = calculate_spacing(radius, tent_row_width)
 
@@ -812,8 +821,10 @@ def get_tent_positions(field_dict, use_metric=True):
                     if not _point_in_polygon(east, north, boundary_enu): continue
                 else:
                     if east*east + north*north > radius_sqr: continue
+                d_sq = east*east + north*north
+                if d_sq < inner_r2 or d_sq > outer_r2: continue
                 if pivot_tracks:
-                    d = math.sqrt(east*east + north*north)
+                    d = math.sqrt(d_sq)
                     if any(abs(d - tr) < excl_m for tr in pivot_tracks): continue
                 if corner_excl:
                     skip = False
