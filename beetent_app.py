@@ -329,7 +329,6 @@ class BeetentApp(ctk.CTk):
 
         self._pp_btn = self._make_menu_btn(bb, "📍 Pivot Point", [
             ("Set",    self._mode_pivot),
-            ("Delete", self._delete_pivot),
         ], color="#1a6b3a")
         self._pp_btn.pack(side="left", padx=(0,4))
 
@@ -344,11 +343,6 @@ class BeetentApp(ctk.CTk):
         self._trk_btn = self._make_menu_btn(bb, "🔵 Pivot Tracks", [
             ("Toggle on/off",       self._toggle_tracks),
             ("Draw Track Circle",   self._mode_track),
-            ("Edit Track",          self._mode_edit_track),
-            ("Delete Track",        self._mode_delete_track_ui),
-            ("Add Corner Circle",   self._mode_add_corner_circle),
-            ("Add Corner Path",     self._mode_add_corner_path),
-            ("Delete Corner Zone",  self._mode_delete_corner_ui),
         ], color="#8b5a00")
         self._trk_btn.pack(side="left", padx=(0,4))
 
@@ -382,10 +376,6 @@ class BeetentApp(ctk.CTk):
         self.btn_shelter_labels.pack(side="left",padx=(0,4))
         ctk.CTkButton(bb2,text="↺ Reset Moves",width=120,fg_color="#4a2a00",
                       command=self._reset_shelter_overrides).pack(side="left",padx=(0,4))
-        self._btn_delete_shelter=ctk.CTkButton(bb2,text="🗑 Delete Shelter",width=130,
-                                               fg_color="#4a2a00",
-                                               command=self._mode_delete_shelter)
-        self._btn_delete_shelter.pack(side="left",padx=(0,4))
         ctk.CTkCheckBox(bb2,text="10 ft buffer circles",variable=self.shelter_circle_var,
                         command=self._redraw_shelters).pack(side="left",padx=(8,0))
 
@@ -1339,16 +1329,26 @@ class BeetentApp(ctk.CTk):
         if self.show_shelters.get(): self._redraw_shelters()
         self._status("Shelter moves and deletions cleared.")
 
-    def _mode_delete_shelter(self):
-        if self.click_mode=="delete_shelter":
-            self.click_mode=None; self._hide_context_btn()
-            self._btn_delete_shelter.configure(fg_color="#4a2a00")
-            self._status("Delete shelter mode off.")
-        else:
-            self.click_mode="delete_shelter"
-            self._btn_delete_shelter.configure(fg_color="#8b1a1a")
-            self._show_context_btn("✖ Done Deleting", self._mode_delete_shelter)
-            self._status("Click a shelter pin to delete it. ✖ Done when finished.")
+    def _on_shelter_tap(self, idx):
+        """Called when a shelter pin is clicked without dragging — highlight then offer delete."""
+        drag_key = f"shelter_{idx}"
+        info = self._drag_registry.get(drag_key)
+        hl_oval = None
+        if info:
+            try:
+                cx,cy = self.map_widget.convert_decimal_coords_to_canvas_coords(info['lat'],info['lon'])
+                r=14
+                hl_oval=self.map_widget.canvas.create_oval(
+                    cx-r,cy-r,cx+r,cy+r,
+                    fill="#FF6600",outline="#FF0000",width=2,tags="shelter_hl")
+                self.map_widget.canvas.update()
+            except Exception: pass
+        ans=tkinter.messagebox.askyesno("Delete Shelter",f"Delete shelter #{idx+1}?")
+        if hl_oval:
+            try: self.map_widget.canvas.delete(hl_oval)
+            except Exception: pass
+        if ans:
+            self._delete_shelter(idx)
 
     def _delete_shelter(self,idx):
         overrides=self.current_field.setdefault("shelter_overrides",{})
@@ -1712,11 +1712,10 @@ class BeetentApp(ctk.CTk):
                 except Exception: pass
             self._just_dragged=True
         elif was_pin_drag and not self._drag_moved:
-            # Pin tapped without dragging — handle delete mode
-            if self.click_mode=="delete_shelter" and self._drag_item and self._drag_item.startswith("shelter_"):
+            if self._drag_item and self._drag_item.startswith("shelter_"):
                 try:
                     idx=int(self._drag_item.split("_")[1])
-                    self._delete_shelter(idx)
+                    self._on_shelter_tap(idx)
                 except (ValueError,IndexError): pass
         elif not was_pin_drag and not self._drag_moved and self._map_tool=="select":
             # No pin hit, mouse didn't move — treat as a map click
