@@ -519,12 +519,18 @@ class BeetentApp(ctk.CTk):
     def _setup_form_traces(self):
         for v in self.fv.values():
             v.trace_add("write", self._on_form_change)
+        self.fv["track_exclusion_ft"].trace_add("write", self._on_track_excl_change)
 
     def _on_form_change(self, *_):
         if not self.show_shelters.get(): return
         if self._shelter_refresh_id:
             self.after_cancel(self._shelter_refresh_id)
         self._shelter_refresh_id = self.after(600, self._redraw_shelters)
+
+    def _on_track_excl_change(self, *_):
+        if getattr(self, "_track_excl_refresh_id", None):
+            self.after_cancel(self._track_excl_refresh_id)
+        self._track_excl_refresh_id = self.after(600, self._redraw_tracks)
 
     def _init_map(self):
         _cache=str(Path(__file__).parent/"tile_cache.db")
