@@ -2,8 +2,8 @@
   "Name": "#1",
   "company": "Corteva",
   "year": "2026",
-  "PP_Latitude": "",
-  "PP_Longitude": "",
+  "PP_Latitude": "49.9063882",
+  "PP_Longitude": "-111.7958025",
   "Spray_angle": "0",
   "Sprayer_width": "133",
   "num_structures": "130",
@@ -606,7 +606,18 @@
       -111.79118619733046
     ]
   ],
-  "pivot_tracks": [],
+  "pivot_tracks": [
+    38.09,
+    76.93,
+    115.12,
+    153.56,
+    191.58,
+    229.46,
+    267.68,
+    305.95,
+    344.23,
+    382.3
+  ],
   "corner_arms": [],
   "shelter_overrides": {}
 }
