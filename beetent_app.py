@@ -1761,6 +1761,7 @@ class BeetentApp(ctk.CTk):
     def _drag_release(self,event):
         was_pin_drag=bool(self._drag_item)
         if was_pin_drag and self._drag_moved and self._drag_last_latlon:
+            # Real pin drag completed — apply new position
             lat,lon=self._drag_last_latlon
             info=self._drag_registry.get(self._drag_item)
             if info:
@@ -1768,18 +1769,26 @@ class BeetentApp(ctk.CTk):
                 try: info['update_fn'](lat,lon)
                 except Exception: pass
             self._just_dragged=True
-        elif was_pin_drag and not self._drag_moved:
-            if self._drag_item and self._drag_item.startswith("shelter_"):
+        elif not self._drag_moved and self._map_tool=="select":
+            # Click without drag — pivot/boundary/track modes win over pin-tap so
+            # the user can place points near existing pins.
+            if self.click_mode is not None:
+                try:
+                    lat,lon=self.map_widget.convert_canvas_coords_to_decimal_coords(event.x,event.y)
+                    self._on_map_click((lat,lon))
+                except Exception: pass
+            elif was_pin_drag and self._drag_item and self._drag_item.startswith("shelter_"):
+                # No mode active and a shelter pin was tapped — offer delete
                 try:
                     idx=int(self._drag_item.split("_")[1])
                     self._on_shelter_tap(idx)
                 except (ValueError,IndexError): pass
-        elif not was_pin_drag and not self._drag_moved and self._map_tool=="select":
-            # No pin hit, mouse didn't move — treat as a map click
-            try:
-                lat,lon=self.map_widget.convert_canvas_coords_to_decimal_coords(event.x,event.y)
-                self._on_map_click((lat,lon))
-            except Exception: pass
+            elif not was_pin_drag:
+                # Plain map click (no pin nearby, no mode)
+                try:
+                    lat,lon=self.map_widget.convert_canvas_coords_to_decimal_coords(event.x,event.y)
+                    self._on_map_click((lat,lon))
+                except Exception: pass
         else:
             # Pan finished — let tkintermapview run its fading animation
             try: self.map_widget.mouse_release(event)
