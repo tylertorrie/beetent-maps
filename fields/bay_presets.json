@@ -5,5 +5,12 @@
     "planter_width_ft": "36.66",
     "num_female_rows": "8",
     "num_male_rows": "2"
+  },
+  {
+    "name": "Torrie- 4M/16F",
+    "row_spacing_in": "22",
+    "planter_width_ft": "36.66",
+    "num_female_rows": "16",
+    "num_male_rows": "4"
   }
 ]
