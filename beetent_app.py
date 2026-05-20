@@ -382,6 +382,10 @@ class BeetentApp(ctk.CTk):
         self.btn_shelter_labels.pack(side="left",padx=(0,4))
         ctk.CTkButton(bb2,text="↺ Reset Moves",width=120,fg_color="#4a2a00",
                       command=self._reset_shelter_overrides).pack(side="left",padx=(0,4))
+        self._btn_delete_shelter=ctk.CTkButton(bb2,text="🗑 Delete Shelter",width=130,
+                                               fg_color="#4a2a00",
+                                               command=self._mode_delete_shelter)
+        self._btn_delete_shelter.pack(side="left",padx=(0,4))
         ctk.CTkCheckBox(bb2,text="10 ft buffer circles",variable=self.shelter_circle_var,
                         command=self._redraw_shelters).pack(side="left",padx=(8,0))
 
@@ -1333,7 +1337,24 @@ class BeetentApp(ctk.CTk):
     def _reset_shelter_overrides(self):
         self.current_field["shelter_overrides"]={}
         if self.show_shelters.get(): self._redraw_shelters()
-        self._status("Shelter position overrides cleared.")
+        self._status("Shelter moves and deletions cleared.")
+
+    def _mode_delete_shelter(self):
+        if self.click_mode=="delete_shelter":
+            self.click_mode=None; self._hide_context_btn()
+            self._btn_delete_shelter.configure(fg_color="#4a2a00")
+            self._status("Delete shelter mode off.")
+        else:
+            self.click_mode="delete_shelter"
+            self._btn_delete_shelter.configure(fg_color="#8b1a1a")
+            self._show_context_btn("✖ Done Deleting", self._mode_delete_shelter)
+            self._status("Click a shelter pin to delete it. ✖ Done when finished.")
+
+    def _delete_shelter(self,idx):
+        overrides=self.current_field.setdefault("shelter_overrides",{})
+        overrides[str(idx)]=None
+        self._redraw_shelters()
+        self._status(f"Shelter #{idx+1} deleted — save field to keep. ↺ Reset Moves to restore all.")
 
     def _make_shelter_move_cb(self,idx):
         def cb(marker):
@@ -1359,16 +1380,22 @@ class BeetentApp(ctk.CTk):
             return
         overrides=self.current_field.get("shelter_overrides") or {}
         merged=list(positions)
+        deleted=set()
         for k,v in overrides.items():
             try:
                 idx=int(k)
-                if 0<=idx<len(merged): merged[idx]=tuple(v)
+                if 0<=idx<len(merged):
+                    if v is None:
+                        deleted.add(idx)
+                    else:
+                        merged[idx]=tuple(v)
             except (ValueError,TypeError): pass
         self.shelter_positions=list(merged)
         show_lbl=self.show_shelter_labels.get()
         show_circles=self.shelter_circle_var.get()
         BUFFER_M=1.524  # 5 ft radius = 10 ft diameter
         for i,(lat,lon) in enumerate(merged):
+            if i in deleted: continue
             lbl=str(i+1) if show_lbl else "•"
             cc="#FFFF00" if show_lbl else "#FFD700"
             oc="#B8860B"
@@ -1684,6 +1711,13 @@ class BeetentApp(ctk.CTk):
                 try: info['update_fn'](lat,lon)
                 except Exception: pass
             self._just_dragged=True
+        elif was_pin_drag and not self._drag_moved:
+            # Pin tapped without dragging — handle delete mode
+            if self.click_mode=="delete_shelter" and self._drag_item and self._drag_item.startswith("shelter_"):
+                try:
+                    idx=int(self._drag_item.split("_")[1])
+                    self._delete_shelter(idx)
+                except (ValueError,IndexError): pass
         elif not was_pin_drag and not self._drag_moved and self._map_tool=="select":
             # No pin hit, mouse didn't move — treat as a map click
             try:
