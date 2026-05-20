@@ -853,8 +853,9 @@ def get_tent_positions(field_dict, use_metric=True):
                 total = 0
                 for r in range(-r_max, r_max + 1):
                     pre_e = r * sprayer_width + lat_offset
+                    n_stagger = (n_sp / 2) if (r % 2) else 0.0
                     for c in range(-c_max, c_max + 1):
-                        pre_n = c * n_sp + directional_offset
+                        pre_n = c * n_sp + directional_offset + n_stagger
                         east  = pre_e * cos_r - pre_n * sin_r
                         north = pre_n * cos_r + pre_e * sin_r
                         if boundary_enu:
@@ -882,8 +883,9 @@ def get_tent_positions(field_dict, use_metric=True):
             c_max = int(radius / ns_spacing) + 2
             for r in range(-r_max, r_max + 1):
                 pre_e = r * sprayer_width + lat_offset
+                n_stagger = (ns_spacing / 2) if (r % 2) else 0.0
                 for c in range(-c_max, c_max + 1):
-                    pre_n = c * ns_spacing + directional_offset
+                    pre_n = c * ns_spacing + directional_offset + n_stagger
                     east  = pre_e * cos_r - pre_n * sin_r
                     north = pre_n * cos_r + pre_e * sin_r
                     if boundary_enu:
