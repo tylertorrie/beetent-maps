@@ -236,7 +236,6 @@ class BeetentApp(ctk.CTk):
         self._drag_item = None
         self._drag_last_latlon = None
         self._drag_start_xy = None
-        self._drag_temp_oval = None   # canvas item ID (not a tkintermapview marker)
         self._drag_moved = False
         self._just_dragged = False
         self._pan_start_xy = None
@@ -893,7 +892,7 @@ class BeetentApp(ctk.CTk):
             self.pivot_marker=self.map_widget.set_marker(lat,lon,text="Pivot",
                                                           marker_color_circle="red",
                                                           marker_color_outside="darkred")
-            self._register_drag("pivot",lat,lon,"Pivot","red","darkred",self._on_pivot_drag)
+            self._register_drag("pivot",lat,lon,"Pivot","red","darkred",self._on_pivot_drag,marker=self.pivot_marker)
             self.click_mode=None; self._status(f"Pivot: {lat:.5f}, {lon:.5f}")
             self._redraw_boundary(); self._redraw_passes(); self._redraw_tracks()
 
@@ -1120,7 +1119,7 @@ class BeetentApp(ctk.CTk):
                                           marker_color_outside="#555555")
             self.track_handles.append(h)
             self._register_drag(f"track_{i}",hlat,hlon,"↔","#999999","#555555",
-                                lambda la,lo,i=i: self._on_track_drag(i,la,lo))
+                                lambda la,lo,i=i: self._on_track_drag(i,la,lo),marker=h)
         if self.show_shelters.get(): self._redraw_shelters()
 
     def _on_track_drag(self,idx,lat,lon):
@@ -1334,12 +1333,12 @@ class BeetentApp(ctk.CTk):
         drag_key = f"shelter_{idx}"
         info = self._drag_registry.get(drag_key)
         hl_oval = None
-        if info:
+        marker = info.get('marker') if info else None
+        if marker and not getattr(marker,'deleted',True):
             try:
-                cx,cy = self.map_widget.convert_decimal_coords_to_canvas_coords(info['lat'],info['lon'])
-                r=14
+                cx,cy = marker.get_canvas_pos(marker.position)
                 hl_oval=self.map_widget.canvas.create_oval(
-                    cx-r,cy-r,cx+r,cy+r,
+                    cx-16,cy-47,cx+16,cy-15,
                     fill="#FF6600",outline="#FF0000",width=2,tags="shelter_hl")
                 self.map_widget.canvas.update()
             except Exception: pass
@@ -1405,7 +1404,7 @@ class BeetentApp(ctk.CTk):
                                               marker_color_outside=oc)
                 self.shelter_markers.append(m)
                 self._register_drag(f"shelter_{i}",lat,lon,lbl,cc,oc,
-                                    lambda la,lo,i=i: self._on_shelter_drag(i,la,lo))
+                                    lambda la,lo,i=i: self._on_shelter_drag(i,la,lo),marker=m)
             except Exception: pass
             if show_circles:
                 try:
@@ -1583,7 +1582,7 @@ class BeetentApp(ctk.CTk):
                 self.pivot_marker=self.map_widget.set_marker(plat,plon,text="Pivot",
                                                               marker_color_circle="red",
                                                               marker_color_outside="darkred")
-                self._register_drag("pivot",plat,plon,"Pivot","red","darkred",self._on_pivot_drag)
+                self._register_drag("pivot",plat,plon,"Pivot","red","darkred",self._on_pivot_drag,marker=self.pivot_marker)
         except (ValueError,TypeError): pass
         self._redraw_boundary(); self._redraw_tracks(); self._redraw_passes(); self._redraw_bays(); self._redraw_corner_arms(); self._redraw_shelters()
 
@@ -1610,14 +1609,14 @@ class BeetentApp(ctk.CTk):
         self.pivot_marker=self.map_widget.set_marker(lat,lon,text="Pivot",
                                                       marker_color_circle="red",
                                                       marker_color_outside="darkred")
-        self._register_drag("pivot",lat,lon,"Pivot","red","darkred",self._on_pivot_drag)
+        self._register_drag("pivot",lat,lon,"Pivot","red","darkred",self._on_pivot_drag,marker=self.pivot_marker)
         self._status(f"Pivot moved: {lat:.5f}, {lon:.5f}")
         self._redraw_boundary(); self._redraw_passes(); self._redraw_tracks()
 
     # ── Drag system ────────────────────────────────────────────────────────────
-    def _register_drag(self,key,lat,lon,text,cc,oc,update_fn):
+    def _register_drag(self,key,lat,lon,text,cc,oc,update_fn,marker=None):
         self._drag_registry[key]=dict(lat=lat,lon=lon,text=text,
-                                       circle_color=cc,outside_color=oc,update_fn=update_fn)
+                                       circle_color=cc,outside_color=oc,update_fn=update_fn,marker=marker)
 
     def _unregister_drag_prefix(self,prefix):
         for k in [k for k in self._drag_registry if k.startswith(prefix)]:
@@ -1639,14 +1638,12 @@ class BeetentApp(ctk.CTk):
         canvas.bind("<ButtonPress-1>",self._drag_press)
         canvas.bind("<ButtonRelease-1>",self._drag_release)
         canvas.bind("<B1-Motion>",self._b1_motion)
-        # Remove any leftover temp ovals from previous sessions
-        try: canvas.delete("drag_temp")
-        except Exception: pass
 
     def _drag_press(self,event):
         self._pan_start_xy=(event.x,event.y)
         self._drag_moved=False
-        try: self.map_widget.canvas.scan_mark(event.x,event.y)
+        # Always let tkintermapview record the press so panning works correctly
+        try: self.map_widget.mouse_click(event)
         except Exception: pass
         if self._map_tool=="pan":
             return
@@ -1673,36 +1670,32 @@ class BeetentApp(ctk.CTk):
         if abs(event.x-sx)>4 or abs(event.y-sy)>4:
             self._drag_moved=True
         if self._drag_item and self._map_tool=="select":
-            # Pin drag — park scan_mark so map won't pan underneath
-            try: self.map_widget.canvas.scan_mark(event.x,event.y)
-            except Exception: pass
+            # Pin drag — move the actual marker's canvas items with the cursor
             try:
                 lat,lon=self.map_widget.convert_canvas_coords_to_decimal_coords(event.x,event.y)
             except Exception: return
             if self._drag_moved:
-                canvas=self.map_widget.canvas
-                r=10
-                if self._drag_temp_oval is None:
-                    info=self._drag_registry.get(self._drag_item)
-                    col=info.get('circle_color','#FFD700') if info else '#FFD700'
-                    self._drag_temp_oval=canvas.create_oval(
-                        event.x-r,event.y-r,event.x+r,event.y+r,
-                        fill=col,outline="#333333",width=2,tags="drag_temp")
-                else:
-                    canvas.coords(self._drag_temp_oval,
-                                  event.x-r,event.y-r,event.x+r,event.y+r)
+                info=self._drag_registry.get(self._drag_item)
+                m=info.get('marker') if info else None
+                if m and not getattr(m,'deleted',True):
+                    try:
+                        x,y=event.x,event.y
+                        canvas=self.map_widget.canvas
+                        if m.polygon:
+                            canvas.coords(m.polygon,x-14,y-23,x,y,x+14,y-23)
+                        if m.big_circle:
+                            canvas.coords(m.big_circle,x-14,y-45,x+14,y-17)
+                        if m.canvas_text:
+                            canvas.coords(m.canvas_text,x,y+m.text_y_offset)
+                    except Exception: pass
                 self._drag_last_latlon=(lat,lon)
         else:
-            # Pan the map
-            try: self.map_widget.canvas.scan_dragto(event.x,event.y,gain=1)
+            # Pan the map via tkintermapview so tile positions stay accurate
+            try: self.map_widget.mouse_move(event)
             except Exception: pass
 
     def _drag_release(self,event):
         was_pin_drag=bool(self._drag_item)
-        if self._drag_temp_oval is not None:
-            try: self.map_widget.canvas.delete(self._drag_temp_oval)
-            except Exception: pass
-            self._drag_temp_oval=None
         if was_pin_drag and self._drag_moved and self._drag_last_latlon:
             lat,lon=self._drag_last_latlon
             info=self._drag_registry.get(self._drag_item)
@@ -1722,6 +1715,10 @@ class BeetentApp(ctk.CTk):
             try:
                 lat,lon=self.map_widget.convert_canvas_coords_to_decimal_coords(event.x,event.y)
                 self._on_map_click((lat,lon))
+            except Exception: pass
+        else:
+            # Pan finished — let tkintermapview run its fading animation
+            try: self.map_widget.mouse_release(event)
             except Exception: pass
         self._drag_item=None; self._drag_moved=False
         self._drag_start_xy=None; self._drag_last_latlon=None; self._pan_start_xy=None
