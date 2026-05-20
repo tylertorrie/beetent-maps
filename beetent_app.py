@@ -304,7 +304,6 @@ class BeetentApp(ctk.CTk):
         self._just_dragged = False
         self._pan_start_xy = None
         self._selected_bnd_vertex = None
-        self._map_tool = "select"   # "pan" or "select"
 
         self._build_toolbar()
         self._build_body()
@@ -596,17 +595,6 @@ class BeetentApp(ctk.CTk):
         self.map_widget.set_tile_server(SATELLITE_URL,max_zoom=21)
         self.map_widget.set_position(DEFAULT_LAT,DEFAULT_LON)
         self.map_widget.set_zoom(DEFAULT_ZOOM)
-        # Tool toggle buttons overlaid at bottom-right of map
-        tool_bar=ctk.CTkFrame(self.map_frame,fg_color="#1e1e1e",corner_radius=6)
-        tool_bar.place(relx=1.0,rely=1.0,anchor="se",x=-14,y=-14)
-        self._btn_pan_tool=ctk.CTkButton(tool_bar,text="✋ Pan",width=72,height=34,
-                                          fg_color="#2b2b2b",hover_color="#3a3a3a",
-                                          command=lambda:self._set_map_tool("pan"))
-        self._btn_pan_tool.pack(side="left",padx=(4,2),pady=4)
-        self._btn_select_tool=ctk.CTkButton(tool_bar,text="↖ Select",width=80,height=34,
-                                             fg_color="#1f6aa5",hover_color="#2a7ab5",
-                                             command=lambda:self._set_map_tool("select"))
-        self._btn_select_tool.pack(side="left",padx=(2,4),pady=4)
 
     # ── Bay Presets ────────────────────────────────────────────────────────────
     def _load_bay_presets(self):
@@ -743,17 +731,6 @@ class BeetentApp(ctk.CTk):
     # ── Map ────────────────────────────────────────────────────────────────────
     def _switch_tiles(self,mode):
         self.map_widget.set_tile_server(SATELLITE_URL if mode=="Satellite" else STREET_URL,max_zoom=21)
-
-    def _set_map_tool(self,tool):
-        self._map_tool=tool
-        if tool=="pan":
-            self._btn_pan_tool.configure(fg_color="#1f6aa5")
-            self._btn_select_tool.configure(fg_color="#2b2b2b")
-            self._status("Pan mode — drag to move the map")
-        else:
-            self._btn_pan_tool.configure(fg_color="#2b2b2b")
-            self._btn_select_tool.configure(fg_color="#1f6aa5")
-            self._status("Select mode — click or drag pins")
 
     def _search_lld(self):
         res=geocode_lld(self.lld_entry.get())
@@ -1709,9 +1686,7 @@ class BeetentApp(ctk.CTk):
         # Always let tkintermapview record the press so panning works correctly
         try: self.map_widget.mouse_click(event)
         except Exception: pass
-        if self._map_tool=="pan":
-            return
-        # Select mode: find nearest registered pin
+        # Find nearest registered pin
         best_id=None; lat0=lon0=None
         try:
             lat0,lon0=self.map_widget.convert_canvas_coords_to_decimal_coords(event.x,event.y)
@@ -1733,7 +1708,7 @@ class BeetentApp(ctk.CTk):
         sx,sy=self._pan_start_xy if self._pan_start_xy else (event.x,event.y)
         if abs(event.x-sx)>4 or abs(event.y-sy)>4:
             self._drag_moved=True
-        if self._drag_item and self._map_tool=="select":
+        if self._drag_item:
             # Pin drag — move the actual marker's canvas items with the cursor
             try:
                 lat,lon=self.map_widget.convert_canvas_coords_to_decimal_coords(event.x,event.y)
@@ -1769,7 +1744,7 @@ class BeetentApp(ctk.CTk):
                 try: info['update_fn'](lat,lon)
                 except Exception: pass
             self._just_dragged=True
-        elif not self._drag_moved and self._map_tool=="select":
+        elif not self._drag_moved:
             # Click without drag — pivot/boundary/track modes win over pin-tap so
             # the user can place points near existing pins.
             if self.click_mode is not None:
