@@ -6,7 +6,7 @@ import tkinter as tk
 import tkinter.filedialog, tkinter.messagebox, tkinter.simpledialog
 import customtkinter as ctk
 import tkintermapview
-import math, os, sys, threading, json, re, csv, datetime, zipfile
+import math, os, sys, threading, json, re, csv, datetime, zipfile, struct
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -27,6 +27,40 @@ _MERIDIANS = {1:-97.4551, 2:-102.0, 3:-106.0, 4:-110.0, 5:-114.0, 6:-118.0}
 _QUARTER   = {"NE":(0.75,0.25),"NW":(0.75,0.75),"SE":(0.25,0.25),"SW":(0.25,0.75)}
 _HALF      = {"N":(0.5,1.0,0.0,1.0),"S":(0.0,0.5,0.0,1.0),
               "E":(0.0,1.0,0.0,0.5),"W":(0.0,1.0,0.5,1.0)}
+
+_ATS_SECTIONS = None  # populated on first use: dict (mer,twp,rng,sec) -> (lat_min,lat_max,lon_min,lon_max)
+
+def _load_ats_sections():
+    """Load Alberta Township System V4.1 section bboxes from packed binary file."""
+    global _ATS_SECTIONS
+    path = Path(__file__).parent / "fields" / "ats_sections.bin"
+    if not path.exists():
+        _ATS_SECTIONS = {}
+        return _ATS_SECTIONS
+    try:
+        with open(path, "rb") as f:
+            magic = f.read(4)
+            if magic != b"ATS1":
+                _ATS_SECTIONS = {}
+                return _ATS_SECTIONS
+            (count,) = struct.unpack("<I", f.read(4))
+            data = f.read()
+        rec = struct.Struct("<BBBBffff")
+        size = rec.size
+        lookup = {}
+        for i in range(count):
+            m, t, r, s, lat_min, lat_max, lon_min, lon_max = rec.unpack_from(data, i * size)
+            lookup[(m, t, r, s)] = (lat_min, lat_max, lon_min, lon_max)
+        _ATS_SECTIONS = lookup
+    except Exception:
+        _ATS_SECTIONS = {}
+    return _ATS_SECTIONS
+
+def _ats_section_bbox(mer, twp, rng, sec):
+    """Return (lat_min, lat_max, lon_min, lon_max) for the section, or None."""
+    if _ATS_SECTIONS is None:
+        _load_ats_sections()
+    return _ATS_SECTIONS.get((mer, twp, rng, sec))
 
 def _sec_pos(sec):
     idx=sec-1; row=idx//6
@@ -52,6 +86,36 @@ def geocode_lld(query):
         m=re.match(r"^(\d+)-(\d+)-W(\d)M?$",q)
         if m: twp,rng,mer=int(m.group(1)),int(m.group(2)),int(m.group(3))
     if twp is None or mer not in _MERIDIANS: return None
+
+    # Prefer the official ATS V4.1 bbox when we have it (Alberta sections).
+    ats_bbox = _ats_section_bbox(mer, twp, rng, sec) if sec is not None else None
+    if ats_bbox is not None:
+        sec_s, sec_n, lon_min, lon_max = ats_bbox
+        sec_e, sec_w = lon_max, lon_min          # east = less negative; west = more negative
+        sec_h = sec_n - sec_s
+        sec_span = sec_w - sec_e                  # negative (west - east)
+        lat = (sec_s + sec_n) / 2
+        lon = (sec_e + sec_w) / 2
+        label = "Sec %d Twp %d Rng %d W%dM" % (sec, twp, rng, mer)
+        bnd_s, bnd_n, bnd_e, bnd_w = sec_s, sec_n, sec_e, sec_w
+        if half is not None:
+            fn_s, fn_e, fe_s, fe_e = _HALF[half]
+            q_s = sec_s + fn_s * sec_h; q_n = sec_s + fn_e * sec_h
+            q_e = sec_e + fe_s * sec_span; q_w = sec_e + fe_e * sec_span
+            lat = (q_s + q_n) / 2; lon = (q_e + q_w) / 2
+            label = "%s½ Sec %d Twp %d Rng %d W%dM" % (half, sec, twp, rng, mer)
+            bnd_s, bnd_n, bnd_e, bnd_w = q_s, q_n, q_e, q_w
+        elif quarter is not None:
+            fs, fe = _QUARTER[quarter]
+            q_s = sec_s + (fs - 0.25) * sec_h; q_n = sec_s + (fs + 0.25) * sec_h
+            q_e = sec_e + (fe - 0.25) * sec_span; q_w = sec_e + (fe + 0.25) * sec_span
+            lat = (q_s + q_n) / 2; lon = (q_e + q_w) / 2
+            label = "%s Sec %d Twp %d Rng %d W%dM" % (quarter, sec, twp, rng, mer)
+            bnd_s, bnd_n, bnd_e, bnd_w = q_s, q_n, q_e, q_w
+        corners = [(bnd_s, bnd_w), (bnd_n, bnd_w), (bnd_n, bnd_e), (bnd_s, bnd_e)]
+        return lat, lon, label, corners
+
+    # Fall back to math-based grid (covers townships without sec, Saskatchewan/Manitoba, etc.)
     mlon=_MERIDIANS[mer]; h=9.6561
     sw=49.0+(twp-1)*h/111.12; clat=sw+0.5*h/111.12
     lkm=1.0/(111.12*math.cos(math.radians(clat)))

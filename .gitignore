@@ -29,6 +29,9 @@ Thumbs.db
 .claude/projects/
 .claude/todos/
 
+# Tile cache (local SQLite, can be large)
+*.db
+
 # Sensitive / large data files
 *.csv
 *.ods
