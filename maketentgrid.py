@@ -798,23 +798,54 @@ def get_tent_positions(field_dict, use_metric=True):
         # lines when viewed from any direction.
         # =====================================================================
         if not user_spacing and num_tents:
-            if pivot_tracks:
-                inner_r2 = min(pivot_tracks) ** 2
-                outer_r2 = max(pivot_tracks) ** 2
-                row_range_m = max(pivot_tracks)
-            else:
-                inner_r2 = 0.0
-                outer_r2 = float('inf')
-                row_range_m = radius
-
             if sprayer_width <= 0:
                 return []
 
-            r_max = int(row_range_m / sprayer_width) + 2
+            # Inner limit: no shelter within sprayer_width of the pivot center.
+            inner_r2 = sprayer_width * sprayer_width
+
+            # Outer limit: no shelter within sprayer_width of the field boundary.
+            # For a polygon field: check min distance from point to boundary edges.
+            # For a circular field: enforce d < radius - sprayer_width.
+            outer_r_circle = radius - sprayer_width  # used only for circular fields
+
+            def _min_dist_to_bnd(east, north):
+                """Min distance from (east, north) to any boundary polygon edge."""
+                min_d2 = float('inf')
+                n = len(boundary_enu)
+                for i in range(n):
+                    ax, ay = boundary_enu[i]
+                    bx, by = boundary_enu[(i + 1) % n]
+                    dx, dy = bx - ax, by - ay
+                    seg2 = dx*dx + dy*dy
+                    if seg2 > 0:
+                        t = max(0.0, min(1.0, ((east-ax)*dx + (north-ay)*dy) / seg2))
+                        px, py = ax + t*dx, ay + t*dy
+                    else:
+                        px, py = ax, ay
+                    d2 = (east-px)**2 + (north-py)**2
+                    if d2 < min_d2:
+                        min_d2 = d2
+                return math.sqrt(min_d2)
+
+            r_max = int(radius / sprayer_width) + 2
 
             # Add 1 cm safety margin to excl_m so floating-point positions that
-            # land within rounding error of the boundary are consistently excluded.
+            # land within rounding error of the track boundary are consistently excluded.
             excl_m_safe = excl_m + 0.01
+
+            def _valid(east, north):
+                d_sq = east*east + north*north
+                if d_sq < inner_r2: return False
+                if boundary_enu:
+                    if _min_dist_to_bnd(east, north) < sprayer_width: return False
+                else:
+                    if d_sq > outer_r_circle * outer_r_circle: return False
+                if pivot_tracks:
+                    d = math.sqrt(d_sq)
+                    if any(abs(d - tr) < excl_m_safe for tr in pivot_tracks): return False
+                if corner_excl and _in_corner_excl(east, north): return False
+                return True
 
             def _count_grid(n_sp):
                 if n_sp <= 0: return 0
@@ -830,13 +861,7 @@ def get_tent_positions(field_dict, use_metric=True):
                             if not _point_in_polygon(east, north, boundary_enu): continue
                         else:
                             if east*east + north*north > radius_sqr: continue
-                        d_sq = east*east + north*north
-                        if d_sq < inner_r2 or d_sq > outer_r2: continue
-                        if pivot_tracks:
-                            d = math.sqrt(d_sq)
-                            if any(abs(d - tr) < excl_m_safe for tr in pivot_tracks): continue
-                        if corner_excl and _in_corner_excl(east, north): continue
-                        total += 1
+                        if _valid(east, north): total += 1
                 return total
 
             # Find the largest N-S spacing that still yields >= num_tents positions.
@@ -865,13 +890,8 @@ def get_tent_positions(field_dict, use_metric=True):
                         if not _point_in_polygon(east, north, boundary_enu): continue
                     else:
                         if east*east + north*north > radius_sqr: continue
-                    d_sq = east*east + north*north
-                    if d_sq < inner_r2 or d_sq > outer_r2: continue
-                    if pivot_tracks:
-                        d = math.sqrt(d_sq)
-                        if any(abs(d - tr) < excl_m_safe for tr in pivot_tracks): continue
-                    if corner_excl and _in_corner_excl(east, north): continue
-                    raw.append((east, north, r))
+                    if _valid(east, north):
+                        raw.append((east, north, r))
 
             if not raw:
                 return []
