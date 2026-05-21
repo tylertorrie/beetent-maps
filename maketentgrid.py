@@ -834,20 +834,69 @@ def get_tent_positions(field_dict, use_metric=True):
             # land within rounding error of the track boundary are consistently excluded.
             excl_m_safe = excl_m + 0.01
 
+            # Boundary rule: a shelter is allowed if it is either right against the
+            # boundary (within BND_EDGE_DIST) or well inside (>= sprayer_width away).
+            # The annulus in between is the outside-sprayer-pass kill zone.
+            BND_EDGE_DIST = 3.0
+            # Slide-along-bay budget for rescuing shelters that land in a forbidden
+            # zone (pivot-track exclusion or sprayer kill zone).
+            SNAP_MAX_M = 15.0
+            SNAP_STEP_M = 0.25
+
             def _valid(east, north):
                 d_sq = east*east + north*north
                 if d_sq < inner_r2: return False
                 if boundary_enu:
-                    if _min_dist_to_bnd(east, north) < sprayer_width: return False
+                    d_b = _min_dist_to_bnd(east, north)
+                    if BND_EDGE_DIST < d_b < sprayer_width: return False
                 else:
-                    if d_sq > outer_r_circle * outer_r_circle: return False
+                    d_b = radius - math.sqrt(d_sq)
+                    if BND_EDGE_DIST < d_b < sprayer_width: return False
                 if pivot_tracks:
                     d = math.sqrt(d_sq)
                     if any(abs(d - tr) < excl_m_safe for tr in pivot_tracks): return False
                 if corner_excl and _in_corner_excl(east, north): return False
                 return True
 
+            def _inside(east, north):
+                """Is the point inside the field boundary (polygon or circle)?"""
+                if boundary_enu:
+                    return _point_in_polygon(east, north, boundary_enu)
+                return east*east + north*north <= radius_sqr
+
+            def _snap_along_pre_n(pre_e, pre_n_0):
+                """Slide along the planting direction (pre_n axis) to find a valid
+                spot within SNAP_MAX_M. Prefers positions closer to the outer
+                boundary (smaller d_b); tie-breaker is smaller slide distance.
+                Returns the new pre_n or None."""
+                steps = int(SNAP_MAX_M / SNAP_STEP_M)
+                cands = []
+                # Walk each direction; take the first valid in each, then pick
+                # whichever has the smaller distance-to-boundary.
+                for sign in (+1, -1):
+                    for i in range(1, steps + 1):
+                        delta = i * SNAP_STEP_M
+                        new_pre_n = pre_n_0 + sign * delta
+                        east  = pre_e * cos_r - new_pre_n * sin_r
+                        north = new_pre_n * cos_r + pre_e * sin_r
+                        if not _inside(east, north): continue
+                        if _valid(east, north):
+                            if boundary_enu:
+                                d_b = _min_dist_to_bnd(east, north)
+                            else:
+                                d_b = radius - math.sqrt(east*east + north*north)
+                            cands.append((d_b, i, new_pre_n))
+                            break
+                if not cands:
+                    return None
+                cands.sort()  # smallest d_b first; ties go to fewer slide steps
+                return cands[0][2]
+
             def _count_grid(n_sp):
+                # Counts only directly-valid positions (no snap) so the binary
+                # search is fast. The snap pass during final placement may add
+                # extra rescued shelters on top, which is fine — num_tents is
+                # treated as a minimum, not a hard cap.
                 if n_sp <= 0: return 0
                 c_max = int(radius / n_sp) + 2
                 total = 0
@@ -858,10 +907,7 @@ def get_tent_positions(field_dict, use_metric=True):
                         pre_n = c * n_sp + directional_offset + n_stagger
                         east  = pre_e * cos_r - pre_n * sin_r
                         north = pre_n * cos_r + pre_e * sin_r
-                        if boundary_enu:
-                            if not _point_in_polygon(east, north, boundary_enu): continue
-                        else:
-                            if east*east + north*north > radius_sqr: continue
+                        if not _inside(east, north): continue
                         if _valid(east, north): total += 1
                 return total
 
@@ -888,12 +934,15 @@ def get_tent_positions(field_dict, use_metric=True):
                     pre_n = c * ns_spacing + directional_offset + n_stagger
                     east  = pre_e * cos_r - pre_n * sin_r
                     north = pre_n * cos_r + pre_e * sin_r
-                    if boundary_enu:
-                        if not _point_in_polygon(east, north, boundary_enu): continue
-                    else:
-                        if east*east + north*north > radius_sqr: continue
+                    if not _inside(east, north): continue
                     if _valid(east, north):
                         raw.append((east, north, r))
+                    else:
+                        snapped = _snap_along_pre_n(pre_e, pre_n)
+                        if snapped is not None:
+                            new_e = pre_e * cos_r - snapped * sin_r
+                            new_n = snapped * cos_r + pre_e * sin_r
+                            raw.append((new_e, new_n, r))
 
             if not raw:
                 return []
