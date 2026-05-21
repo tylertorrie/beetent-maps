@@ -496,6 +496,7 @@ class BeetentApp(ctk.CTk):
             ("PP_Longitude",       "Pivot Longitude",        "Decimal degrees",                        False),
             ("Spray_angle",        "Spray Angle (°)",        "0=N↑  90=E→  180=S↓  270=W←",           False),
             ("Sprayer_width",      "Sprayer Width (ft)",     "",                                       False),
+            ("acres",              "Acres",                  "Total field area in acres",              False),
             ("num_structures",     "Number of Shelters",     "Exact count to place (e.g. 135)",        False),
             ("spacing",            "Shelter Spacing",        "Desired distance between shelters. Leave blank to auto-calculate.", True),
             ("track_exclusion_ft", "Track Exclusion (ft)",  "Clear zone each side of pivot tracks (default 10 ft)", False),
@@ -578,7 +579,6 @@ class BeetentApp(ctk.CTk):
 
         bee_rows=[
             ("gals_per_acre", "Gals/acre"),
-            ("acres",         "Acres"),
             ("gals_per_tray", "Gals/tray"),
         ]
         for key,label in bee_rows:
@@ -594,6 +594,8 @@ class BeetentApp(ctk.CTk):
         self.bee_per_shelter_lbl.pack(fill="x")
         self.bee_short_lbl       = ctk.CTkLabel(ba,text="", anchor="w",text_color="#FF9933")
         self.bee_short_lbl.pack(fill="x",pady=(0,4))
+        ctk.CTkButton(ba,text="Calculate Trays → Update Pins",
+                      command=self._calc_bees).pack(fill="x",pady=(4,4))
 
         self._setup_form_traces()
 
@@ -768,6 +770,13 @@ class BeetentApp(ctk.CTk):
             add = ((i + 1) * extras // num_shelters) - (i * extras // num_shelters)
             per.append(base + add)
         return total_trays, per, short, total_gals
+
+    def _calc_bees(self):
+        """Explicit recalc triggered by the button — refresh the summary lines
+        and redraw shelter pins so the new tray counts appear on the map."""
+        self._refresh_bee_summary()
+        if self.show_shelters.get():
+            self._redraw_shelters()
 
     def _refresh_bee_summary(self):
         """Update the three computed lines under the Bee Allocation block."""
