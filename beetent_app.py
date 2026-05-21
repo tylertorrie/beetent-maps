@@ -223,6 +223,7 @@ def blank_field(company="",year=""):
                 num_structures="",spacing="",shelter_spacing="",directional_offset="",
                 row_spacing_in="22",num_female_rows="8",num_male_rows="2",planter_width_ft="",
                 outside_sprayer_pass="No",track_exclusion_ft="10",
+                gals_per_acre="3",acres="",gals_per_tray="2",
                 boundary_polygon=None,pivot_tracks=[],corner_arms=[],
                 shelter_overrides={})
 
@@ -288,7 +289,8 @@ class BeetentApp(ctk.CTk):
         self.shelter_circle_polys = []
         self.shelter_positions  = []
         self.show_shelters      = tk.BooleanVar(value=False)
-        self.show_shelter_labels= tk.BooleanVar(value=False)
+        self.show_tray_counts   = tk.BooleanVar(value=False)
+        self.shelter_tray_counts= []  # parallel to shelter_positions; per-shelter int
         self.moving_shelter_idx = None
         self._shelter_refresh_id= None
         self._all_popups        = []
@@ -311,6 +313,7 @@ class BeetentApp(ctk.CTk):
         self._refresh_unit_labels()
         self._refresh_company_list()
         self._refresh_preset_list()
+        self._refresh_bee_preset_list()
         self.bind("<Escape>", self._on_escape)
         self.bind("<Delete>", self._on_delete_key)
         for key in ("<Left>","<Right>","<Up>","<Down>",
@@ -433,7 +436,7 @@ class BeetentApp(ctk.CTk):
         self.btn_shelters=ctk.CTkButton(bb2,text="🏠 Show Shelters",width=145,fg_color="#5a3000",
                                          command=self._toggle_shelters)
         self.btn_shelters.pack(side="left",padx=(0,4))
-        self.btn_shelter_labels=ctk.CTkButton(bb2,text="🔢 Show Numbers",width=140,fg_color="#3a3a3a",
+        self.btn_shelter_labels=ctk.CTkButton(bb2,text="🔢 Show Trays",width=140,fg_color="#3a3a3a",
                                                state="disabled",command=self._toggle_shelter_labels)
         self.btn_shelter_labels.pack(side="left",padx=(0,4))
         ctk.CTkButton(bb2,text="↺ Reset Moves",width=120,fg_color="#4a2a00",
@@ -554,6 +557,44 @@ class BeetentApp(ctk.CTk):
         self.male_bay_lbl.pack(fill="x")
         ctk.CTkButton(bc,text="Recalculate Bays → Update Sprayer Width",
                       command=self._calc_bays).pack(fill="x",pady=(6,4))
+
+        ctk.CTkFrame(right,height=1,fg_color="#444").pack(fill="x",padx=8,pady=6)
+
+        # ── Bee Allocation ────────────────────────────────────────────────
+        ctk.CTkLabel(right,text="Bee Allocation",font=ctk.CTkFont(size=13,weight="bold")).pack()
+        ba=ctk.CTkFrame(right); ba.pack(fill="x",padx=8,pady=(4,0))
+
+        bp_row=ctk.CTkFrame(ba,fg_color="transparent")
+        bp_row.pack(fill="x",pady=(2,2))
+        ctk.CTkLabel(bp_row,text="Preset:",width=55,anchor="w").pack(side="left")
+        self.bee_preset_var=tk.StringVar()
+        self.bee_preset_cb=ctk.CTkComboBox(bp_row,variable=self.bee_preset_var,values=[""],width=160,
+                                            command=self._on_bee_preset_selected)
+        self.bee_preset_cb.pack(side="left",padx=(2,2))
+        ctk.CTkButton(bp_row,text="+",width=30,command=self._save_new_bee_preset).pack(side="left",padx=(0,2))
+        ctk.CTkButton(bp_row,text="🗑",width=30,command=self._delete_bee_preset).pack(side="left")
+
+        ctk.CTkFrame(ba,height=1,fg_color="#444").pack(fill="x",pady=(2,4))
+
+        bee_rows=[
+            ("gals_per_acre", "Gals/acre"),
+            ("acres",         "Acres"),
+            ("gals_per_tray", "Gals/tray"),
+        ]
+        for key,label in bee_rows:
+            ctk.CTkLabel(ba,text=label,anchor="w",font=ctk.CTkFont(size=11,weight="bold")).pack(fill="x")
+            v=tk.StringVar(); ctk.CTkEntry(ba,textvariable=v).pack(fill="x",pady=(0,4))
+            self.fv[key]=v
+
+        self.bee_total_gals_lbl  = ctk.CTkLabel(ba,text="Total gals:   —", anchor="w",text_color="#5599FF")
+        self.bee_total_gals_lbl.pack(fill="x")
+        self.bee_total_trays_lbl = ctk.CTkLabel(ba,text="Total trays:  —", anchor="w",text_color="#5599FF")
+        self.bee_total_trays_lbl.pack(fill="x")
+        self.bee_per_shelter_lbl = ctk.CTkLabel(ba,text="Per shelter:  —", anchor="w",text_color="#5599FF")
+        self.bee_per_shelter_lbl.pack(fill="x")
+        self.bee_short_lbl       = ctk.CTkLabel(ba,text="", anchor="w",text_color="#FF9933")
+        self.bee_short_lbl.pack(fill="x",pady=(0,4))
+
         self._setup_form_traces()
 
         ctk.CTkFrame(right,height=1,fg_color="#444").pack(fill="x",padx=8,pady=6)
@@ -578,6 +619,9 @@ class BeetentApp(ctk.CTk):
         self.fv["track_exclusion_ft"].trace_add("write", self._on_track_excl_change)
 
     def _on_form_change(self, *_):
+        # Bee summary recomputes immediately so the user sees the math update.
+        try: self._refresh_bee_summary()
+        except Exception: pass
         if not self.show_shelters.get(): return
         if self._shelter_refresh_id:
             self.after_cancel(self._shelter_refresh_id)
@@ -649,6 +693,104 @@ class BeetentApp(ctk.CTk):
         self._save_bay_presets(presets)
         self._refresh_preset_list()
         self.preset_var.set("")
+
+    # ── Bee Allocation Presets ────────────────────────────────────────────────
+    def _load_bee_presets(self):
+        try:
+            p=DATA_DIR/"bee_presets.json"
+            if p.exists():
+                return json.loads(p.read_text(encoding="utf-8"))
+        except Exception: pass
+        return []
+
+    def _save_bee_presets(self, presets):
+        try:
+            DATA_DIR.mkdir(parents=True,exist_ok=True)
+            (DATA_DIR/"bee_presets.json").write_text(json.dumps(presets,indent=2),encoding="utf-8")
+            self._git_push("sync bee presets")
+        except Exception as ex:
+            tkinter.messagebox.showerror("Preset Error",str(ex))
+
+    def _refresh_bee_preset_list(self):
+        names=[""]+[p["name"] for p in self._load_bee_presets()]
+        self.bee_preset_cb.configure(values=names)
+
+    def _on_bee_preset_selected(self, name):
+        if not name: return
+        for p in self._load_bee_presets():
+            if p["name"]==name:
+                for k in ("gals_per_acre","gals_per_tray"):
+                    if k in p and k in self.fv: self.fv[k].set(str(p[k]))
+                break
+
+    def _save_new_bee_preset(self):
+        name=tkinter.simpledialog.askstring("Save Bee Preset","Preset name:")
+        if not name: return
+        presets=self._load_bee_presets()
+        entry={"name":name,
+               "gals_per_acre":self.fv["gals_per_acre"].get(),
+               "gals_per_tray":self.fv["gals_per_tray"].get()}
+        presets=[p for p in presets if p["name"]!=name]
+        presets.append(entry)
+        self._save_bee_presets(presets)
+        self._refresh_bee_preset_list()
+        self.bee_preset_var.set(name)
+
+    def _delete_bee_preset(self):
+        name=self.bee_preset_var.get()
+        if not name: return
+        presets=[p for p in self._load_bee_presets() if p["name"]!=name]
+        self._save_bee_presets(presets)
+        self._refresh_bee_preset_list()
+        self.bee_preset_var.set("")
+
+    # ── Bee tray math ────────────────────────────────────────────────────────
+    def _compute_bee_distribution(self, num_shelters):
+        """Return (total_trays, per_shelter_list, short_count, total_gals).
+        Returns (None, [], 0, None) if any required input is missing."""
+        try:
+            gpa = float((self.fv.get("gals_per_acre") or tk.StringVar()).get())
+            acres = float((self.fv.get("acres") or tk.StringVar()).get())
+            gpt = float((self.fv.get("gals_per_tray") or tk.StringVar()).get())
+        except (ValueError, AttributeError):
+            return None, [], 0, None
+        if gpa <= 0 or acres <= 0 or gpt <= 0 or num_shelters <= 0:
+            return None, [], 0, None
+        total_gals = gpa * acres
+        math_trays = int(math.ceil(total_gals / gpt))
+        total_trays = max(math_trays, num_shelters)
+        short = max(0, num_shelters - math_trays)
+        base = total_trays // num_shelters
+        extras = total_trays % num_shelters
+        # Spread `extras` extra trays evenly across the snake order
+        per = []
+        for i in range(num_shelters):
+            add = ((i + 1) * extras // num_shelters) - (i * extras // num_shelters)
+            per.append(base + add)
+        return total_trays, per, short, total_gals
+
+    def _refresh_bee_summary(self):
+        """Update the three computed lines under the Bee Allocation block."""
+        n = len(self.shelter_positions or [])
+        total_trays, per, short, total_gals = self._compute_bee_distribution(n)
+        if total_trays is None:
+            self.bee_total_gals_lbl.configure(text="Total gals:   —")
+            self.bee_total_trays_lbl.configure(text="Total trays:  —")
+            self.bee_per_shelter_lbl.configure(text="Per shelter:  —")
+            self.bee_short_lbl.configure(text="")
+            return
+        if per:
+            lo, hi = min(per), max(per)
+            ps_txt = f"{lo} trays" if lo == hi else f"{lo}–{hi} trays"
+        else:
+            ps_txt = "—"
+        self.bee_total_gals_lbl.configure(text=f"Total gals:   {total_gals:g}")
+        self.bee_total_trays_lbl.configure(text=f"Total trays:  {total_trays}")
+        self.bee_per_shelter_lbl.configure(text=f"Per shelter:  {ps_txt}")
+        if short > 0:
+            self.bee_short_lbl.configure(text=f"⚠ {n} shelters but bee math gives only {n-short} trays — bumped up to 1 each")
+        else:
+            self.bee_short_lbl.configure(text="")
 
     # ── Company / Year ─────────────────────────────────────────────────────────
     def _refresh_company_list(self):
@@ -1345,11 +1487,11 @@ class BeetentApp(ctk.CTk):
             self._clear_shelters()
 
     def _toggle_shelter_labels(self):
-        self.show_shelter_labels.set(not self.show_shelter_labels.get())
-        if self.show_shelter_labels.get():
-            self.btn_shelter_labels.configure(fg_color="#1a5a8a",text="🔢 Hide Numbers")
+        self.show_tray_counts.set(not self.show_tray_counts.get())
+        if self.show_tray_counts.get():
+            self.btn_shelter_labels.configure(fg_color="#1a5a8a",text="🔢 Hide Trays")
         else:
-            self.btn_shelter_labels.configure(fg_color="#3a3a3a",text="🔢 Show Numbers")
+            self.btn_shelter_labels.configure(fg_color="#3a3a3a",text="🔢 Show Trays")
         if self.show_shelters.get():
             self._redraw_shelters()
 
@@ -1417,6 +1559,8 @@ class BeetentApp(ctk.CTk):
         positions=maketentgrid.get_tent_positions(f,use_metric=use_m)
         if not positions:
             self._status("⚠ No shelter positions — check field details and boundary.")
+            self.shelter_positions=[]; self.shelter_tray_counts=[]
+            self._refresh_bee_summary()
             return
         overrides=self.current_field.get("shelter_overrides") or {}
         merged=list(positions)
@@ -1431,18 +1575,34 @@ class BeetentApp(ctk.CTk):
                         merged[idx]=tuple(v)
             except (ValueError,TypeError): pass
         self.shelter_positions=list(merged)
-        show_lbl=self.show_shelter_labels.get()
+        # Compute tray distribution across only the *visible* shelters (skipping deleted)
+        kept_indices=[i for i in range(len(merged)) if i not in deleted]
+        n_visible=len(kept_indices)
+        total_trays, per, short, _ = self._compute_bee_distribution(n_visible)
+        # Map back: pos index -> tray count (0 if no math)
+        tray_count_at={}
+        if per:
+            for k_pos, tc in zip(kept_indices, per):
+                tray_count_at[k_pos] = tc
+        self.shelter_tray_counts=[tray_count_at.get(i,0) for i in range(len(merged))]
+        show_trays=self.show_tray_counts.get() and bool(per)
         show_circles=self.shelter_circle_var.get()
         BUFFER_M=1.524  # 5 ft radius = 10 ft diameter
         for i,(lat,lon) in enumerate(merged):
             if i in deleted: continue
-            lbl=str(i+1) if show_lbl else "•"
-            cc="#FFFF00" if show_lbl else "#FFD700"
-            oc="#B8860B"
+            cc="#FFD700"; oc="#B8860B"
+            lbl=str(tray_count_at[i]) if show_trays else ""
             try:
                 m=self.map_widget.set_marker(lat,lon,text=lbl,
                                               marker_color_circle=cc,
-                                              marker_color_outside=oc)
+                                              marker_color_outside=oc,
+                                              text_color="#000000",
+                                              font=("Arial",11,"bold"))
+                # Push the text down from "above the pin" into the round head.
+                if lbl:
+                    m.text_y_offset=-29
+                    try: m.draw()
+                    except Exception: pass
                 self.shelter_markers.append(m)
                 self._register_drag(f"shelter_{i}",lat,lon,lbl,cc,oc,
                                     lambda la,lo,i=i: self._on_shelter_drag(i,la,lo),marker=m)
@@ -1454,7 +1614,19 @@ class BeetentApp(ctk.CTk):
                         fill_color=None,outline_color="#FF4400",border_width=1)
                     self.shelter_circle_polys.append(p)
                 except Exception: pass
-        self._status(f"{len(merged)} shelters displayed.")
+        # Status line: trays when bee math is filled in, fall back to shelter count
+        if per:
+            counts={}
+            for tc in per:
+                counts[tc]=counts.get(tc,0)+1
+            parts=[f"{c}×{tc}" for tc,c in sorted(counts.items(),reverse=True)]
+            msg=f"{total_trays} trays: {' + '.join(parts)} ({n_visible} shelters)"
+            if short>0:
+                msg+=f" — short {short}"
+            self._status(msg)
+        else:
+            self._status(f"{n_visible} shelters displayed.")
+        self._refresh_bee_summary()
 
     # ── Sprayer pass overlay ───────────────────────────────────────────────────
     def _toggle_passes(self):
@@ -1784,6 +1956,7 @@ class BeetentApp(ctk.CTk):
                 if b"Already up to date" not in r.stdout:
                     self.after(0,self._refresh_field_list)
                     self.after(0,self._refresh_preset_list)
+                    self.after(0,self._refresh_bee_preset_list)
                     self.after(0,lambda:self._status("☁ Pulled latest changes"))
             except Exception: pass
         threading.Thread(target=run,daemon=True).start()
