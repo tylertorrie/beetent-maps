@@ -747,9 +747,14 @@ class BeetentApp(ctk.CTk):
         self.bee_preset_var.set("")
 
     # ── Bee tray math ────────────────────────────────────────────────────────
-    def _compute_bee_distribution(self, num_shelters):
+    def _compute_bee_distribution(self, num_shelters, row_indices=None):
         """Return (total_trays, per_shelter_list, short_count, total_gals).
-        Returns (None, [], 0, None) if any required input is missing."""
+
+        Returns (None, [], 0, None) if any required input is missing.
+        If row_indices is provided (parallel list of NW-snake row indices),
+        the `extras` upgrades are distributed in a 2-D pattern: row-by-row
+        share allocated via Bresenham, then placed at evenly-spaced positions
+        within each row offset diagonally per row."""
         try:
             gpa = float((self.fv.get("gals_per_acre") or tk.StringVar()).get())
             acres = float((self.fv.get("acres") or tk.StringVar()).get())
@@ -764,11 +769,55 @@ class BeetentApp(ctk.CTk):
         short = max(0, num_shelters - math_trays)
         base = total_trays // num_shelters
         extras = total_trays % num_shelters
-        # Spread `extras` extra trays evenly across the snake order
-        per = []
-        for i in range(num_shelters):
-            add = ((i + 1) * extras // num_shelters) - (i * extras // num_shelters)
-            per.append(base + add)
+
+        per = [base] * num_shelters
+        if extras == 0:
+            return total_trays, per, short, total_gals
+
+        # 1-D fallback: even spread by snake-order index
+        if row_indices is None or len(row_indices) != num_shelters:
+            for i in range(num_shelters):
+                add = ((i + 1) * extras // num_shelters) - (i * extras // num_shelters)
+                per[i] = base + add
+            return total_trays, per, short, total_gals
+
+        # 2-D distribution: group by row, give each row a proportional share
+        # via Bresenham, and place that share at evenly-spaced positions within
+        # the row, offset diagonally row-over-row.
+        from collections import defaultdict
+        rows = defaultdict(list)
+        for i, r in enumerate(row_indices):
+            rows[r].append(i)
+        sorted_keys = sorted(rows.keys())
+
+        PHI_INV = 0.6180339887498949  # (sqrt(5)-1)/2; irrational keeps offsets non-repeating
+        cum_shelters = 0
+        cum_target = 0
+        for k, rk in enumerate(sorted_keys):
+            row_idxs = rows[rk]
+            n_r = len(row_idxs)
+            cum_shelters += n_r
+            new_cum_target = (cum_shelters * extras) // num_shelters
+            e_r = new_cum_target - cum_target
+            cum_target = new_cum_target
+            if e_r <= 0:
+                continue
+            if e_r >= n_r:
+                for idx in row_idxs:
+                    per[idx] = base + 1
+                continue
+            step = n_r / e_r
+            # Per-row offset walks the golden-ratio sequence so consecutive
+            # rows land at uncorrelated positions across the field.
+            offset = (((k + 1) * PHI_INV) % 1.0) * n_r
+            chosen = set()
+            for j in range(e_r):
+                pos = int(offset + j * step) % n_r
+                while pos in chosen:
+                    pos = (pos + 1) % n_r
+                chosen.add(pos)
+            for pos in chosen:
+                per[row_idxs[pos]] = base + 1
         return total_trays, per, short, total_gals
 
     def _calc_bees(self):
@@ -1565,7 +1614,7 @@ class BeetentApp(ctk.CTk):
         if not self.show_shelters.get(): return
         f=self._field_from_form()
         use_m=self.unit_var.get()=="Metres"
-        positions=maketentgrid.get_tent_positions(f,use_metric=use_m)
+        positions, row_idxs = maketentgrid.get_tent_positions(f,use_metric=use_m,return_rows=True)
         if not positions:
             self._status("⚠ No shelter positions — check field details and boundary.")
             self.shelter_positions=[]; self.shelter_tray_counts=[]
@@ -1586,9 +1635,9 @@ class BeetentApp(ctk.CTk):
         self.shelter_positions=list(merged)
         # Compute tray distribution across only the *visible* shelters (skipping deleted)
         kept_indices=[i for i in range(len(merged)) if i not in deleted]
+        kept_rows = [row_idxs[i] for i in kept_indices] if row_idxs else None
         n_visible=len(kept_indices)
-        total_trays, per, short, _ = self._compute_bee_distribution(n_visible)
-        # Map back: pos index -> tray count (0 if no math)
+        total_trays, per, short, _ = self._compute_bee_distribution(n_visible, kept_rows)
         tray_count_at={}
         if per:
             for k_pos, tc in zip(kept_indices, per):
@@ -1607,9 +1656,21 @@ class BeetentApp(ctk.CTk):
                                               marker_color_outside=oc,
                                               text_color="#000000",
                                               font=("Arial",11,"bold"))
-                # Push the text down from "above the pin" into the round head.
+                # Position text at the circle center (canvas_y - 31) AND switch
+                # the canvas-text anchor from "south" to "center" so the visual
+                # midpoint of the digit sits exactly at the circle midpoint.
+                # Patch the marker's draw() so the anchor stays "center" when
+                # tkintermapview redraws on pan / zoom.
                 if lbl:
-                    m.text_y_offset=-29
+                    m.text_y_offset = -31
+                    canvas = self.map_widget.canvas
+                    _orig_draw = m.draw
+                    def _draw_centered(event=None, _m=m, _c=canvas, _od=_orig_draw):
+                        _od(event)
+                        if _m.canvas_text:
+                            try: _c.itemconfig(_m.canvas_text, anchor="center")
+                            except Exception: pass
+                    m.draw = _draw_centered
                     try: m.draw()
                     except Exception: pass
                 self.shelter_markers.append(m)

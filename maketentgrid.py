@@ -674,10 +674,14 @@ def calculate_spacing(radius, width, factor=1, num_tents = None):
         # otherwise 1 per acre
         return total / (math.pi * radius * radius / 4046.87 + 1) * factor
 
-def get_tent_positions(field_dict, use_metric=True):
+def get_tent_positions(field_dict, use_metric=True, return_rows=False):
     """
     Compute shelter positions from a field dict, return [(lat, lon), ...] in NW-snake
     numbering order. Returns [] on any error or missing data.
+
+    If return_rows=True, returns ([(lat, lon), ...], [row_idx, ...]) where row_idx
+    is the 0-based NW-snake row index for each shelter (so callers can do 2-D
+    spatial reasoning, e.g. spreading tray counts evenly across rows).
 
     When num_structures is set (no user spacing): uses a TRUE RECTANGULAR GRID.
       - Shelter rows at lateral = r * sprayer_width + lat_offset (sprayer pass edges)
@@ -799,7 +803,7 @@ def get_tent_positions(field_dict, use_metric=True):
         # =====================================================================
         if not user_spacing and num_tents:
             if sprayer_width <= 0:
-                return []
+                return ([], []) if return_rows else []
 
             # Inner limit: no shelter within sprayer_width of the pivot center.
             inner_r2 = sprayer_width * sprayer_width
@@ -945,7 +949,7 @@ def get_tent_positions(field_dict, use_metric=True):
                             raw.append((new_e, new_n, r))
 
             if not raw:
-                return []
+                return ([], []) if return_rows else []
 
             ldx, ldy = cos_r, sin_r
             tdx, tdy = -sin_r, cos_r
@@ -962,6 +966,7 @@ def get_tent_positions(field_dict, use_metric=True):
             travel_nw = tdx * (-1) + tdy * 1
             first_row_descending = travel_nw > 0
             ordered = []
+            ordered_rows = []
             for i, r in enumerate(sorted_rows):
                 pts = sorted(row_groups[r], key=lambda en: en[0]*tdx + en[1]*tdy)
                 descending = (i % 2 == 0 and first_row_descending) or \
@@ -969,11 +974,14 @@ def get_tent_positions(field_dict, use_metric=True):
                 if descending:
                     pts = list(reversed(pts))
                 ordered.extend(pts)
+                ordered_rows.extend([i] * len(pts))
 
             result = []
             for e, n in ordered:
                 lon, lat = utmish.to_lonlat(e + easting, n + northing, pivotpoint[0])
                 result.append((lat, lon))
+            if return_rows:
+                return result, ordered_rows
             return result
 
         # =====================================================================
@@ -1039,10 +1047,14 @@ def get_tent_positions(field_dict, use_metric=True):
         for e, n in ordered:
             lon, lat = utmish.to_lonlat(e + easting, n + northing, pivotpoint[0])
             result.append((lat, lon))
+        if return_rows:
+            # Rectangular-grid path doesn't track row indices; return zeros so
+            # callers always see a parallel list of the same length.
+            return result, [0] * len(result)
         return result
 
     except Exception:
-        return []
+        return ([], []) if return_rows else []
 
 
 def process_field_data(fields, dirpath, use_metric=True):
