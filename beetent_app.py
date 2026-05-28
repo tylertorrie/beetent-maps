@@ -4,6 +4,7 @@ Bee Tent Maps — modern GUI for leafcutter bee shelter layout generation.
 """
 import tkinter as tk
 import tkinter.filedialog, tkinter.messagebox, tkinter.simpledialog
+import tkinter.ttk as ttk
 import customtkinter as ctk
 import tkintermapview
 import math, os, sys, threading, json, re, csv, datetime, zipfile, struct
@@ -18,7 +19,6 @@ ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
 
 SATELLITE_URL = "https://mt0.google.com/vt/lyrs=s&hl=en&x={x}&y={y}&z={z}&s=Ga"
-STREET_URL    = "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png"
 DATA_DIR      = Path(__file__).parent / "fields"
 DEFAULT_LAT, DEFAULT_LON, DEFAULT_ZOOM = 49.86, -111.96, 10
 
@@ -343,9 +343,8 @@ class BeetentApp(ctk.CTk):
         self.lld_entry.pack(side="left",pady=8)
         self.lld_entry.bind("<Return>",lambda e:self._search_lld())
         ctk.CTkButton(bar,text="Go",width=48,command=self._search_lld).pack(side="left",padx=(4,20),pady=8)
-        ctk.CTkLabel(bar,text="Map:").pack(side="left",padx=(0,4))
-        seg=ctk.CTkSegmentedButton(bar,values=["Satellite","Street"],command=self._switch_tiles)
-        seg.set("Satellite"); seg.pack(side="left",pady=8)
+        ctk.CTkButton(bar,text="↻ Refresh Imagery",width=140,
+                      command=self._refresh_imagery).pack(side="left",padx=(0,6),pady=8)
         self.status_lbl=ctk.CTkLabel(bar,text="",text_color="#aaa",width=340,anchor="w")
         self.status_lbl.pack(side="left",padx=16)
         ctk.CTkLabel(bar,text="Units:").pack(side="right",padx=(0,4))
@@ -475,14 +474,27 @@ class BeetentApp(ctk.CTk):
 
         ctk.CTkFrame(right,height=1,fg_color="#444").pack(fill="x",padx=8,pady=6)
 
-        # Field list
+        # Field list — sortable Field / Company / Year columns
         ctk.CTkLabel(right,text="Fields",font=ctk.CTkFont(size=13,weight="bold")).pack()
         lf=ctk.CTkFrame(right); lf.pack(fill="x",padx=8)
-        self.field_lb=tk.Listbox(lf,bg="#2b2b2b",fg="white",selectbackground="#1f6aa5",
-                                  relief="flat",font=("Segoe UI",11),height=5,
-                                  activestyle="none",highlightthickness=0)
-        self.field_lb.pack(fill="x")
-        self.field_lb.bind("<<ListboxSelect>>",self._on_field_select)
+        _st=ttk.Style()
+        try: _st.theme_use("default")
+        except Exception: pass
+        _st.configure("Fields.Treeview",background="#2b2b2b",foreground="white",
+                      fieldbackground="#2b2b2b",borderwidth=0,rowheight=22,font=("Segoe UI",10))
+        _st.configure("Fields.Treeview.Heading",background="#3a3a3a",foreground="white",
+                      relief="flat",font=("Segoe UI",10,"bold"))
+        _st.map("Fields.Treeview",background=[("selected","#1f6aa5")])
+        _st.map("Fields.Treeview.Heading",background=[("active","#4a4a4a")])
+        self.field_tree=ttk.Treeview(lf,columns=("field","company","year"),show="headings",
+                                     height=7,style="Fields.Treeview",selectmode="browse")
+        for col,label,w,anchor in (("field","Field",130,"w"),("company","Company",110,"w"),("year","Year",55,"center")):
+            self.field_tree.heading(col,text=label,command=lambda c=col:self._sort_fields(c))
+            self.field_tree.column(col,width=w,anchor=anchor,stretch=(col=="field"))
+        self.field_tree.pack(fill="x")
+        self.field_tree.bind("<<TreeviewSelect>>",self._on_field_select)
+        self._field_rows={}            # tree item id -> (company, year, name)
+        self._field_sort_col=None; self._field_sort_rev=False
         br=ctk.CTkFrame(right,fg_color="transparent"); br.pack(fill="x",padx=8,pady=(3,0))
         ctk.CTkButton(br,text="+ New",width=70,command=self._new_field).pack(side="left")
         ctk.CTkButton(br,text="Load CSV",width=80,fg_color="#555",command=self._load_csv).pack(side="left",padx=4)
@@ -1121,17 +1133,39 @@ class BeetentApp(ctk.CTk):
         return self.company_var.get()==ALL_COMPANIES or self.year_var.get()==ALL_YEARS
 
     def _refresh_field_list(self):
-        self.field_lb.delete(0,tk.END)
-        if self._is_all_scope():
-            self.field_lb.insert(tk.END,"(pick a company + year to edit fields)")
-            return
-        for n in list_fields(self.company_var.get(),self.year_var.get()): self.field_lb.insert(tk.END,n)
+        for iid in self.field_tree.get_children():
+            self.field_tree.delete(iid)
+        self._field_rows={}
+        # _export_scope expands the All-companies / All-years sentinels, so this
+        # lists everything when All/All is selected and just the matching
+        # company+year otherwise.
+        for co,yr,name in self._export_scope():
+            iid=self.field_tree.insert("","end",values=(name,co,yr))
+            self._field_rows[iid]=(co,yr,name)
+        if self._field_sort_col:
+            self._apply_field_sort()
+
+    def _sort_fields(self,col):
+        if self._field_sort_col==col:
+            self._field_sort_rev=not self._field_sort_rev
+        else:
+            self._field_sort_col=col; self._field_sort_rev=False
+        self._apply_field_sort()
+
+    def _apply_field_sort(self):
+        col=self._field_sort_col
+        rows=[(self.field_tree.set(iid,col).lower(),iid) for iid in self.field_tree.get_children()]
+        rows.sort(reverse=self._field_sort_rev)
+        for i,(_,iid) in enumerate(rows):
+            self.field_tree.move(iid,"",i)
 
     def _on_field_select(self,_=None):
-        if self._is_all_scope(): return
-        sel=self.field_lb.curselection()
+        sel=self.field_tree.selection()
         if not sel: return
-        f=load_field(self.company_var.get(),self.year_var.get(),self.field_lb.get(sel[0]))
+        row=self._field_rows.get(sel[0])
+        if not row: return
+        co,yr,name=row
+        f=load_field(co,yr,name)
         if f: self.current_field=f; self._form_from_field(); self._redraw_all()
 
     def _new_field(self):
@@ -1141,11 +1175,13 @@ class BeetentApp(ctk.CTk):
         self._form_from_field(); self._clear_all_overlays(); self._status("")
 
     def _delete_field(self):
-        sel=self.field_lb.curselection()
+        sel=self.field_tree.selection()
         if not sel: return
-        n=self.field_lb.get(sel[0])
-        if tkinter.messagebox.askyesno("Delete",f"Delete '{n}'?"):
-            delete_field_file(self.company_var.get(),self.year_var.get(),n); self._refresh_field_list(); self._git_push(f"delete field: {n}")
+        row=self._field_rows.get(sel[0])
+        if not row: return
+        co,yr,name=row
+        if tkinter.messagebox.askyesno("Delete",f"Delete '{name}' ({co} {yr})?"):
+            delete_field_file(co,yr,name); self._refresh_field_list(); self._git_push(f"delete field: {name}")
 
     # ── Form helpers ───────────────────────────────────────────────────────────
     def _form_from_field(self):
@@ -1177,7 +1213,11 @@ class BeetentApp(ctk.CTk):
         for k,v in self.fv.items(): f[k]=v.get().strip()
         f["outside_sprayer_pass"]=self.outside_pass_var.get()
         f["tray_distribution"]=self._tray_dist_labels.get(self.tray_dist_var.get(),"even")
-        f["company"]=self.company_var.get(); f["year"]=self.year_var.get()
+        # Use the dropdown company/year when specific; otherwise keep the loaded
+        # field's own (so a field opened from an All/All list still saves home).
+        co=self.company_var.get(); yr=self.year_var.get()
+        if co!=ALL_COMPANIES: f["company"]=co
+        if yr!=ALL_YEARS:     f["year"]=yr
         return f
 
     def _refresh_track_list(self):
@@ -1188,8 +1228,14 @@ class BeetentApp(ctk.CTk):
     def _on_track_select(self,_=None): pass
 
     # ── Map ────────────────────────────────────────────────────────────────────
-    def _switch_tiles(self,mode):
-        self.map_widget.set_tile_server(SATELLITE_URL if mode=="Satellite" else STREET_URL,max_zoom=21)
+    def _refresh_imagery(self):
+        """Drop cached tiles and rebuild the view so it pulls the latest
+        imagery straight from Google's satellite layer."""
+        try: self.map_widget.tile_image_cache.clear()
+        except Exception: pass
+        try: self.map_widget.draw_initial_array()
+        except Exception: pass
+        self._status("Imagery refreshed from Google.")
 
     def _search_lld(self):
         res=geocode_lld(self.lld_entry.get())
@@ -2487,9 +2533,10 @@ class BeetentApp(ctk.CTk):
         threading.Thread(target=run,daemon=True).start()
 
     def _save_field(self):
-        if self._is_all_scope():
-            self._status("Pick a specific company and year before saving."); return
         f=self._field_from_form()
+        co=f.get("company"); yr=f.get("year")
+        if not co or co==ALL_COMPANIES or not yr or yr==ALL_YEARS:
+            self._status("Pick a specific company and year before saving."); return
         if not f.get("Name"): self._status("Enter a field name."); return
         if not f.get("boundary_polygon"): self._status("⚠ No boundary drawn — field saved but cannot generate without one.");
         save_field(f); self._refresh_field_list(); self._status(f"Saved: {f['Name']}")
