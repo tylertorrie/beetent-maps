@@ -556,7 +556,7 @@ class BeetentApp(ctk.CTk):
         self.female_bay_lbl.pack(fill="x")
         self.male_bay_lbl=ctk.CTkLabel(bc,text="Male bay width: —",anchor="w",text_color="#5599FF")
         self.male_bay_lbl.pack(fill="x")
-        ctk.CTkButton(bc,text="Recalculate Bays → Update Sprayer Width",
+        ctk.CTkButton(bc,text="Recalculate Bays",
                       command=self._calc_bays).pack(fill="x",pady=(6,4))
 
         ctk.CTkFrame(right,height=1,fg_color="#444").pack(fill="x",padx=8,pady=6)
