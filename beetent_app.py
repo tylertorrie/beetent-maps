@@ -5,9 +5,10 @@ Bee Tent Maps — modern GUI for leafcutter bee shelter layout generation.
 import tkinter as tk
 import tkinter.filedialog, tkinter.messagebox, tkinter.simpledialog
 import tkinter.ttk as ttk
+import tkinter.font as tkfont
 import customtkinter as ctk
 import tkintermapview
-import math, os, sys, threading, json, re, csv, datetime, zipfile, struct
+import math, os, sys, threading, json, re, csv, datetime, zipfile, struct, glob
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -17,6 +18,52 @@ import utmish
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
+
+# ── Typography ──────────────────────────────────────────────────────────────
+# Desktop equivalent of a Google-Fonts setup: bundled Space Grotesk + Inter
+# TTFs (fonts/) are loaded into the process at startup so Tk can use them.
+#   Space Grotesk Medium → app/page titles + section headings (weight 500)
+#   Inter                → body copy, labels, buttons, menus, inputs (weight 400)
+#   Inter Medium         → emphasized sub-labels / subheadings (weight 500)
+# Each static weight registers under its own family name, hence the split.
+FONT_HEADING = "Space Grotesk Medium"   # falls back to Tk default if unavailable
+FONT_BODY    = "Inter"
+FONT_LABEL   = "Inter Medium"
+_FONTS_DIR   = Path(__file__).parent / "fonts"
+
+def _load_bundled_fonts():
+    """Register the bundled TTFs with the OS for this process so Tk can use
+    them without a system-wide install. Windows only; no-op/graceful elsewhere.
+    Tk falls back to its default font for any family that fails to load."""
+    try:
+        if sys.platform.startswith("win") and _FONTS_DIR.exists():
+            FR_PRIVATE = 0x10
+            for ttf in _FONTS_DIR.glob("*.ttf"):
+                try:
+                    ctypes.windll.gdi32.AddFontResourceExW(str(ttf), FR_PRIVATE, 0)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+def _apply_typography(root):
+    """Make Inter the default for all UI text (covers CTk widgets, ttk, menus,
+    dialogs, message boxes). Headings/labels opt into Space Grotesk / Inter
+    Medium explicitly via the FONT_* constants."""
+    try:
+        ctk.ThemeManager.theme.setdefault("CTkFont", {})
+        ctk.ThemeManager.theme["CTkFont"]["family"] = FONT_BODY
+    except Exception:
+        pass
+    for name in ("TkDefaultFont", "TkTextFont", "TkMenuFont", "TkHeadingFont",
+                 "TkTooltipFont", "TkIconFont", "TkCaptionFont", "TkSmallCaptionFont"):
+        try:
+            tkfont.nametofont(name).configure(family=FONT_BODY)
+        except Exception:
+            pass
+
+import ctypes  # noqa: E402  (Windows font loading)
+_load_bundled_fonts()
 
 SATELLITE_URL = "https://mt0.google.com/vt/lyrs=s&hl=en&x={x}&y={y}&z={z}&s=Ga"
 DATA_DIR      = Path(__file__).parent / "fields"
@@ -268,6 +315,7 @@ def list_fields(co,yr):
 class BeetentApp(ctk.CTk):
     def __init__(self):
         super().__init__()
+        _apply_typography(self)   # Inter as the default UI font (headings opt into Space Grotesk)
         self.title("Bee Tent Maps")
         self.geometry("1340x840")
         self.minsize(1000,650)
@@ -474,15 +522,15 @@ class BeetentApp(ctk.CTk):
         ctk.CTkFrame(right,height=1,fg_color="#444").pack(fill="x",padx=8,pady=6)
 
         # Field list — sortable Field / Company / Year columns
-        ctk.CTkLabel(right,text="Fields",font=ctk.CTkFont(size=13,weight="bold")).pack()
+        ctk.CTkLabel(right,text="Fields",font=ctk.CTkFont(family=FONT_HEADING,size=13)).pack()
         lf=ctk.CTkFrame(right); lf.pack(fill="x",padx=8)
         _st=ttk.Style()
         try: _st.theme_use("default")
         except Exception: pass
         _st.configure("Fields.Treeview",background="#2b2b2b",foreground="white",
-                      fieldbackground="#2b2b2b",borderwidth=0,rowheight=22,font=("Segoe UI",10))
+                      fieldbackground="#2b2b2b",borderwidth=0,rowheight=22,font=(FONT_BODY,10))
         _st.configure("Fields.Treeview.Heading",background="#3a3a3a",foreground="white",
-                      relief="flat",font=("Segoe UI",10,"bold"))
+                      relief="flat",font=(FONT_LABEL,10))
         _st.map("Fields.Treeview",background=[("selected","#1f6aa5")])
         _st.map("Fields.Treeview.Heading",background=[("active","#4a4a4a")])
         self.field_tree=ttk.Treeview(lf,columns=("field","company","year"),show="headings",
@@ -502,7 +550,7 @@ class BeetentApp(ctk.CTk):
         ctk.CTkFrame(right,height=1,fg_color="#444").pack(fill="x",padx=8,pady=6)
 
         # Field Details form
-        ctk.CTkLabel(right,text="Field Details",font=ctk.CTkFont(size=13,weight="bold")).pack()
+        ctk.CTkLabel(right,text="Field Details",font=ctk.CTkFont(family=FONT_HEADING,size=13)).pack()
 
         # Field preset (reuse a field's fixed geometry — name, pivot, tracks,
         # acres, boundary, corner zones — across years)
@@ -527,7 +575,7 @@ class BeetentApp(ctk.CTk):
             ("track_exclusion_ft", "Track Exclusion (ft)",  "Clear zone each side of pivot tracks (default 10 ft)", False),
         ]
         for key,display,hint,unit_dep in form_rows:
-            lbl=ctk.CTkLabel(fs,text=display,anchor="w",font=ctk.CTkFont(size=11,weight="bold"))
+            lbl=ctk.CTkLabel(fs,text=display,anchor="w",font=ctk.CTkFont(family=FONT_LABEL,size=11))
             lbl.pack(fill="x")
             if unit_dep: self.field_labels[key]=lbl
             if hint:
@@ -549,7 +597,7 @@ class BeetentApp(ctk.CTk):
         }
         self._shelter_mode_inverse={v:k for k,v in self._shelter_mode_labels.items()}
         self._shelter_mode_key={"total":"num_structures","per_acre":"shelters_per_acre","spacing":"spacing"}
-        ctk.CTkLabel(fs,text="Shelters",anchor="w",font=ctk.CTkFont(size=11,weight="bold")).pack(fill="x")
+        ctk.CTkLabel(fs,text="Shelters",anchor="w",font=ctk.CTkFont(family=FONT_LABEL,size=11)).pack(fill="x")
         self.shelter_mode_var=tk.StringVar(value="Total shelters")
         ctk.CTkComboBox(fs,variable=self.shelter_mode_var,values=list(self._shelter_mode_labels.keys()),
                         command=self._on_shelter_mode_change).pack(fill="x",pady=(0,2))
@@ -561,7 +609,7 @@ class BeetentApp(ctk.CTk):
 
         # Outside Sprayer Pass
         ctk.CTkLabel(fs,text="Outside Sprayer Pass",anchor="w",
-                     font=ctk.CTkFont(size=11,weight="bold")).pack(fill="x")
+                     font=ctk.CTkFont(family=FONT_LABEL,size=11)).pack(fill="x")
         ctk.CTkLabel(fs,text="If yes, shelters are excluded from one pass-width inside the boundary",
                      anchor="w",text_color="#999",font=ctk.CTkFont(size=10)).pack(fill="x")
         self.outside_pass_var=tk.StringVar(value="No")
@@ -573,7 +621,7 @@ class BeetentApp(ctk.CTk):
         ctk.CTkFrame(right,height=1,fg_color="#444").pack(fill="x",padx=8,pady=6)
 
         # Bay calculator
-        ctk.CTkLabel(right,text="Bay Calculator",font=ctk.CTkFont(size=13,weight="bold")).pack()
+        ctk.CTkLabel(right,text="Bay Calculator",font=ctk.CTkFont(family=FONT_HEADING,size=13)).pack()
         bc=ctk.CTkFrame(right); bc.pack(fill="x",padx=8,pady=(4,0))
 
         # Preset row
@@ -596,7 +644,7 @@ class BeetentApp(ctk.CTk):
             ("num_male_rows",    "Male Rows"),
         ]
         for key,label in bay_rows:
-            ctk.CTkLabel(bc,text=label,anchor="w",font=ctk.CTkFont(size=11,weight="bold")).pack(fill="x")
+            ctk.CTkLabel(bc,text=label,anchor="w",font=ctk.CTkFont(family=FONT_LABEL,size=11)).pack(fill="x")
             v=tk.StringVar(); ctk.CTkEntry(bc,textvariable=v).pack(fill="x",pady=(0,4))
             self.fv[key]=v
         self.female_bay_lbl=ctk.CTkLabel(bc,text="Female bay width: —",anchor="w",text_color="#5599FF")
@@ -609,7 +657,7 @@ class BeetentApp(ctk.CTk):
         ctk.CTkFrame(right,height=1,fg_color="#444").pack(fill="x",padx=8,pady=6)
 
         # ── Bee Allocation ────────────────────────────────────────────────
-        ctk.CTkLabel(right,text="Bee Allocation",font=ctk.CTkFont(size=13,weight="bold")).pack()
+        ctk.CTkLabel(right,text="Bee Allocation",font=ctk.CTkFont(family=FONT_HEADING,size=13)).pack()
         ba=ctk.CTkFrame(right); ba.pack(fill="x",padx=8,pady=(4,0))
 
         bp_row=ctk.CTkFrame(ba,fg_color="transparent")
@@ -629,7 +677,7 @@ class BeetentApp(ctk.CTk):
             ("gals_per_tray", "Gals/tray"),
         ]
         for key,label in bee_rows:
-            ctk.CTkLabel(ba,text=label,anchor="w",font=ctk.CTkFont(size=11,weight="bold")).pack(fill="x")
+            ctk.CTkLabel(ba,text=label,anchor="w",font=ctk.CTkFont(family=FONT_LABEL,size=11)).pack(fill="x")
             v=tk.StringVar(); ctk.CTkEntry(ba,textvariable=v).pack(fill="x",pady=(0,4))
             self.fv[key]=v
 
@@ -642,7 +690,7 @@ class BeetentApp(ctk.CTk):
         self.bee_short_lbl       = ctk.CTkLabel(ba,text="", anchor="w",text_color="#FF9933")
         self.bee_short_lbl.pack(fill="x",pady=(0,4))
 
-        ctk.CTkLabel(ba,text="Distribution:",anchor="w",font=ctk.CTkFont(size=11,weight="bold")).pack(fill="x")
+        ctk.CTkLabel(ba,text="Distribution:",anchor="w",font=ctk.CTkFont(family=FONT_LABEL,size=11)).pack(fill="x")
         self.tray_dist_var = tk.StringVar(value="Spread evenly")
         self._tray_dist_labels = {
             "Spread evenly":      "even",
@@ -663,7 +711,7 @@ class BeetentApp(ctk.CTk):
 
         ctk.CTkButton(right,text="💾 Save Field",height=32,command=self._save_field).pack(fill="x",padx=8,pady=(0,4))
         ctk.CTkButton(right,text="⚙ Generate Output Files",height=40,
-                      fg_color="#1a5c8a",font=ctk.CTkFont(size=13,weight="bold"),
+                      fg_color="#1a5c8a",font=ctk.CTkFont(family=FONT_LABEL,size=13),
                       command=self._generate).pack(fill="x",padx=8,pady=(0,4))
 
         self.log=ctk.CTkTextbox(right,height=85,font=ctk.CTkFont(size=10))
@@ -1701,7 +1749,7 @@ class BeetentApp(ctk.CTk):
         win.grab_set()
 
         ctk.CTkLabel(win,text=f"Length of each span ({unit}):",
-                     font=ctk.CTkFont(size=12,weight="bold")).pack(pady=(12,2),padx=10)
+                     font=ctk.CTkFont(family=FONT_HEADING,size=12)).pack(pady=(12,2),padx=10)
         ctk.CTkLabel(win,text="Span N = previous tower (or pivot) out to tower N.",
                      text_color="#999",font=ctk.CTkFont(size=10)).pack(padx=10,pady=(0,6))
 
@@ -1724,7 +1772,7 @@ class BeetentApp(ctk.CTk):
         rebuild_rows(spans_display)
 
         ctk.CTkFrame(win,height=1,fg_color="#444").pack(fill="x",padx=10,pady=4)
-        ctk.CTkLabel(win,text="Equal spans",font=ctk.CTkFont(size=11,weight="bold")).pack(padx=10,anchor="w")
+        ctk.CTkLabel(win,text="Equal spans",font=ctk.CTkFont(family=FONT_LABEL,size=11)).pack(padx=10,anchor="w")
         eq_row=ctk.CTkFrame(win,fg_color="transparent")
         eq_row.pack(fill="x",padx=10,pady=2)
         ctk.CTkLabel(eq_row,text="# spans:",width=58,anchor="w").pack(side="left")
@@ -1782,7 +1830,7 @@ class BeetentApp(ctk.CTk):
         win.grab_set()
         ctk.CTkLabel(win,text="Select track to delete:").pack(pady=(12,4))
         lb=tk.Listbox(win,bg="#2b2b2b",fg="#FFA040",selectbackground="#4a3010",
-                      relief="flat",font=("Segoe UI",11),height=5,
+                      relief="flat",font=(FONT_BODY,11),height=5,
                       activestyle="none",highlightthickness=0)
         for i,r in enumerate(tracks):
             lb.insert(tk.END,f"Track {i+1}: {r:.1f} m  ({r/0.3048:.1f} ft)")
@@ -1930,7 +1978,7 @@ class BeetentApp(ctk.CTk):
         win.title("Delete Corner Zone"); win.geometry("360x240"); win.grab_set()
         ctk.CTkLabel(win,text="Select zone to delete:").pack(pady=(12,4))
         lb=tk.Listbox(win,bg="#2b2b2b",fg="#CC44FF",selectbackground="#4a1070",
-                      relief="flat",font=("Segoe UI",11),height=6,
+                      relief="flat",font=(FONT_BODY,11),height=6,
                       activestyle="none",highlightthickness=0)
         for i,arm in enumerate(arms):
             if arm.get("type")=="circle":
@@ -2155,7 +2203,7 @@ class BeetentApp(ctk.CTk):
                                               marker_color_circle=cc,
                                               marker_color_outside=oc,
                                               text_color="#000000",
-                                              font=("Arial",11,"bold"))
+                                              font=(FONT_LABEL,11))
                 # Position text at the circle center (canvas_y - 31) AND switch
                 # the canvas-text anchor from "south" to "center" so the visual
                 # midpoint of the digit sits exactly at the circle midpoint.
