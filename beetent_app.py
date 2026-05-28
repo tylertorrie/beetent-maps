@@ -16,8 +16,19 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import maketentgrid
 import utmish
 
-ctk.set_appearance_mode("dark")
+ctk.set_appearance_mode("light")
 ctk.set_default_color_theme("blue")
+
+# ── Light UI palette (everything outside the map). Map overlay colours are
+# set separately in the _redraw_* methods and are intentionally left alone. ──
+UI_CARD   = "#FFFFFF"   # section cards / popups
+UI_BORDER = "#E3E5E8"   # dividers, borders
+UI_HOVER  = "#EDEFF2"   # hover / header highlight
+UI_TEXT   = "#1F2A37"   # primary text
+UI_MUTED  = "#6B7280"   # hints / secondary text
+UI_ACCENT = "#0E9384"   # teal — data readouts
+UI_WARN   = "#C2410C"   # warnings
+UI_SELECT = "#CFE2FF"   # table/list selection
 
 # ── Typography ──────────────────────────────────────────────────────────────
 # Desktop equivalent of a Google-Fonts setup: bundled Space Grotesk + Inter
@@ -392,7 +403,7 @@ class BeetentApp(ctk.CTk):
         self.lld_entry.pack(side="left",pady=8)
         self.lld_entry.bind("<Return>",lambda e:self._search_lld())
         ctk.CTkButton(bar,text="Go",width=48,command=self._search_lld).pack(side="left",padx=(4,20),pady=8)
-        self.status_lbl=ctk.CTkLabel(bar,text="",text_color="#aaa",width=340,anchor="w")
+        self.status_lbl=ctk.CTkLabel(bar,text="",text_color=UI_MUTED,width=340,anchor="w")
         self.status_lbl.pack(side="left",padx=16)
         ctk.CTkLabel(bar,text="Units:").pack(side="right",padx=(0,4))
         self.unit_var=tk.StringVar(value="Feet")
@@ -401,10 +412,10 @@ class BeetentApp(ctk.CTk):
 
     # ── Popup menu helpers ─────────────────────────────────────────────────────
     def _make_menu_btn(self, bar, label, items, color="#2b2b2b"):
-        popup = ctk.CTkFrame(self, fg_color="#1e1e1e", border_width=1, border_color="#555", corner_radius=4)
+        popup = ctk.CTkFrame(self, fg_color=UI_CARD, border_width=1, border_color=UI_BORDER, corner_radius=4)
         for item_label, item_cmd in items:
             ctk.CTkButton(popup, text=item_label, anchor="w", height=30,
-                          fg_color="transparent", hover_color="#3a3a3a",
+                          fg_color="transparent", hover_color=UI_HOVER, text_color=UI_TEXT,
                           command=lambda p=popup, c=item_cmd: (p.place_forget(), c())
                           ).pack(fill="x", padx=2, pady=1)
         btn_ref = [None]
@@ -435,6 +446,36 @@ class BeetentApp(ctk.CTk):
 
     def _hide_context_btn(self):
         self.btn_context.configure(state="disabled", text="", command=lambda: None, fg_color="#333333")
+
+    # ── Collapsible section card ────────────────────────────────────────────
+    def _collapsible(self, parent, title, expanded=True):
+        """A card with a clickable header that expands/collapses its content.
+        Returns the content frame to build the section's widgets into."""
+        wrap = ctk.CTkFrame(parent, fg_color=UI_CARD, corner_radius=8,
+                            border_width=1, border_color=UI_BORDER)
+        wrap.pack(fill="x", padx=8, pady=(0,8))
+        hdr = ctk.CTkFrame(wrap, fg_color="transparent")
+        hdr.pack(fill="x", padx=8, pady=(6,2))
+        tlbl = ctk.CTkLabel(hdr, text=title, anchor="w", text_color=UI_TEXT,
+                            font=ctk.CTkFont(family=FONT_HEADING, size=13))
+        tlbl.pack(side="left")
+        chev = ctk.CTkLabel(hdr, text="▲", width=18, text_color=UI_MUTED,
+                            font=ctk.CTkFont(family=FONT_BODY, size=12))
+        chev.pack(side="right")
+        content = ctk.CTkFrame(wrap, fg_color="transparent")
+        content.pack(fill="x", padx=8, pady=(0,6))
+        state = {"open": True}
+        def toggle(_=None):
+            state["open"] = not state["open"]
+            if state["open"]:
+                content.pack(fill="x", padx=8, pady=(0,6)); chev.configure(text="▲")
+            else:
+                content.pack_forget(); chev.configure(text="▼")
+        for w in (hdr, tlbl, chev):
+            w.bind("<Button-1>", toggle)
+        if not expanded:
+            toggle()
+        return content
 
     # ── Body ───────────────────────────────────────────────────────────────────
     def _build_body(self):
@@ -519,20 +560,17 @@ class BeetentApp(ctk.CTk):
             cb.pack(side="left",padx=4); setattr(self,cb_attr,cb)
             ctk.CTkButton(row,text="+",width=30,command=new_cmd).pack(side="left")
 
-        ctk.CTkFrame(right,height=1,fg_color="#444").pack(fill="x",padx=8,pady=6)
-
-        # Field list — sortable Field / Company / Year columns
-        ctk.CTkLabel(right,text="Fields",font=ctk.CTkFont(family=FONT_HEADING,size=13)).pack()
-        lf=ctk.CTkFrame(right); lf.pack(fill="x",padx=8)
+        # Field list — sortable Field / Company / Year columns (collapsible)
+        lf=self._collapsible(right,"Fields")
         _st=ttk.Style()
         try: _st.theme_use("default")
         except Exception: pass
-        _st.configure("Fields.Treeview",background="#2b2b2b",foreground="white",
-                      fieldbackground="#2b2b2b",borderwidth=0,rowheight=22,font=(FONT_BODY,10))
-        _st.configure("Fields.Treeview.Heading",background="#3a3a3a",foreground="white",
+        _st.configure("Fields.Treeview",background=UI_CARD,foreground=UI_TEXT,
+                      fieldbackground=UI_CARD,borderwidth=0,rowheight=22,font=(FONT_BODY,10))
+        _st.configure("Fields.Treeview.Heading",background=UI_HOVER,foreground=UI_TEXT,
                       relief="flat",font=(FONT_LABEL,10))
-        _st.map("Fields.Treeview",background=[("selected","#1f6aa5")])
-        _st.map("Fields.Treeview.Heading",background=[("active","#4a4a4a")])
+        _st.map("Fields.Treeview",background=[("selected",UI_SELECT)],foreground=[("selected",UI_TEXT)])
+        _st.map("Fields.Treeview.Heading",background=[("active",UI_BORDER)])
         self.field_tree=ttk.Treeview(lf,columns=("field","company","year"),show="headings",
                                      height=7,style="Fields.Treeview",selectmode="browse")
         for col,label,w,anchor in (("field","Field",130,"w"),("company","Company",110,"w"),("year","Year",55,"center")):
@@ -542,19 +580,17 @@ class BeetentApp(ctk.CTk):
         self.field_tree.bind("<<TreeviewSelect>>",self._on_field_select)
         self._field_rows={}            # tree item id -> (company, year, name)
         self._field_sort_col=None; self._field_sort_rev=False
-        br=ctk.CTkFrame(right,fg_color="transparent"); br.pack(fill="x",padx=8,pady=(3,0))
+        br=ctk.CTkFrame(lf,fg_color="transparent"); br.pack(fill="x",pady=(3,0))
         ctk.CTkButton(br,text="+ New",width=70,command=self._new_field).pack(side="left")
         ctk.CTkButton(br,text="Load CSV",width=80,fg_color="#555",command=self._load_csv).pack(side="left",padx=4)
         ctk.CTkButton(br,text="Delete",width=70,fg_color="#8b1a1a",command=self._delete_field).pack(side="right")
 
-        ctk.CTkFrame(right,height=1,fg_color="#444").pack(fill="x",padx=8,pady=6)
-
-        # Field Details form
-        ctk.CTkLabel(right,text="Field Details",font=ctk.CTkFont(family=FONT_HEADING,size=13)).pack()
+        # Field Details (collapsible)
+        fd=self._collapsible(right,"Field Details")
 
         # Field preset (reuse a field's fixed geometry — name, pivot, tracks,
         # acres, boundary, corner zones — across years)
-        fpr=ctk.CTkFrame(right,fg_color="transparent"); fpr.pack(fill="x",padx=8,pady=(4,2))
+        fpr=ctk.CTkFrame(fd,fg_color="transparent"); fpr.pack(fill="x",pady=(4,2))
         ctk.CTkLabel(fpr,text="Preset:",width=55,anchor="w").pack(side="left")
         self.field_preset_var=tk.StringVar()
         self.field_preset_cb=ctk.CTkComboBox(fpr,variable=self.field_preset_var,values=[""],width=150,
@@ -563,7 +599,7 @@ class BeetentApp(ctk.CTk):
         ctk.CTkButton(fpr,text="+",width=30,command=self._save_new_field_preset).pack(side="left",padx=(0,2))
         ctk.CTkButton(fpr,text="🗑",width=30,command=self._delete_field_preset).pack(side="left")
 
-        fs=ctk.CTkFrame(right); fs.pack(fill="x",padx=8,pady=(4,0))
+        fs=ctk.CTkFrame(fd,fg_color="transparent"); fs.pack(fill="x",pady=(4,0))
         self.fv={}; self.hint_labels={}; self.field_labels={}
         form_rows=[
             ("Name",               "Name",                  "Field name — used as folder/file name", False),
@@ -579,7 +615,7 @@ class BeetentApp(ctk.CTk):
             lbl.pack(fill="x")
             if unit_dep: self.field_labels[key]=lbl
             if hint:
-                hl=ctk.CTkLabel(fs,text=hint,anchor="w",text_color="#999",font=ctk.CTkFont(size=10))
+                hl=ctk.CTkLabel(fs,text=hint,anchor="w",text_color=UI_MUTED,font=ctk.CTkFont(size=10))
                 hl.pack(fill="x")
                 if unit_dep: self.hint_labels[key]=hl
             v=tk.StringVar(); ctk.CTkEntry(fs,textvariable=v).pack(fill="x",pady=(0,5))
@@ -603,7 +639,7 @@ class BeetentApp(ctk.CTk):
                         command=self._on_shelter_mode_change).pack(fill="x",pady=(0,2))
         self.shelter_value_var=tk.StringVar()
         ctk.CTkEntry(fs,textvariable=self.shelter_value_var).pack(fill="x",pady=(0,2))
-        self.shelter_hint_lbl=ctk.CTkLabel(fs,text="",anchor="w",text_color="#999",font=ctk.CTkFont(size=10))
+        self.shelter_hint_lbl=ctk.CTkLabel(fs,text="",anchor="w",text_color=UI_MUTED,font=ctk.CTkFont(size=10))
         self.shelter_hint_lbl.pack(fill="x",pady=(0,5))
         self.shelter_value_var.trace_add("write", self._on_shelter_value_change)
 
@@ -611,18 +647,15 @@ class BeetentApp(ctk.CTk):
         ctk.CTkLabel(fs,text="Outside Sprayer Pass",anchor="w",
                      font=ctk.CTkFont(family=FONT_LABEL,size=11)).pack(fill="x")
         ctk.CTkLabel(fs,text="If yes, shelters are excluded from one pass-width inside the boundary",
-                     anchor="w",text_color="#999",font=ctk.CTkFont(size=10)).pack(fill="x")
+                     anchor="w",text_color=UI_MUTED,font=ctk.CTkFont(size=10)).pack(fill="x")
         self.outside_pass_var=tk.StringVar(value="No")
         ctk.CTkSegmentedButton(fs,values=["Yes","No"],variable=self.outside_pass_var,
                                command=lambda v: self._on_form_change()).pack(fill="x",pady=(2,8))
 
         self.fv["Spray_angle"].set("0"); self.fv["Sprayer_width"].set("133")
 
-        ctk.CTkFrame(right,height=1,fg_color="#444").pack(fill="x",padx=8,pady=6)
-
-        # Bay calculator
-        ctk.CTkLabel(right,text="Bay Calculator",font=ctk.CTkFont(family=FONT_HEADING,size=13)).pack()
-        bc=ctk.CTkFrame(right); bc.pack(fill="x",padx=8,pady=(4,0))
+        # Bay calculator (collapsible)
+        bc=self._collapsible(right,"Bay Calculator")
 
         # Preset row
         preset_row=ctk.CTkFrame(bc,fg_color="transparent")
@@ -635,7 +668,7 @@ class BeetentApp(ctk.CTk):
         ctk.CTkButton(preset_row,text="+",width=30,command=self._save_new_preset).pack(side="left",padx=(0,2))
         ctk.CTkButton(preset_row,text="🗑",width=30,command=self._delete_preset).pack(side="left")
 
-        ctk.CTkFrame(bc,height=1,fg_color="#444").pack(fill="x",pady=(2,4))
+        ctk.CTkFrame(bc,height=1,fg_color=UI_BORDER).pack(fill="x",pady=(2,4))
 
         bay_rows=[
             ("row_spacing_in",   "Row Spacing (inches)"),
@@ -647,18 +680,15 @@ class BeetentApp(ctk.CTk):
             ctk.CTkLabel(bc,text=label,anchor="w",font=ctk.CTkFont(family=FONT_LABEL,size=11)).pack(fill="x")
             v=tk.StringVar(); ctk.CTkEntry(bc,textvariable=v).pack(fill="x",pady=(0,4))
             self.fv[key]=v
-        self.female_bay_lbl=ctk.CTkLabel(bc,text="Female bay width: —",anchor="w",text_color="#5599FF")
+        self.female_bay_lbl=ctk.CTkLabel(bc,text="Female bay width: —",anchor="w",text_color=UI_ACCENT)
         self.female_bay_lbl.pack(fill="x")
-        self.male_bay_lbl=ctk.CTkLabel(bc,text="Male bay width: —",anchor="w",text_color="#5599FF")
+        self.male_bay_lbl=ctk.CTkLabel(bc,text="Male bay width: —",anchor="w",text_color=UI_ACCENT)
         self.male_bay_lbl.pack(fill="x")
         ctk.CTkButton(bc,text="Recalculate Bays",
                       command=self._calc_bays).pack(fill="x",pady=(6,4))
 
-        ctk.CTkFrame(right,height=1,fg_color="#444").pack(fill="x",padx=8,pady=6)
-
-        # ── Bee Allocation ────────────────────────────────────────────────
-        ctk.CTkLabel(right,text="Bee Allocation",font=ctk.CTkFont(family=FONT_HEADING,size=13)).pack()
-        ba=ctk.CTkFrame(right); ba.pack(fill="x",padx=8,pady=(4,0))
+        # ── Bee Allocation (collapsible) ──────────────────────────────────
+        ba=self._collapsible(right,"Bee Allocation")
 
         bp_row=ctk.CTkFrame(ba,fg_color="transparent")
         bp_row.pack(fill="x",pady=(2,2))
@@ -670,7 +700,7 @@ class BeetentApp(ctk.CTk):
         ctk.CTkButton(bp_row,text="+",width=30,command=self._save_new_bee_preset).pack(side="left",padx=(0,2))
         ctk.CTkButton(bp_row,text="🗑",width=30,command=self._delete_bee_preset).pack(side="left")
 
-        ctk.CTkFrame(ba,height=1,fg_color="#444").pack(fill="x",pady=(2,4))
+        ctk.CTkFrame(ba,height=1,fg_color=UI_BORDER).pack(fill="x",pady=(2,4))
 
         bee_rows=[
             ("gals_per_acre", "Gals/acre"),
@@ -681,13 +711,13 @@ class BeetentApp(ctk.CTk):
             v=tk.StringVar(); ctk.CTkEntry(ba,textvariable=v).pack(fill="x",pady=(0,4))
             self.fv[key]=v
 
-        self.bee_total_gals_lbl  = ctk.CTkLabel(ba,text="Total gals:   —", anchor="w",text_color="#5599FF")
+        self.bee_total_gals_lbl  = ctk.CTkLabel(ba,text="Total gals:   —", anchor="w",text_color=UI_ACCENT)
         self.bee_total_gals_lbl.pack(fill="x")
-        self.bee_total_trays_lbl = ctk.CTkLabel(ba,text="Total trays:  —", anchor="w",text_color="#5599FF")
+        self.bee_total_trays_lbl = ctk.CTkLabel(ba,text="Total trays:  —", anchor="w",text_color=UI_ACCENT)
         self.bee_total_trays_lbl.pack(fill="x")
-        self.bee_per_shelter_lbl = ctk.CTkLabel(ba,text="Per shelter:  —", anchor="w",text_color="#5599FF")
+        self.bee_per_shelter_lbl = ctk.CTkLabel(ba,text="Per shelter:  —", anchor="w",text_color=UI_ACCENT)
         self.bee_per_shelter_lbl.pack(fill="x")
-        self.bee_short_lbl       = ctk.CTkLabel(ba,text="", anchor="w",text_color="#FF9933")
+        self.bee_short_lbl       = ctk.CTkLabel(ba,text="", anchor="w",text_color=UI_WARN)
         self.bee_short_lbl.pack(fill="x",pady=(0,4))
 
         ctk.CTkLabel(ba,text="Distribution:",anchor="w",font=ctk.CTkFont(family=FONT_LABEL,size=11)).pack(fill="x")
@@ -707,7 +737,7 @@ class BeetentApp(ctk.CTk):
 
         self._setup_form_traces()
 
-        ctk.CTkFrame(right,height=1,fg_color="#444").pack(fill="x",padx=8,pady=6)
+        ctk.CTkFrame(right,height=1,fg_color=UI_BORDER).pack(fill="x",padx=8,pady=6)
 
         ctk.CTkButton(right,text="💾 Save Field",height=32,command=self._save_field).pack(fill="x",padx=8,pady=(0,4))
         ctk.CTkButton(right,text="⚙ Generate Output Files",height=40,
@@ -1751,7 +1781,7 @@ class BeetentApp(ctk.CTk):
         ctk.CTkLabel(win,text=f"Length of each span ({unit}):",
                      font=ctk.CTkFont(family=FONT_HEADING,size=12)).pack(pady=(12,2),padx=10)
         ctk.CTkLabel(win,text="Span N = previous tower (or pivot) out to tower N.",
-                     text_color="#999",font=ctk.CTkFont(size=10)).pack(padx=10,pady=(0,6))
+                     text_color=UI_MUTED,font=ctk.CTkFont(size=10)).pack(padx=10,pady=(0,6))
 
         scroll=ctk.CTkScrollableFrame(win,height=200)
         scroll.pack(fill="both",expand=True,padx=10,pady=(0,6))
@@ -1771,7 +1801,7 @@ class BeetentApp(ctk.CTk):
                 entry_vars.append(v)
         rebuild_rows(spans_display)
 
-        ctk.CTkFrame(win,height=1,fg_color="#444").pack(fill="x",padx=10,pady=4)
+        ctk.CTkFrame(win,height=1,fg_color=UI_BORDER).pack(fill="x",padx=10,pady=4)
         ctk.CTkLabel(win,text="Equal spans",font=ctk.CTkFont(family=FONT_LABEL,size=11)).pack(padx=10,anchor="w")
         eq_row=ctk.CTkFrame(win,fg_color="transparent")
         eq_row.pack(fill="x",padx=10,pady=2)
@@ -1796,7 +1826,7 @@ class BeetentApp(ctk.CTk):
             rebuild_rows([span]*cnt)
         ctk.CTkButton(eq_row,text="Apply",width=60,command=apply_equal).pack(side="left")
         ctk.CTkLabel(win,text="Fills every span with this length — then edit individual\nspans (e.g. a shorter final span).",
-                     text_color="#999",font=ctk.CTkFont(size=10),justify="left").pack(padx=10,anchor="w")
+                     text_color=UI_MUTED,font=ctk.CTkFont(size=10),justify="left").pack(padx=10,anchor="w")
 
         btn_row=ctk.CTkFrame(win,fg_color="transparent")
         btn_row.pack(fill="x",padx=10,pady=(8,10))
@@ -1829,9 +1859,9 @@ class BeetentApp(ctk.CTk):
         win.geometry("320x220")
         win.grab_set()
         ctk.CTkLabel(win,text="Select track to delete:").pack(pady=(12,4))
-        lb=tk.Listbox(win,bg="#2b2b2b",fg="#FFA040",selectbackground="#4a3010",
+        lb=tk.Listbox(win,bg=UI_CARD,fg=UI_TEXT,selectbackground=UI_SELECT,selectforeground=UI_TEXT,
                       relief="flat",font=(FONT_BODY,11),height=5,
-                      activestyle="none",highlightthickness=0)
+                      activestyle="none",highlightthickness=1,highlightbackground=UI_BORDER)
         for i,r in enumerate(tracks):
             lb.insert(tk.END,f"Track {i+1}: {r:.1f} m  ({r/0.3048:.1f} ft)")
         lb.pack(fill="x",padx=10,pady=4)
@@ -1977,9 +2007,9 @@ class BeetentApp(ctk.CTk):
         win=ctk.CTkToplevel(self)
         win.title("Delete Corner Zone"); win.geometry("360x240"); win.grab_set()
         ctk.CTkLabel(win,text="Select zone to delete:").pack(pady=(12,4))
-        lb=tk.Listbox(win,bg="#2b2b2b",fg="#CC44FF",selectbackground="#4a1070",
+        lb=tk.Listbox(win,bg=UI_CARD,fg=UI_TEXT,selectbackground=UI_SELECT,selectforeground=UI_TEXT,
                       relief="flat",font=(FONT_BODY,11),height=6,
-                      activestyle="none",highlightthickness=0)
+                      activestyle="none",highlightthickness=1,highlightbackground=UI_BORDER)
         for i,arm in enumerate(arms):
             if arm.get("type")=="circle":
                 lb.insert(tk.END,f"Circle {i+1}: r={arm['radius_m']:.1f} m ({arm['radius_m']/0.3048:.1f} ft)")
