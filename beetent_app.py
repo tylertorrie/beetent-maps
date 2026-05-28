@@ -783,7 +783,7 @@ class BeetentApp(ctk.CTk):
     # pivot tracks + exclusion, acres, boundary polygon, corner zones. Leaves
     # year-specific values (name, planting angle, shelter count, bee allocation)
     # untouched so a new year's map starts from the known geometry.
-    _FIELD_PRESET_SCALARS = ("PP_Latitude","PP_Longitude","acres","track_exclusion_ft")
+    _FIELD_PRESET_SCALARS = ("Name","PP_Latitude","PP_Longitude","acres","track_exclusion_ft")
 
     def _load_field_presets(self):
         try:
@@ -807,7 +807,7 @@ class BeetentApp(ctk.CTk):
 
     def _save_new_field_preset(self):
         name=tkinter.simpledialog.askstring("Save Field Preset",
-            "Preset name (saves pivot, tracks, acres, boundary, corners):")
+            "Preset name (saves field name, pivot, tracks, acres, boundary, corners):")
         if not name: return
         f=self._field_from_form()
         bp=f.get("boundary_polygon")
@@ -1521,7 +1521,7 @@ class BeetentApp(ctk.CTk):
         bp=self.current_field.get("boundary_polygon")
         if bp and len(bp)>=3:
             self.boundary_poly=self.map_widget.set_polygon(
-                [tuple(p) for p in bp],fill_color=None,outline_color="#00FF88",border_width=2)
+                [tuple(p) for p in bp],fill_color=None,outline_color="#00CED1",border_width=2)
 
     def _on_bnd_vertex_drag(self,idx,lat,lon):
         if self._selected_bnd_vertex==idx:
