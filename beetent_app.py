@@ -300,6 +300,7 @@ class BeetentApp(ctk.CTk):
         # Drag system
         self._drag_registry = {}
         self._drag_item = None
+        self._drag_track_idx = None   # index of pivot track being resized by band-drag
         self._drag_last_latlon = None
         self._drag_start_xy = None
         self._drag_moved = False
@@ -1486,13 +1487,9 @@ class BeetentApp(ctk.CTk):
     def _on_track_resize_motion(self,event):
         pass  # replaced by drag system
 
-    def _redraw_tracks(self):
-        self._unregister_drag_prefix("track_")
+    def _redraw_tracks(self, skip_shelters=False):
         for o in self.track_circles:
             try: o.delete()
-            except Exception: pass
-        for h in self.track_handles:
-            try: h.delete()
             except Exception: pass
         self.track_circles=[]; self.track_handles=[]
         if not self.show_tracks.get(): return
@@ -1504,22 +1501,41 @@ class BeetentApp(ctk.CTk):
             for r,col,w in [(r_m+excl_m,"#32CD32",2),(max(1,r_m-excl_m),"#32CD32",1)]:
                 self.track_circles.append(self.map_widget.set_polygon(
                     circle_pts(plat,plon,r),fill_color=None,outline_color=col,border_width=w))
-            hlat=plat; hlon=plon+r_m/(111111*math.cos(math.radians(plat)))
-            h=self.map_widget.set_marker(hlat,hlon,text="↔",marker_color_circle="#999999",
-                                          marker_color_outside="#555555")
-            self.track_handles.append(h)
-            self._register_drag(f"track_{i}",hlat,hlon,"↔","#999999","#555555",
-                                lambda la,lo,i=i: self._on_track_drag(i,la,lo),marker=h)
-        if self.show_shelters.get(): self._redraw_shelters()
+        if not skip_shelters and self.show_shelters.get(): self._redraw_shelters()
 
-    def _on_track_drag(self,idx,lat,lon):
+    def _on_track_drag(self,idx,lat,lon,final=False):
         try:
             plat=float(self.fv["PP_Latitude"].get()); plon=float(self.fv["PP_Longitude"].get())
         except ValueError: return
+        tracks=self.current_field.get("pivot_tracks") or []
+        if not (0<=idx<len(tracks)): return
         r_m=haversine_m(plat,plon,lat,lon)
-        self.current_field["pivot_tracks"][idx]=round(r_m,2)
+        tracks[idx]=round(r_m,2)
         self._status(f"Track {idx+1}: {r_m:.1f} m ({r_m/0.3048:.1f} ft)")
-        self._refresh_track_list(); self._redraw_tracks()
+        if final:
+            self._refresh_track_list(); self._redraw_tracks()
+        else:
+            # Live preview while dragging — skip the (expensive) shelter redraw
+            self._redraw_tracks(skip_shelters=True)
+
+    def _track_hit(self,lat,lon,mpp):
+        """Return the index of the pivot track whose exclusion band contains the
+        click point (lat,lon), or None. The band is r±excl_m, widened to a few
+        pixels so it's easy to grab. Picks the closest track on overlap."""
+        try:
+            plat=float(self.fv["PP_Latitude"].get()); plon=float(self.fv["PP_Longitude"].get())
+        except (ValueError,TypeError): return None
+        tracks=self.current_field.get("pivot_tracks") or []
+        if not tracks: return None
+        excl_m=float(self.fv.get("track_exclusion_ft",self.excl_var).get() or "10")*0.3048
+        tol=max(excl_m, 12*mpp)   # grabbable even when the band is narrow
+        d=haversine_m(plat,plon,lat,lon)
+        best_idx=None; best_gap=tol
+        for i,r_m in enumerate(tracks):
+            gap=abs(d-r_m)
+            if gap<=best_gap:
+                best_gap=gap; best_idx=i
+        return best_idx
 
     # ── Corner zones (paths and circles — unlimited) ──────────────────────────
     def _mode_add_corner_path(self):
@@ -2076,6 +2092,7 @@ class BeetentApp(ctk.CTk):
     def _drag_press(self,event):
         self._pan_start_xy=(event.x,event.y)
         self._drag_moved=False
+        self._drag_track_idx=None
         # Always let tkintermapview record the press so panning works correctly
         try: self.map_widget.mouse_click(event)
         except Exception: pass
@@ -2096,11 +2113,27 @@ class BeetentApp(ctk.CTk):
             self._drag_item=best_id
             self._drag_last_latlon=(lat0,lon0)
             self._drag_start_xy=(event.x,event.y)
+        elif self.click_mode is None and lat0 is not None and self.show_tracks.get():
+            # No pin hit — see if the click landed on a pivot track band
+            idx=self._track_hit(lat0,lon0,mpp)
+            if idx is not None:
+                self._drag_track_idx=idx
+                self._drag_last_latlon=(lat0,lon0)
+                self._drag_start_xy=(event.x,event.y)
 
     def _b1_motion(self,event):
         sx,sy=self._pan_start_xy if self._pan_start_xy else (event.x,event.y)
         if abs(event.x-sx)>4 or abs(event.y-sy)>4:
             self._drag_moved=True
+        if self._drag_track_idx is not None:
+            # Pivot-track band drag — resize the track to the cursor radius
+            if self._drag_moved:
+                try:
+                    lat,lon=self.map_widget.convert_canvas_coords_to_decimal_coords(event.x,event.y)
+                    self._drag_last_latlon=(lat,lon)
+                    self._on_track_drag(self._drag_track_idx,lat,lon,final=False)
+                except Exception: pass
+            return
         if self._drag_item:
             # Pin drag — move the actual marker's canvas items with the cursor
             try:
@@ -2127,6 +2160,14 @@ class BeetentApp(ctk.CTk):
             except Exception: pass
 
     def _drag_release(self,event):
+        # Pivot-track band drag — commit the new radius
+        if self._drag_track_idx is not None:
+            if self._drag_moved and self._drag_last_latlon:
+                lat,lon=self._drag_last_latlon
+                self._on_track_drag(self._drag_track_idx,lat,lon,final=True)
+            self._drag_track_idx=None; self._drag_moved=False
+            self._drag_start_xy=None; self._drag_last_latlon=None; self._pan_start_xy=None
+            return
         was_pin_drag=bool(self._drag_item)
         if was_pin_drag and self._drag_moved and self._drag_last_latlon:
             # Real pin drag completed — apply new position
