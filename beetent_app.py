@@ -27,6 +27,9 @@ DEFAULT_LAT, DEFAULT_LON, DEFAULT_ZOOM = 49.86, -111.96, 10
 ALL_COMPANIES = "— All companies —"
 ALL_YEARS     = "— All years —"
 
+# Sentinel for the shelter-move undo stack: marks "no override existed before".
+_UNDO_MISSING = object()
+
 # ── Prairie LLD geocoder ───────────────────────────────────────────────────────
 _MERIDIANS = {1:-97.4551, 2:-102.0, 3:-106.0, 4:-110.0, 5:-114.0, 6:-118.0}
 _QUARTER   = {"NE":(0.75,0.25),"NW":(0.75,0.75),"SE":(0.25,0.25),"SW":(0.25,0.75)}
@@ -296,6 +299,7 @@ class BeetentApp(ctk.CTk):
         self.shelter_positions  = []
         self.show_shelters      = tk.BooleanVar(value=False)
         self.show_tray_counts   = tk.BooleanVar(value=False)
+        self._shelter_undo      = []   # stack of (override_key, prev_value) for Reset Move
         self.shelter_tray_counts= []  # parallel to shelter_positions; per-shelter int
         self.moving_shelter_idx = None
         self._shelter_refresh_id= None
@@ -429,24 +433,20 @@ class BeetentApp(ctk.CTk):
         ], color="#3a5a1a")
         self._pl_btn.pack(side="left", padx=(0,4))
 
+        self._shelter_btn = self._make_menu_btn(bb, "🏠 Shelters", [
+            ("Toggle Pins",          self._toggle_shelters),
+            ("Toggle Trays",         self._toggle_shelter_labels),
+            ("Toggle 10 ft Buffers", self._toggle_shelter_buffers),
+        ], color="#5a3000")
+        self._shelter_btn.pack(side="left", padx=(0,4))
+
+        ctk.CTkButton(bb, text="↶ Reset Move", width=110, fg_color="#4a2a00",
+                      command=self._undo_shelter_move).pack(side="left", padx=(0,4))
+
         # Context action button (shown when a mode needs a "Done" action)
         self.btn_context = ctk.CTkButton(bb, text="", width=130, fg_color="#333333",
                                           state="disabled", command=lambda: None)
         self.btn_context.pack(side="right", padx=(4,0))
-
-        # ── Shelter controls row ──
-        bb2=ctk.CTkFrame(mf,fg_color="transparent")
-        bb2.pack(fill="x",padx=6,pady=(0,6))
-
-        self._shelter_btn = self._make_menu_btn(bb2, "🏠 Shelters", [
-            ("Toggle Pins",  self._toggle_shelters),
-            ("Toggle Trays", self._toggle_shelter_labels),
-        ], color="#5a3000")
-        self._shelter_btn.pack(side="left",padx=(0,4))
-        ctk.CTkButton(bb2,text="↺ Reset Moves",width=120,fg_color="#4a2a00",
-                      command=self._reset_shelter_overrides).pack(side="left",padx=(0,4))
-        ctk.CTkCheckBox(bb2,text="10 ft buffer circles",variable=self.shelter_circle_var,
-                        command=self._redraw_shelters).pack(side="left",padx=(8,0))
 
         self.map_frame=mf
 
@@ -1151,6 +1151,7 @@ class BeetentApp(ctk.CTk):
     def _form_from_field(self):
         f=self.current_field
         bf=blank_field()
+        self._shelter_undo=[]   # undo history is per-field, reset on load/new
         for k,v in self.fv.items():
             val=f.get(k)
             v.set(str(bf.get(k,"")) if val is None else str(val))
@@ -1948,10 +1949,32 @@ class BeetentApp(ctk.CTk):
             except Exception: pass
         self.shelter_circle_polys=[]
 
-    def _reset_shelter_overrides(self):
-        self.current_field["shelter_overrides"]={}
+    def _toggle_shelter_buffers(self):
+        self.shelter_circle_var.set(not self.shelter_circle_var.get())
         if self.show_shelters.get(): self._redraw_shelters()
-        self._status("Shelter moves and deletions cleared.")
+        self._status("10 ft buffers " + ("shown." if self.shelter_circle_var.get() else "hidden."))
+
+    def _record_shelter_change(self, idx):
+        """Snapshot the override for this shelter before changing it, so Reset
+        Move can step back through individual moves/deletes one at a time."""
+        overrides=self.current_field.setdefault("shelter_overrides",{})
+        key=str(idx)
+        prev=overrides[key] if key in overrides else _UNDO_MISSING
+        self._shelter_undo.append((key,prev))
+
+    def _undo_shelter_move(self):
+        """Revert just the most recent move/delete; repeat to step further back."""
+        if not self._shelter_undo:
+            self._status("Nothing to undo."); return
+        key,prev=self._shelter_undo.pop()
+        overrides=self.current_field.setdefault("shelter_overrides",{})
+        if prev is _UNDO_MISSING:
+            overrides.pop(key,None)
+        else:
+            overrides[key]=prev
+        if self.show_shelters.get(): self._redraw_shelters()
+        n=len(self._shelter_undo)
+        self._status("Reverted last change." + (f" {n} earlier change(s) remain." if n else " No more to undo."))
 
     def _on_shelter_tap(self, idx):
         """Called when a shelter pin is clicked without dragging — highlight then offer delete."""
@@ -1975,10 +1998,11 @@ class BeetentApp(ctk.CTk):
             self._delete_shelter(idx)
 
     def _delete_shelter(self,idx):
+        self._record_shelter_change(idx)
         overrides=self.current_field.setdefault("shelter_overrides",{})
         overrides[str(idx)]=None
         self._redraw_shelters()
-        self._status(f"Shelter #{idx+1} deleted — save field to keep. ↺ Reset Moves to restore all.")
+        self._status(f"Shelter #{idx+1} deleted — ↶ Reset Move to undo.")
 
     def _make_shelter_move_cb(self,idx):
         def cb(marker):
@@ -1988,9 +2012,10 @@ class BeetentApp(ctk.CTk):
         return cb
 
     def _on_shelter_drag(self,idx,lat,lon):
+        self._record_shelter_change(idx)
         overrides=self.current_field.setdefault("shelter_overrides",{})
         overrides[str(idx)]=[lat,lon]
-        self._status(f"Shelter #{idx+1} moved — save field to keep.")
+        self._status(f"Shelter #{idx+1} moved — ↶ Reset Move to undo.")
         self._redraw_shelters()
 
     def _redraw_shelters(self):
