@@ -320,6 +320,7 @@ class BeetentApp(ctk.CTk):
         self._refresh_company_list()
         self._refresh_preset_list()
         self._refresh_bee_preset_list()
+        self._refresh_field_preset_list()
         self.bind("<Escape>", self._on_escape)
         self.bind("<Delete>", self._on_delete_key)
         for key in ("<Left>","<Right>","<Up>","<Down>",
@@ -490,6 +491,17 @@ class BeetentApp(ctk.CTk):
         ctk.CTkButton(br,text="+ New",width=70,command=self._new_field).pack(side="left")
         ctk.CTkButton(br,text="Load CSV",width=80,fg_color="#555",command=self._load_csv).pack(side="left",padx=4)
         ctk.CTkButton(br,text="Delete",width=70,fg_color="#8b1a1a",command=self._delete_field).pack(side="right")
+
+        # Field preset (reuse a field's fixed geometry — pivot, tracks, acres,
+        # boundary, corner zones — across years)
+        fpr=ctk.CTkFrame(right,fg_color="transparent"); fpr.pack(fill="x",padx=8,pady=(6,0))
+        ctk.CTkLabel(fpr,text="Preset:",width=55,anchor="w").pack(side="left")
+        self.field_preset_var=tk.StringVar()
+        self.field_preset_cb=ctk.CTkComboBox(fpr,variable=self.field_preset_var,values=[""],width=150,
+                                              command=self._on_field_preset_selected)
+        self.field_preset_cb.pack(side="left",padx=(2,2))
+        ctk.CTkButton(fpr,text="+",width=30,command=self._save_new_field_preset).pack(side="left",padx=(0,2))
+        ctk.CTkButton(fpr,text="🗑",width=30,command=self._delete_field_preset).pack(side="left")
 
         ctk.CTkFrame(right,height=1,fg_color="#444").pack(fill="x",padx=8,pady=6)
 
@@ -765,6 +777,79 @@ class BeetentApp(ctk.CTk):
         self._save_bee_presets(presets)
         self._refresh_bee_preset_list()
         self.bee_preset_var.set("")
+
+    # ── Field Presets (fixed field geometry reused year to year) ──────────────
+    # Captures only the physical layout that stays constant: pivot point,
+    # pivot tracks + exclusion, acres, boundary polygon, corner zones. Leaves
+    # year-specific values (name, planting angle, shelter count, bee allocation)
+    # untouched so a new year's map starts from the known geometry.
+    _FIELD_PRESET_SCALARS = ("PP_Latitude","PP_Longitude","acres","track_exclusion_ft")
+
+    def _load_field_presets(self):
+        try:
+            p=DATA_DIR/"field_presets.json"
+            if p.exists():
+                return json.loads(p.read_text(encoding="utf-8"))
+        except Exception: pass
+        return []
+
+    def _save_field_presets(self, presets):
+        try:
+            DATA_DIR.mkdir(parents=True,exist_ok=True)
+            (DATA_DIR/"field_presets.json").write_text(json.dumps(presets,indent=2),encoding="utf-8")
+            self._git_push("sync field presets")
+        except Exception as ex:
+            tkinter.messagebox.showerror("Preset Error",str(ex))
+
+    def _refresh_field_preset_list(self):
+        names=[""]+[p["name"] for p in self._load_field_presets()]
+        self.field_preset_cb.configure(values=names)
+
+    def _save_new_field_preset(self):
+        name=tkinter.simpledialog.askstring("Save Field Preset",
+            "Preset name (saves pivot, tracks, acres, boundary, corners):")
+        if not name: return
+        f=self._field_from_form()
+        bp=f.get("boundary_polygon")
+        entry={"name":name,
+               "pivot_tracks":list(f.get("pivot_tracks") or []),
+               "boundary_polygon":[list(pt) for pt in bp] if bp else None,
+               "corner_arms":f.get("corner_arms") or []}
+        for k in self._FIELD_PRESET_SCALARS:
+            entry[k]=f.get(k,"")
+        presets=[p for p in self._load_field_presets() if p["name"]!=name]
+        presets.append(entry)
+        self._save_field_presets(presets)
+        self._refresh_field_preset_list()
+        self.field_preset_var.set(name)
+        self._status(f"Saved field preset: {name}")
+
+    def _on_field_preset_selected(self, name):
+        if not name: return
+        p=next((x for x in self._load_field_presets() if x["name"]==name), None)
+        if not p: return
+        # Scalar physical attrs → form vars + current_field
+        for k in self._FIELD_PRESET_SCALARS:
+            if k in p:
+                if k in self.fv: self.fv[k].set(str(p[k]))
+                self.current_field[k]=str(p[k])
+        # Structured physical attrs → current_field
+        self.current_field["pivot_tracks"]=list(p.get("pivot_tracks") or [])
+        bp=p.get("boundary_polygon")
+        self.current_field["boundary_polygon"]=[list(pt) for pt in bp] if bp else None
+        self.current_field["corner_arms"]=p.get("corner_arms") or []
+        self.boundary_pts=[]
+        self._refresh_track_list()
+        self._redraw_all()
+        self._status(f"Applied field preset: {name} — set name, angle & bees for this year.")
+
+    def _delete_field_preset(self):
+        name=self.field_preset_var.get()
+        if not name: return
+        presets=[p for p in self._load_field_presets() if p["name"]!=name]
+        self._save_field_presets(presets)
+        self._refresh_field_preset_list()
+        self.field_preset_var.set("")
 
     # ── Bee tray math ────────────────────────────────────────────────────────
     def _compute_bee_distribution(self, num_shelters, row_indices=None,
@@ -2342,6 +2427,7 @@ class BeetentApp(ctk.CTk):
                     self.after(0,self._refresh_field_list)
                     self.after(0,self._refresh_preset_list)
                     self.after(0,self._refresh_bee_preset_list)
+                    self.after(0,self._refresh_field_preset_list)
                     self.after(0,lambda:self._status("☁ Pulled latest changes"))
             except Exception: pass
         threading.Thread(target=run,daemon=True).start()
