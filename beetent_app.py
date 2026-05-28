@@ -228,7 +228,8 @@ def blank_field(company="",year=""):
     return dict(Name="",company=company,year=year,
                 PP_Latitude="",PP_Longitude="",
                 Spray_angle="0",Sprayer_width="133",
-                num_structures="",spacing="",shelter_spacing="",directional_offset="",
+                shelter_mode="total",num_structures="",shelters_per_acre="",
+                spacing="",shelter_spacing="",directional_offset="",
                 row_spacing_in="22",num_female_rows="8",num_male_rows="2",planter_width_ft="",
                 outside_sprayer_pass="No",track_exclusion_ft="10",
                 gals_per_acre="3",acres="",gals_per_tray="2",tray_distribution="even",
@@ -523,8 +524,6 @@ class BeetentApp(ctk.CTk):
             ("Spray_angle",        "Spray Angle (°)",        "0=N↑  90=E→  180=S↓  270=W←",           False),
             ("Sprayer_width",      "Sprayer Width (ft)",     "",                                       False),
             ("acres",              "Acres",                  "Total field area in acres",              False),
-            ("num_structures",     "Number of Shelters",     "Exact count to place (e.g. 135)",        False),
-            ("spacing",            "Shelter Spacing",        "Desired distance between shelters. Leave blank to auto-calculate.", True),
             ("track_exclusion_ft", "Track Exclusion (ft)",  "Clear zone each side of pivot tracks (default 10 ft)", False),
         ]
         for key,display,hint,unit_dep in form_rows:
@@ -537,6 +536,28 @@ class BeetentApp(ctk.CTk):
                 if unit_dep: self.hint_labels[key]=hl
             v=tk.StringVar(); ctk.CTkEntry(fs,textvariable=v).pack(fill="x",pady=(0,5))
             self.fv[key]=v
+
+        # ── Shelters: choose how the exact count is specified ──
+        # Backing storage vars (round-trip via _form_from_field/_field_from_form);
+        # only the one matching the chosen mode is shown in the entry below.
+        for k in ("num_structures","spacing","shelters_per_acre"):
+            self.fv[k]=tk.StringVar()
+        self._shelter_mode_labels={
+            "Total shelters":           "total",
+            "Shelters per acre":        "per_acre",
+            "Spacing between shelters": "spacing",
+        }
+        self._shelter_mode_inverse={v:k for k,v in self._shelter_mode_labels.items()}
+        self._shelter_mode_key={"total":"num_structures","per_acre":"shelters_per_acre","spacing":"spacing"}
+        ctk.CTkLabel(fs,text="Shelters",anchor="w",font=ctk.CTkFont(size=11,weight="bold")).pack(fill="x")
+        self.shelter_mode_var=tk.StringVar(value="Total shelters")
+        ctk.CTkComboBox(fs,variable=self.shelter_mode_var,values=list(self._shelter_mode_labels.keys()),
+                        command=self._on_shelter_mode_change).pack(fill="x",pady=(0,2))
+        self.shelter_value_var=tk.StringVar()
+        ctk.CTkEntry(fs,textvariable=self.shelter_value_var).pack(fill="x",pady=(0,2))
+        self.shelter_hint_lbl=ctk.CTkLabel(fs,text="",anchor="w",text_color="#999",font=ctk.CTkFont(size=10))
+        self.shelter_hint_lbl.pack(fill="x",pady=(0,5))
+        self.shelter_value_var.trace_add("write", self._on_shelter_value_change)
 
         # Outside Sprayer Pass
         ctk.CTkLabel(fs,text="Outside Sprayer Pass",anchor="w",
@@ -1072,6 +1093,28 @@ class BeetentApp(ctk.CTk):
     def _current_tray_strategy(self):
         return self.current_field.get("tray_distribution") or "even"
 
+    # ── Shelter count mode (per acre / total / spacing) ───────────────────────
+    def _shelter_hint(self, mode):
+        if mode=="per_acre": return "Shelters per acre × Acres = exact count placed."
+        if mode=="spacing":  return "Distance between shelters. Fills the field at that spacing."
+        return "Exact number of shelters to place (e.g. 135)."
+
+    def _on_shelter_mode_change(self, _=None):
+        mode=self._shelter_mode_labels.get(self.shelter_mode_var.get(),"total")
+        self.current_field["shelter_mode"]=mode
+        key=self._shelter_mode_key[mode]
+        self._loading_shelter_value=True
+        self.shelter_value_var.set(self.fv[key].get())
+        self._loading_shelter_value=False
+        self.shelter_hint_lbl.configure(text=self._shelter_hint(mode))
+        if self.show_shelters.get(): self._redraw_shelters()
+
+    def _on_shelter_value_change(self, *_):
+        if getattr(self,"_loading_shelter_value",False): return
+        mode=self._shelter_mode_labels.get(self.shelter_mode_var.get(),"total")
+        key=self._shelter_mode_key[mode]
+        self.fv[key].set(self.shelter_value_var.get())   # fv trace → _on_form_change → redraw
+
     def _refresh_bee_summary(self):
         """Update the three computed lines under the Bee Allocation block."""
         n = len(self.shelter_positions or [])
@@ -1195,6 +1238,14 @@ class BeetentApp(ctk.CTk):
         # Sync the tray-distribution dropdown
         dist_key = f.get("tray_distribution") or "even"
         self.tray_dist_var.set(self._tray_dist_inverse.get(dist_key, "Spread evenly"))
+        # Sync the shelter-count mode dropdown + its single value entry
+        s_mode = f.get("shelter_mode") or "total"
+        self.shelter_mode_var.set(self._shelter_mode_inverse.get(s_mode,"Total shelters"))
+        s_key = self._shelter_mode_key.get(s_mode,"num_structures")
+        self._loading_shelter_value=True
+        self.shelter_value_var.set(self.fv[s_key].get())
+        self._loading_shelter_value=False
+        self.shelter_hint_lbl.configure(text=self._shelter_hint(s_mode))
         self._refresh_track_list()
         # Migrate old corner_arms [[pts],[pts]] format → new [{type,pts/lat/lon/radius_m}] format
         old = self.current_field.get("corner_arms")
@@ -1213,6 +1264,7 @@ class BeetentApp(ctk.CTk):
         for k,v in self.fv.items(): f[k]=v.get().strip()
         f["outside_sprayer_pass"]=self.outside_pass_var.get()
         f["tray_distribution"]=self._tray_dist_labels.get(self.tray_dist_var.get(),"even")
+        f["shelter_mode"]=self._shelter_mode_labels.get(self.shelter_mode_var.get(),"total")
         # Use the dropdown company/year when specific; otherwise keep the loaded
         # field's own (so a field opened from an All/All list still saves home).
         co=self.company_var.get(); yr=self.year_var.get()

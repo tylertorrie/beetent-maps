@@ -832,11 +832,35 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
             tent_row_width = sprayer_width
             lat_offset = float(field_dict.get('Lateral_offset') or 0) * conv
 
-        sp_raw = str(field_dict.get('spacing') or '').strip()
         do_raw = str(field_dict.get('directional_offset') or '').strip()
-        ns_raw = str(field_dict.get('num_structures') or field_dict.get('# of Structures') or '').strip()
-        num_tents = int(ns_raw) if ns_raw else None
         directional_offset = float(do_raw) * conv if do_raw else 0.0
+
+        # Shelter count mode: how the exact number of shelters is specified.
+        #   "per_acre" → shelters_per_acre × acres
+        #   "total"    → num_structures
+        #   "spacing"  → spacing between shelters (no exact count)
+        # No mode set → legacy behaviour (num_structures, else spacing).
+        mode = str(field_dict.get('shelter_mode') or '').strip().lower()
+        sp_raw = ''
+        num_tents = None
+        def _int(v):
+            try: return int(round(float(str(v).strip())))
+            except (ValueError, TypeError): return None
+        if mode == 'spacing':
+            sp_raw = str(field_dict.get('spacing') or '').strip()
+        elif mode == 'per_acre':
+            try:
+                spa = float(field_dict.get('shelters_per_acre') or 0)
+                ac  = float(field_dict.get('acres') or 0)
+                if spa > 0 and ac > 0:
+                    num_tents = max(1, int(round(spa * ac)))
+            except (ValueError, TypeError):
+                num_tents = None
+        elif mode == 'total':
+            num_tents = _int(field_dict.get('num_structures') or field_dict.get('# of Structures') or '')
+        else:
+            sp_raw = str(field_dict.get('spacing') or '').strip()
+            num_tents = _int(field_dict.get('num_structures') or field_dict.get('# of Structures') or '')
         user_spacing = bool(sp_raw)
 
         rotate = (0 - seed_angle + 180) % 360 - 180
@@ -994,12 +1018,29 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                 cands.sort()  # smallest d_b first; ties go to fewer slide steps
                 return cands[0][2]
 
-            def _count_grid(n_sp):
-                # Counts only directly-valid positions (no snap) so the binary
-                # search is fast. The snap pass during final placement may add
-                # extra rescued shelters on top, which is fine — num_tents is
-                # treated as a minimum, not a hard cap.
-                if n_sp <= 0: return 0
+            def _snappable_coarse(pre_e, pre_n_0):
+                """Cheap yes/no: is there a valid spot within SNAP_MAX_M along the
+                bay? Uses 1 m steps (coarser than final placement) just for
+                counting, so the binary search lands on a spacing whose total
+                PLACEABLE cell count matches the requested shelter count."""
+                steps = int(SNAP_MAX_M)
+                for i in range(1, steps + 1):
+                    for sign in (+1, -1):
+                        new_pre_n = pre_n_0 + sign * i
+                        east  = pre_e * cos_r - new_pre_n * sin_r
+                        north = new_pre_n * cos_r + pre_e * sin_r
+                        if _inside(east, north) and _valid(east, north):
+                            return True
+                return False
+
+            def _count_at_least(n_sp, target):
+                # True if at least `target` PLACEABLE cells exist at this spacing
+                # (valid as-is, or snappable out of a kill/track zone). Early-exits
+                # as soon as the target is reached, so dense spacings stay cheap.
+                # Counting placeable cells makes the chosen spacing yield the
+                # requested shelter count regardless of the outside-sprayer-pass
+                # toggle — that toggle changes which cells are valid, not how many.
+                if n_sp <= 0: return False
                 c_max = int(radius / n_sp) + 2
                 total = 0
                 for r in range(-r_max, r_max + 1):
@@ -1010,17 +1051,19 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                         east  = pre_e * cos_r - pre_n * sin_r
                         north = pre_n * cos_r + pre_e * sin_r
                         if not _inside(east, north): continue
-                        if _valid(east, north): total += 1
-                return total
+                        if _valid(east, north) or _snappable_coarse(pre_e, pre_n):
+                            total += 1
+                            if total >= target: return True
+                return False
 
             # Find the largest N-S spacing that still yields >= num_tents positions.
             lo, hi = 1.0, radius * 2.0
-            if _count_grid(lo) < num_tents:
+            if not _count_at_least(lo, num_tents):
                 ns_spacing = lo
             else:
-                for _ in range(50):
+                for _ in range(32):   # 32 halvings ≈ sub-µm spacing precision, plenty
                     mid = (lo + hi) / 2
-                    if _count_grid(mid) >= num_tents:
+                    if _count_at_least(mid, num_tents):
                         lo = mid
                     else:
                         hi = mid
@@ -1073,6 +1116,12 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                     pts = list(reversed(pts))
                 ordered.extend(pts)
                 ordered_rows.extend([i] * len(pts))
+
+            # Place EXACTLY num_tents shelters — the count function targets the
+            # placeable total, so any small excess is trimmed from the snake tail.
+            if num_tents is not None and len(ordered) > num_tents:
+                ordered = ordered[:num_tents]
+                ordered_rows = ordered_rows[:num_tents]
 
             result = []
             for e, n in ordered:
