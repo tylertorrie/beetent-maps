@@ -22,6 +22,11 @@ STREET_URL    = "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png"
 DATA_DIR      = Path(__file__).parent / "fields"
 DEFAULT_LAT, DEFAULT_LON, DEFAULT_ZOOM = 49.86, -111.96, 10
 
+# Sentinels for the Company / Year dropdowns — used to export across a whole
+# category. Not valid folder names; guarded out of save/load/new flows.
+ALL_COMPANIES = "— All companies —"
+ALL_YEARS     = "— All years —"
+
 # ── Prairie LLD geocoder ───────────────────────────────────────────────────────
 _MERIDIANS = {1:-97.4551, 2:-102.0, 3:-106.0, 4:-110.0, 5:-114.0, 6:-118.0}
 _QUARTER   = {"NE":(0.75,0.25),"NW":(0.75,0.75),"SE":(0.25,0.25),"SW":(0.25,0.75)}
@@ -998,15 +1003,27 @@ class BeetentApp(ctk.CTk):
             self.bee_short_lbl.configure(text="")
 
     # ── Company / Year ─────────────────────────────────────────────────────────
+    def _all_years_union(self):
+        yrs=set()
+        for c in list_companies():
+            yrs.update(list_years(c))
+        return sorted(yrs,reverse=True)
+
     def _refresh_company_list(self):
-        cos=list_companies() or ["Default"]
-        self.company_cb.configure(values=cos)
-        self.company_var.set(cos[0]); self._on_company_change(cos[0])
+        real=list_companies() or ["Default"]
+        self.company_cb.configure(values=[ALL_COMPANIES]+real)
+        self.company_var.set(real[0]); self._on_company_change(real[0])
 
     def _on_company_change(self,val=None):
         co=self.company_var.get()
+        if co==ALL_COMPANIES:
+            yrs=self._all_years_union() or [str(datetime.date.today().year)]
+            self.year_cb.configure(values=[ALL_YEARS]+yrs)
+            self.year_var.set(ALL_YEARS)
+            self._refresh_field_list(); return
         yrs=list_years(co) or [str(datetime.date.today().year)]
-        self.year_cb.configure(values=yrs); self.year_var.set(yrs[0]); self._refresh_field_list()
+        self.year_cb.configure(values=[ALL_YEARS]+yrs)
+        self.year_var.set(yrs[0]); self._refresh_field_list()
 
     def _on_year_change(self,val=None): self._refresh_field_list()
 
@@ -1019,17 +1036,26 @@ class BeetentApp(ctk.CTk):
         if y: (DATA_DIR/self.company_var.get()/y).mkdir(parents=True,exist_ok=True); self._on_company_change(); self.year_var.set(y); self._refresh_field_list()
 
     # ── Field list ─────────────────────────────────────────────────────────────
+    def _is_all_scope(self):
+        return self.company_var.get()==ALL_COMPANIES or self.year_var.get()==ALL_YEARS
+
     def _refresh_field_list(self):
         self.field_lb.delete(0,tk.END)
+        if self._is_all_scope():
+            self.field_lb.insert(tk.END,"(pick a company + year to edit fields)")
+            return
         for n in list_fields(self.company_var.get(),self.year_var.get()): self.field_lb.insert(tk.END,n)
 
     def _on_field_select(self,_=None):
+        if self._is_all_scope(): return
         sel=self.field_lb.curselection()
         if not sel: return
         f=load_field(self.company_var.get(),self.year_var.get(),self.field_lb.get(sel[0]))
         if f: self.current_field=f; self._form_from_field(); self._redraw_all()
 
     def _new_field(self):
+        if self._is_all_scope():
+            self._status("Pick a specific company and year before creating a field."); return
         self.current_field=blank_field(self.company_var.get(),self.year_var.get())
         self._form_from_field(); self._clear_all_overlays(); self._status("")
 
@@ -2343,6 +2369,8 @@ class BeetentApp(ctk.CTk):
         threading.Thread(target=run,daemon=True).start()
 
     def _save_field(self):
+        if self._is_all_scope():
+            self._status("Pick a specific company and year before saving."); return
         f=self._field_from_form()
         if not f.get("Name"): self._status("Enter a field name."); return
         if not f.get("boundary_polygon"): self._status("⚠ No boundary drawn — field saved but cannot generate without one.");
@@ -2365,29 +2393,77 @@ class BeetentApp(ctk.CTk):
         self._refresh_field_list(); self._log(f"Loaded {loaded} field(s) from CSV.")
 
     # ── Generate ───────────────────────────────────────────────────────────────
+    def _export_scope(self):
+        """List of (company, year, field_name) matching the current dropdowns,
+        expanding the All-companies / All-years sentinels."""
+        co=self.company_var.get(); yr=self.year_var.get()
+        companies=list_companies() if co==ALL_COMPANIES else [co]
+        out=[]
+        for c in companies:
+            years=list_years(c) if yr==ALL_YEARS else [yr]
+            for y in years:
+                for name in list_fields(c,y):
+                    out.append((c,y,name))
+        return out
+
+    def _final_shelter_positions(self, f, metric):
+        """Shelter positions exactly as drawn on the map: get_tent_positions
+        with the field's shelter_overrides (moved/deleted) applied."""
+        positions=maketentgrid.get_tent_positions(f,use_metric=metric)
+        overrides=f.get("shelter_overrides") or {}
+        merged=list(positions); deleted=set()
+        for k,v in overrides.items():
+            try:
+                idx=int(k)
+                if 0<=idx<len(merged):
+                    if v is None: deleted.add(idx)
+                    else: merged[idx]=tuple(v)
+            except (ValueError,TypeError): pass
+        return [p for i,p in enumerate(merged) if i not in deleted]
+
     def _generate(self):
-        names=list_fields(self.company_var.get(),self.year_var.get())
-        if not names: tkinter.messagebox.showwarning("No fields","Save at least one field first."); return
-        out_dir=tkinter.filedialog.askdirectory(title="Choose output folder")
-        if not out_dir: return
-        fields=[]
-        for name in names:
-            f=load_field(self.company_var.get(),self.year_var.get(),name)
-            if f:
-                f["# of Structures"]=f.get("num_structures","")
-                f["Seed_angle"]=f.get("Spray_angle","0")
-                fields.append(f)
+        scope=self._export_scope()
+        if not scope:
+            tkinter.messagebox.showwarning("No fields",
+                "No saved fields match the current Company / Year selection."); return
+        include_buffers=tkinter.messagebox.askyesno("Buffer zones",
+            "Include the 10 ft buffer circles around each shelter in the\n"
+            "John Deere Operations Center file?")
+        co=self.company_var.get(); yr=self.year_var.get()
+        tag="%s_%s" % ("AllCompanies" if co==ALL_COMPANIES else co,
+                       "AllYears" if yr==ALL_YEARS else yr)
+        tag=re.sub(r"[^A-Za-z0-9_-]+","_",tag).strip("_") or "export"
+        stamp=datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
+        out_dir=Path.home()/"Downloads"/("BeeTents_%s_%s" % (tag,stamp))
         metric=self.unit_var.get()=="Metres"
-        self._log("Generating…"); self.update()
+        self._log("Generating %d field(s) → %s" % (len(scope),out_dir)); self.update()
         def run():
             try:
-                text,ok=maketentgrid.process_field_data(fields,out_dir,use_metric=metric)
-                self.after(0,lambda:self._log(text))
-                self.after(0,lambda:tkinter.messagebox.showinfo("Done",f"{ok}/{len(fields)} fields written to:\n{out_dir}"))
+                ok=0
+                for c,y,name in scope:
+                    f=load_field(c,y,name)
+                    if not f: continue
+                    try:
+                        pivotpoint=(float(f["PP_Longitude"]),float(f["PP_Latitude"]))
+                    except (KeyError,ValueError,TypeError):
+                        self.after(0,lambda n=name:self._log("  skipped %s — no pivot point" % n)); continue
+                    positions=self._final_shelter_positions(f,metric)
+                    if not positions:
+                        self.after(0,lambda n=name:self._log("  skipped %s — no shelters" % n)); continue
+                    fname=str(f.get("Name") or name).strip()
+                    maketentgrid.export_field_outputs(positions,pivotpoint,str(out_dir),fname,
+                                                      include_buffers=include_buffers)
+                    ok+=1
+                    self.after(0,lambda n=fname,k=len(positions):self._log("  ✓ %s (%d shelters)" % (n,k)))
+                self.after(0,lambda:self._log("Done. %d/%d fields exported." % (ok,len(scope))))
+                self.after(0,lambda:tkinter.messagebox.showinfo("Done",
+                    "%d field(s) written to:\n%s" % (ok,out_dir)))
+                try: self.after(0,lambda:os.startfile(str(out_dir)))
+                except Exception: pass
             except Exception:
                 import traceback as tb; msg=tb.format_exc()
                 self.after(0,lambda:self._log("ERROR:\n"+msg))
-                self.after(0,lambda:tkinter.messagebox.showerror("Error",msg[:400]))
+                self.after(0,lambda:tkinter.messagebox.showerror("Error",msg[:600]))
         threading.Thread(target=run,daemon=True).start()
 
     # ── Helpers ────────────────────────────────────────────────────────────────

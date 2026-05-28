@@ -551,6 +551,98 @@ def _make_geojson(lonlat_list, field_name):
     }, indent=2)
 
 
+def _circle_lonlat(lat, lon, r_m, n=24):
+    """Closed ring of (lon, lat) points approximating a circle of radius r_m."""
+    ring = []
+    cos_lat = math.cos(math.radians(lat)) or 1e-9
+    for i in range(n + 1):                      # +1 closes the ring (first == last)
+        b = math.radians(i * 360.0 / n)
+        dlat = r_m / 111111.0 * math.cos(b)
+        dlon = r_m / (111111.0 * cos_lat) * math.sin(b)
+        ring.append([lon + dlon, lat + dlat])
+    return ring
+
+
+def _make_geojson_with_buffers(lonlat_list, field_name, include_buffers=False,
+                               buffer_radius_m=1.524):
+    """GeoJSON FeatureCollection: shelter points, plus optional buffer-circle
+    polygons (one per shelter) for John Deere Operations Center."""
+    features = []
+    for i, (lon, lat) in enumerate(lonlat_list):
+        features.append({
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [lon, lat]},
+            "properties": {"id": i + 1, "name": "Shelter_%d" % (i + 1), "type": "bee_shelter"},
+        })
+    if include_buffers:
+        for i, (lon, lat) in enumerate(lonlat_list):
+            ring = _circle_lonlat(lat, lon, buffer_radius_m, 24)
+            features.append({
+                "type": "Feature",
+                "geometry": {"type": "Polygon", "coordinates": [ring]},
+                "properties": {"id": i + 1, "name": "Buffer_%d" % (i + 1), "type": "buffer_zone"},
+            })
+    return json.dumps({
+        "type": "FeatureCollection",
+        "name": field_name,
+        "crs": {"type": "name", "properties": {"name": "urn:ogc:def:crs:OGC:1.3:CRS84"}},
+        "features": features,
+    }, indent=2)
+
+
+def export_field_outputs(positions_latlon, pivotpoint, out_dir, field_name,
+                         include_buffers=False, buffer_radius_m=1.524):
+    """Write the per-field export files from already-computed shelter positions
+    (so the output matches exactly what get_tent_positions drew on the map).
+
+    Creates, under out_dir:
+      {field}.kml                                              Google Earth points
+      Trimble/AgGPS/Data/TNTBees/BeeTents/{field}/             Trimble import set
+          PointFeature.shp / .shx / .dbf, origin.kml, *.pos, newField.ok
+      {field}.geojson                                          John Deere Ops Center
+          (+ buffer-circle polygons when include_buffers is True)
+
+    positions_latlon : [(lat, lon), ...]
+    pivotpoint       : (lon, lat)
+    """
+    writer = FileWriter()
+
+    # ── Google Earth KML (points) ───────────────────────────────────────────
+    kml = simplekml.Kml()
+    for i, (lat, lon) in enumerate(positions_latlon):
+        kml.newpoint(name="Shelter %d" % (i + 1), coords=[(lon, lat)])
+    writer.writestr(os.path.join(out_dir, "%s.kml" % field_name), kml.kml())
+
+    # ── Trimble shapefile set: Trimble/AgGPS/Data/TNTBees/BeeTents/{field} ───
+    field_dir = os.path.join(out_dir, "Trimble", "AgGPS", "Data", "TNTBees", "BeeTents", field_name)
+    make_files(writer, field_dir, field_name, pivotpoint)
+
+    shp = BytesIO(); shx = BytesIO(); dbf = BytesIO()
+    w = shapefile.Writer(shp=shp, shx=shx, dbf=dbf, shapeType=1)
+    w.field('Date', 'D'); w.field('Time', 'C', size=10); w.field('Version', 'C', size=8)
+    w.field('Id', 'N'); w.field('Name', 'C', size=32)
+    w.field('Latitude', 'N', decimal=8); w.field('Longitude', 'N', decimal=8)
+    w.field('Height', 'N', decimal=3); w.field('AlarmRad', 'N', decimal=4)
+    w.field('WarningRad', 'N', decimal=4); w.field('Status_Text', 'C', size=8); w.field('Visible', 'N')
+    pid = 3062
+    for lat, lon in positions_latlon:
+        w.record(Date=datetime.date.today(), Time="12:00:00pm", Version="7.78.002",
+                 Id=pid, Name="Tree_%d" % pid, Latitude=lat, Longitude=lon, Height=761.064,
+                 AlarmRad=0, WarningRad=10.0, Status_Text='', Visible=1)
+        w.point(lon, lat)
+        pid += 1
+    w.close()
+    writer.writestr(os.path.join(field_dir, "PointFeature.dbf"), dbf.getvalue())
+    writer.writestr(os.path.join(field_dir, "PointFeature.shp"), shp.getvalue())
+    writer.writestr(os.path.join(field_dir, "PointFeature.shx"), shx.getvalue())
+
+    # ── John Deere Operations Center GeoJSON ─────────────────────────────────
+    jd_lonlat = [(lon, lat) for lat, lon in positions_latlon]
+    writer.writestr(os.path.join(out_dir, "%s.geojson" % field_name),
+                    _make_geojson_with_buffers(jd_lonlat, field_name,
+                                               include_buffers, buffer_radius_m))
+
+
 def latlon_list_to_enu(latlon_list, pivot_lon, pivot_lat):
     """Convert [(lat,lon), ...] to [(east,north), ...] relative to pivot in metres."""
     pe, pn = utmish.from_lonlat(pivot_lon, pivot_lat, pivot_lon)
