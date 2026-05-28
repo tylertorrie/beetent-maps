@@ -1501,7 +1501,7 @@ class BeetentApp(ctk.CTk):
         except (ValueError,TypeError): return
         excl_m=float(self.fv.get("track_exclusion_ft",self.excl_var).get() or "10")*0.3048
         for i,r_m in enumerate(self.current_field.get("pivot_tracks") or []):
-            for r,col,w in [(r_m+excl_m,"#FF6600",2),(max(1,r_m-excl_m),"#FF6600",1)]:
+            for r,col,w in [(r_m+excl_m,"#32CD32",2),(max(1,r_m-excl_m),"#32CD32",1)]:
                 self.track_circles.append(self.map_widget.set_polygon(
                     circle_pts(plat,plon,r),fill_color=None,outline_color=col,border_width=w))
             hlat=plat; hlon=plon+r_m/(111111*math.cos(math.radians(plat)))
