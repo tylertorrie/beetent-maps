@@ -343,8 +343,6 @@ class BeetentApp(ctk.CTk):
         self.lld_entry.pack(side="left",pady=8)
         self.lld_entry.bind("<Return>",lambda e:self._search_lld())
         ctk.CTkButton(bar,text="Go",width=48,command=self._search_lld).pack(side="left",padx=(4,20),pady=8)
-        ctk.CTkButton(bar,text="↻ Refresh Imagery",width=140,
-                      command=self._refresh_imagery).pack(side="left",padx=(0,6),pady=8)
         self.status_lbl=ctk.CTkLabel(bar,text="",text_color="#aaa",width=340,anchor="w")
         self.status_lbl.pack(side="left",padx=16)
         ctk.CTkLabel(bar,text="Units:").pack(side="right",padx=(0,4))
@@ -675,8 +673,9 @@ class BeetentApp(ctk.CTk):
         self._track_excl_refresh_id = self.after(600, self._redraw_tracks)
 
     def _init_map(self):
-        _cache=str(Path(__file__).parent/"tile_cache.db")
-        self.map_widget=tkintermapview.TkinterMapView(self.map_frame,corner_radius=6,database_path=_cache)
+        # No on-disk tile cache: tiles live only in memory for the session, so
+        # every launch pulls the latest imagery straight from Google.
+        self.map_widget=tkintermapview.TkinterMapView(self.map_frame,corner_radius=6)
         self.map_widget.pack(fill="both",expand=True,padx=6,pady=(4,6))
         self.map_widget.set_tile_server(SATELLITE_URL,max_zoom=21)
         self.map_widget.set_position(DEFAULT_LAT,DEFAULT_LON)
@@ -1228,15 +1227,6 @@ class BeetentApp(ctk.CTk):
     def _on_track_select(self,_=None): pass
 
     # ── Map ────────────────────────────────────────────────────────────────────
-    def _refresh_imagery(self):
-        """Drop cached tiles and rebuild the view so it pulls the latest
-        imagery straight from Google's satellite layer."""
-        try: self.map_widget.tile_image_cache.clear()
-        except Exception: pass
-        try: self.map_widget.draw_initial_array()
-        except Exception: pass
-        self._status("Imagery refreshed from Google.")
-
     def _search_lld(self):
         res=geocode_lld(self.lld_entry.get())
         if res is None: self._status("❌ Could not parse LLD"); return
