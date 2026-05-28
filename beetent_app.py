@@ -223,7 +223,7 @@ def blank_field(company="",year=""):
                 num_structures="",spacing="",shelter_spacing="",directional_offset="",
                 row_spacing_in="22",num_female_rows="8",num_male_rows="2",planter_width_ft="",
                 outside_sprayer_pass="No",track_exclusion_ft="10",
-                gals_per_acre="3",acres="",gals_per_tray="2",
+                gals_per_acre="3",acres="",gals_per_tray="2",tray_distribution="even",
                 boundary_polygon=None,pivot_tracks=[],corner_arms=[],
                 shelter_overrides={})
 
@@ -594,6 +594,19 @@ class BeetentApp(ctk.CTk):
         self.bee_per_shelter_lbl.pack(fill="x")
         self.bee_short_lbl       = ctk.CTkLabel(ba,text="", anchor="w",text_color="#FF9933")
         self.bee_short_lbl.pack(fill="x",pady=(0,4))
+
+        ctk.CTkLabel(ba,text="Distribution:",anchor="w",font=ctk.CTkFont(size=11,weight="bold")).pack(fill="x")
+        self.tray_dist_var = tk.StringVar(value="Spread evenly")
+        self._tray_dist_labels = {
+            "Spread evenly":      "even",
+            "Outside edge first": "outside",
+            "Alternating bays":   "alternating",
+        }
+        self._tray_dist_inverse = {v: k for k, v in self._tray_dist_labels.items()}
+        ctk.CTkComboBox(ba, variable=self.tray_dist_var,
+                        values=list(self._tray_dist_labels.keys()),
+                        command=self._on_tray_dist_change).pack(fill="x",pady=(0,4))
+
         ctk.CTkButton(ba,text="Calculate Trays → Update Pins",
                       command=self._calc_bees).pack(fill="x",pady=(4,4))
 
@@ -747,14 +760,22 @@ class BeetentApp(ctk.CTk):
         self.bee_preset_var.set("")
 
     # ── Bee tray math ────────────────────────────────────────────────────────
-    def _compute_bee_distribution(self, num_shelters, row_indices=None):
+    def _compute_bee_distribution(self, num_shelters, row_indices=None,
+                                  shelter_positions_latlon=None):
         """Return (total_trays, per_shelter_list, short_count, total_gals).
 
         Returns (None, [], 0, None) if any required input is missing.
-        If row_indices is provided (parallel list of NW-snake row indices),
-        the `extras` upgrades are distributed in a 2-D pattern: row-by-row
-        share allocated via Bresenham, then placed at evenly-spaced positions
-        within each row offset diagonally per row."""
+        Always places exactly `extras = total_trays % num_shelters` upgrades
+        (no over/under-allocation) — bee gallons are contracted, so the count
+        must match the math regardless of which distribution strategy is used.
+
+        Strategies (read from current_field['tray_distribution']):
+          - "even":        2-D golden-ratio dither across rows (default)
+          - "outside":     shelters closest to the field boundary get 2 first
+          - "alternating": whole bays alternate; chosen bays are all-2,
+                           others all-1, with at most one partial bay to make
+                           the count match exactly
+        """
         try:
             gpa = float((self.fv.get("gals_per_acre") or tk.StringVar()).get())
             acres = float((self.fv.get("acres") or tk.StringVar()).get())
@@ -774,41 +795,45 @@ class BeetentApp(ctk.CTk):
         if extras == 0:
             return total_trays, per, short, total_gals
 
-        # 1-D fallback: even spread by snake-order index
+        strategy = self._current_tray_strategy()
+
+        # ──── Strategy: outside edge first ────────────────────────────────
+        if strategy == "outside" and shelter_positions_latlon:
+            per = self._distribute_outside(num_shelters, shelter_positions_latlon,
+                                            extras, base)
+            return total_trays, per, short, total_gals
+
+        # ──── Strategy: alternating bays ──────────────────────────────────
+        if strategy == "alternating" and row_indices is not None \
+                and len(row_indices) == num_shelters:
+            per = self._distribute_alternating(num_shelters, row_indices, extras, base)
+            return total_trays, per, short, total_gals
+
+        # ──── Strategy: even spread (default + fallback) ──────────────────
         if row_indices is None or len(row_indices) != num_shelters:
             for i in range(num_shelters):
                 add = ((i + 1) * extras // num_shelters) - (i * extras // num_shelters)
                 per[i] = base + add
             return total_trays, per, short, total_gals
 
-        # 2-D distribution: group by row, give each row a proportional share
-        # via Bresenham, and place that share at evenly-spaced positions within
-        # the row, offset diagonally row-over-row.
         from collections import defaultdict
         rows = defaultdict(list)
         for i, r in enumerate(row_indices):
             rows[r].append(i)
         sorted_keys = sorted(rows.keys())
-
-        PHI_INV = 0.6180339887498949  # (sqrt(5)-1)/2; irrational keeps offsets non-repeating
-        cum_shelters = 0
-        cum_target = 0
+        PHI_INV = 0.6180339887498949
+        cum_shelters = 0; cum_target = 0
         for k, rk in enumerate(sorted_keys):
-            row_idxs = rows[rk]
-            n_r = len(row_idxs)
+            row_idxs = rows[rk]; n_r = len(row_idxs)
             cum_shelters += n_r
             new_cum_target = (cum_shelters * extras) // num_shelters
             e_r = new_cum_target - cum_target
             cum_target = new_cum_target
-            if e_r <= 0:
-                continue
+            if e_r <= 0: continue
             if e_r >= n_r:
-                for idx in row_idxs:
-                    per[idx] = base + 1
+                for idx in row_idxs: per[idx] = base + 1
                 continue
             step = n_r / e_r
-            # Per-row offset walks the golden-ratio sequence so consecutive
-            # rows land at uncorrelated positions across the field.
             offset = (((k + 1) * PHI_INV) % 1.0) * n_r
             chosen = set()
             for j in range(e_r):
@@ -820,12 +845,132 @@ class BeetentApp(ctk.CTk):
                 per[row_idxs[pos]] = base + 1
         return total_trays, per, short, total_gals
 
+    def _distribute_outside(self, num_shelters, positions_latlon, extras, base):
+        """Sort shelters by ascending distance to the field boundary;
+        the `extras` closest to the boundary get +1 tray. Guarantees that
+        no 2-tray shelter is more inward than any 1-tray shelter."""
+        per = [base] * num_shelters
+        # Compute distance to boundary for each shelter
+        f = self.current_field
+        try:
+            plat = float(f.get("PP_Latitude") or "0")
+            plon = float(f.get("PP_Longitude") or "0")
+        except ValueError:
+            return per
+        boundary = f.get("boundary_polygon") or []
+        # Convert pivot + boundary + shelters to ENU (pivot-centered metres)
+        pe, pn = utmish.from_lonlat(plon, plat, plon)
+        bnd_enu = []
+        for la, lo in boundary:
+            e, n = utmish.from_lonlat(lo, la, plon)
+            bnd_enu.append((e - pe, n - pn))
+        # If no boundary polygon, use the bounding circle of all shelters
+        # as a fallback (rough approximation for circular fields).
+        shelters_enu = []
+        for lat, lon in positions_latlon:
+            e, n = utmish.from_lonlat(lon, lat, plon)
+            shelters_enu.append((e - pe, n - pn))
+        if bnd_enu:
+            def _dist(east, north):
+                md2 = float("inf"); nb = len(bnd_enu)
+                for i in range(nb):
+                    ax, ay = bnd_enu[i]
+                    bx, by = bnd_enu[(i + 1) % nb]
+                    dx, dy = bx - ax, by - ay
+                    seg2 = dx*dx + dy*dy
+                    if seg2 > 0:
+                        t = max(0.0, min(1.0,
+                                          ((east-ax)*dx + (north-ay)*dy) / seg2))
+                        px, py = ax + t*dx, ay + t*dy
+                    else:
+                        px, py = ax, ay
+                    d2 = (east-px)**2 + (north-py)**2
+                    if d2 < md2: md2 = d2
+                return math.sqrt(md2)
+            dists = [(_dist(e, n), i) for i, (e, n) in enumerate(shelters_enu)]
+        else:
+            # Circular fallback: use radius - dist_to_pivot
+            r_max_sq = max((e*e + n*n) for e, n in shelters_enu) if shelters_enu else 0.0
+            r_max = math.sqrt(r_max_sq)
+            dists = [(r_max - math.sqrt(e*e + n*n), i)
+                     for i, (e, n) in enumerate(shelters_enu)]
+        dists.sort()  # ascending: closest to boundary first
+        for d, i in dists[:extras]:
+            per[i] = base + 1
+        return per
+
+    def _distribute_alternating(self, num_shelters, row_indices, extras, base):
+        """Pick whole bays to be all-2-tray, evenly spaced through the bay
+        list. If the chosen bays' total size doesn't match `extras` exactly,
+        one bay is left "partial" (some shelters demoted to 1-tray, or some
+        promoted from an adjacent bay). Always places exactly `extras`
+        upgrades."""
+        per = [base] * num_shelters
+        if extras == 0:
+            return per
+        from collections import defaultdict
+        rows = defaultdict(list)
+        for i, r in enumerate(row_indices):
+            rows[r].append(i)
+        bay_order = sorted(rows.keys())
+        num_bays = len(bay_order)
+        if num_bays == 0:
+            return per
+
+        # Number of "all-2" bays we'd like — proportional to the ratio.
+        n_all2 = max(1, round(num_bays * extras / num_shelters))
+        n_all2 = min(n_all2, num_bays)
+
+        # Evenly-spaced bay positions (centred so we don't always start at 0).
+        positions = sorted({int((i + 0.5) * num_bays / n_all2)
+                            for i in range(n_all2)})
+
+        # Mark those bays' shelters as +1.
+        placed = 0
+        for p in positions:
+            bay = rows[bay_order[p]]
+            for idx in bay:
+                per[idx] = base + 1
+            placed += len(bay)
+
+        chosen_set = set(positions)
+        if placed > extras:
+            # Demote some shelters in the LAST chosen bay back to 1-tray.
+            excess = placed - extras
+            last_bay = rows[bay_order[positions[-1]]]
+            for idx in last_bay[-excess:]:
+                per[idx] = base
+        elif placed < extras:
+            # Promote shelters in nearby non-chosen bays until we hit extras.
+            deficit = extras - placed
+            for p in range(num_bays):
+                if p in chosen_set: continue
+                bay = rows[bay_order[p]]
+                take = min(deficit, len(bay))
+                for idx in bay[:take]:
+                    per[idx] = base + 1
+                deficit -= take
+                if deficit == 0: break
+        return per
+
     def _calc_bees(self):
         """Explicit recalc triggered by the button — refresh the summary lines
         and redraw shelter pins so the new tray counts appear on the map."""
         self._refresh_bee_summary()
         if self.show_shelters.get():
             self._redraw_shelters()
+
+    def _on_tray_dist_change(self, _=None):
+        """Persist the strategy on the field and trigger a recompute."""
+        label = self.tray_dist_var.get()
+        key = self._tray_dist_labels.get(label, "even")
+        self.current_field["tray_distribution"] = key
+        self._refresh_bee_summary()
+        if self.show_shelters.get():
+            self._redraw_shelters()
+
+    def _current_tray_strategy(self):
+        return self.current_field.get("tray_distribution") or "even"
 
     def _refresh_bee_summary(self):
         """Update the three computed lines under the Bee Allocation block."""
@@ -901,6 +1046,9 @@ class BeetentApp(ctk.CTk):
             val=f.get(k)
             v.set(str(bf.get(k,"")) if val is None else str(val))
         self.outside_pass_var.set(f.get("outside_sprayer_pass","No"))
+        # Sync the tray-distribution dropdown
+        dist_key = f.get("tray_distribution") or "even"
+        self.tray_dist_var.set(self._tray_dist_inverse.get(dist_key, "Spread evenly"))
         self._refresh_track_list()
         # Migrate old corner_arms [[pts],[pts]] format → new [{type,pts/lat/lon/radius_m}] format
         old = self.current_field.get("corner_arms")
@@ -918,6 +1066,7 @@ class BeetentApp(ctk.CTk):
         f=self.current_field
         for k,v in self.fv.items(): f[k]=v.get().strip()
         f["outside_sprayer_pass"]=self.outside_pass_var.get()
+        f["tray_distribution"]=self._tray_dist_labels.get(self.tray_dist_var.get(),"even")
         f["company"]=self.company_var.get(); f["year"]=self.year_var.get()
         return f
 
@@ -1636,8 +1785,10 @@ class BeetentApp(ctk.CTk):
         # Compute tray distribution across only the *visible* shelters (skipping deleted)
         kept_indices=[i for i in range(len(merged)) if i not in deleted]
         kept_rows = [row_idxs[i] for i in kept_indices] if row_idxs else None
+        kept_positions = [merged[i] for i in kept_indices]
         n_visible=len(kept_indices)
-        total_trays, per, short, _ = self._compute_bee_distribution(n_visible, kept_rows)
+        total_trays, per, short, _ = self._compute_bee_distribution(
+            n_visible, kept_rows, shelter_positions_latlon=kept_positions)
         tray_count_at={}
         if per:
             for k_pos, tc in zip(kept_indices, per):
@@ -1739,7 +1890,7 @@ class BeetentApp(ctk.CTk):
             lpts=[enu_to_latlon(e,n,plat,plon) for e,n in inset]
             try:
                 self.outer_sprayer_poly=self.map_widget.set_polygon(
-                    lpts,fill_color=None,outline_color="#FF2200",border_width=2)
+                    lpts,fill_color=None,outline_color="#FF3333",border_width=1)
             except Exception: pass
 
         rot=math.radians((0-angle+180)%360-180)
