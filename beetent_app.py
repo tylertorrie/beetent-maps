@@ -498,9 +498,14 @@ class BeetentApp(ctk.CTk):
         ctk.CTkButton(br,text="Load CSV",width=80,fg_color="#555",command=self._load_csv).pack(side="left",padx=4)
         ctk.CTkButton(br,text="Delete",width=70,fg_color="#8b1a1a",command=self._delete_field).pack(side="right")
 
-        # Field preset (reuse a field's fixed geometry — pivot, tracks, acres,
-        # boundary, corner zones — across years)
-        fpr=ctk.CTkFrame(right,fg_color="transparent"); fpr.pack(fill="x",padx=8,pady=(6,0))
+        ctk.CTkFrame(right,height=1,fg_color="#444").pack(fill="x",padx=8,pady=6)
+
+        # Field Details form
+        ctk.CTkLabel(right,text="Field Details",font=ctk.CTkFont(size=13,weight="bold")).pack()
+
+        # Field preset (reuse a field's fixed geometry — name, pivot, tracks,
+        # acres, boundary, corner zones — across years)
+        fpr=ctk.CTkFrame(right,fg_color="transparent"); fpr.pack(fill="x",padx=8,pady=(4,2))
         ctk.CTkLabel(fpr,text="Preset:",width=55,anchor="w").pack(side="left")
         self.field_preset_var=tk.StringVar()
         self.field_preset_cb=ctk.CTkComboBox(fpr,variable=self.field_preset_var,values=[""],width=150,
@@ -509,10 +514,6 @@ class BeetentApp(ctk.CTk):
         ctk.CTkButton(fpr,text="+",width=30,command=self._save_new_field_preset).pack(side="left",padx=(0,2))
         ctk.CTkButton(fpr,text="🗑",width=30,command=self._delete_field_preset).pack(side="left")
 
-        ctk.CTkFrame(right,height=1,fg_color="#444").pack(fill="x",padx=8,pady=6)
-
-        # Field Details form
-        ctk.CTkLabel(right,text="Field Details",font=ctk.CTkFont(size=13,weight="bold")).pack()
         fs=ctk.CTkFrame(right); fs.pack(fill="x",padx=8,pady=(4,0))
         self.fv={}; self.hint_labels={}; self.field_labels={}
         form_rows=[

@@ -795,6 +795,11 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
         boundary_polygon = field_dict.get('boundary_polygon') or None
         pivot_tracks = sorted(float(r) for r in (field_dict.get('pivot_tracks') or []))
         excl_m = float(field_dict.get('track_exclusion_ft') or 10) * 0.3048
+        # Outside sprayer pass: when "Yes", keep shelters out of the boundary
+        # kill-zone (between the 3 m edge band and one sprayer width in) so the
+        # sprayer's outside round can't hit them. When "No", shelters may sit
+        # anywhere inside the boundary.
+        outside_pass = str(field_dict.get('outside_sprayer_pass') or 'No').strip().lower() == 'yes'
 
         if boundary_polygon:
             boundary_enu = latlon_list_to_enu(boundary_polygon, pivotpoint[0], pivotpoint[1])
@@ -942,11 +947,12 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
             def _valid(east, north):
                 d_sq = east*east + north*north
                 if d_sq < inner_r2: return False
-                if boundary_enu:
-                    d_b = _min_dist_to_bnd(east, north)
-                    if BND_EDGE_DIST < d_b < sprayer_width: return False
-                else:
-                    d_b = radius - math.sqrt(d_sq)
+                # Boundary kill-zone only applies when an outside sprayer pass is run.
+                if outside_pass:
+                    if boundary_enu:
+                        d_b = _min_dist_to_bnd(east, north)
+                    else:
+                        d_b = radius - math.sqrt(d_sq)
                     if BND_EDGE_DIST < d_b < sprayer_width: return False
                 if pivot_tracks:
                     d = math.sqrt(d_sq)
