@@ -289,6 +289,7 @@ class BeetentApp(ctk.CTk):
         self.corner_arm_temp_markers = []
         self.show_passes      = tk.BooleanVar(value=False)
         self.show_bays        = tk.BooleanVar(value=False)
+        self.show_pivot       = tk.BooleanVar(value=True)   # pivot marker + tracks together
         self.show_tracks      = tk.BooleanVar(value=True)
         self.shelter_markers    = []
         self.shelter_circle_polys = []
@@ -399,10 +400,13 @@ class BeetentApp(ctk.CTk):
         bb=ctk.CTkFrame(mf,fg_color="transparent")
         bb.pack(fill="x",padx=6,pady=(6,2))
 
-        self._pp_btn = self._make_menu_btn(bb, "📍 Pivot Point", [
-            ("Set",    self._mode_pivot),
+        self._pivot_btn = self._make_menu_btn(bb, "📍 Pivot", [
+            ("Toggle on/off",           self._toggle_pivot),
+            ("Set Pivot Point",         self._mode_pivot),
+            ("Draw Track Circle",       self._mode_track),
+            ("Edit Track Measurements", self._mode_edit_track_measurements),
         ], color="#1a6b3a")
-        self._pp_btn.pack(side="left", padx=(0,4))
+        self._pivot_btn.pack(side="left", padx=(0,4))
 
         self._bnd_btn = self._make_menu_btn(bb, "✏️ Boundary", [
             ("Draw",         self._mode_boundary),
@@ -412,21 +416,14 @@ class BeetentApp(ctk.CTk):
         ], color="#5a3a8a")
         self._bnd_btn.pack(side="left", padx=(0,4))
 
-        self._trk_btn = self._make_menu_btn(bb, "🔵 Pivot Tracks", [
-            ("Toggle on/off",       self._toggle_tracks),
-            ("Draw Track Circle",   self._mode_track),
-            ("Edit Measurements",   self._mode_edit_track_measurements),
-        ], color="#8b5a00")
-        self._trk_btn.pack(side="left", padx=(0,4))
-
-        self._sp_btn = self._make_menu_btn(bb, "🌊 Sprayer Passes", [
+        self._sp_btn = self._make_menu_btn(bb, "🌊 Sprayer", [
             ("Toggle on/off", self._toggle_passes),
             ("Edit",          self._mode_edit_passes),
             ("Add File",      self._import_jd_passes),
         ], color="#2a5a4a")
         self._sp_btn.pack(side="left", padx=(0,4))
 
-        self._pl_btn = self._make_menu_btn(bb, "🌾 Planter Passes", [
+        self._pl_btn = self._make_menu_btn(bb, "🌾 Planter", [
             ("Toggle on/off", self._toggle_bays),
             ("Edit",          self._mode_edit_bays),
         ], color="#3a5a1a")
@@ -441,12 +438,11 @@ class BeetentApp(ctk.CTk):
         bb2=ctk.CTkFrame(mf,fg_color="transparent")
         bb2.pack(fill="x",padx=6,pady=(0,6))
 
-        self.btn_shelters=ctk.CTkButton(bb2,text="🏠 Show Shelters",width=145,fg_color="#5a3000",
-                                         command=self._toggle_shelters)
-        self.btn_shelters.pack(side="left",padx=(0,4))
-        self.btn_shelter_labels=ctk.CTkButton(bb2,text="🔢 Show Trays",width=140,fg_color="#3a3a3a",
-                                               state="disabled",command=self._toggle_shelter_labels)
-        self.btn_shelter_labels.pack(side="left",padx=(0,4))
+        self._shelter_btn = self._make_menu_btn(bb2, "🏠 Shelters", [
+            ("Toggle Pins",  self._toggle_shelters),
+            ("Toggle Trays", self._toggle_shelter_labels),
+        ], color="#5a3000")
+        self._shelter_btn.pack(side="left",padx=(0,4))
         ctk.CTkButton(bb2,text="↺ Reset Moves",width=120,fg_color="#4a2a00",
                       command=self._reset_shelter_overrides).pack(side="left",padx=(0,4))
         ctk.CTkCheckBox(bb2,text="10 ft buffer circles",variable=self.shelter_circle_var,
@@ -1391,11 +1387,8 @@ class BeetentApp(ctk.CTk):
 
         if mode=="pivot":
             self.fv["PP_Latitude"].set(f"{lat:.7f}"); self.fv["PP_Longitude"].set(f"{lon:.7f}")
-            if self.pivot_marker: self.pivot_marker.delete()
-            self.pivot_marker=self.map_widget.set_marker(lat,lon,text="Pivot",
-                                                          marker_color_circle="red",
-                                                          marker_color_outside="darkred")
-            self._register_drag("pivot",lat,lon,"Pivot","red","darkred",self._on_pivot_drag,marker=self.pivot_marker)
+            self.show_pivot.set(True)
+            self._redraw_pivot()
             self.click_mode=None; self._status(f"Pivot: {lat:.5f}, {lon:.5f}")
             self._redraw_boundary(); self._redraw_passes(); self._redraw_tracks()
 
@@ -1554,6 +1547,31 @@ class BeetentApp(ctk.CTk):
         del self.current_field["pivot_tracks"][sel[0]]
         self._refresh_track_list(); self._redraw_tracks()
         if self.show_shelters.get(): self._redraw_shelters()
+
+    def _toggle_pivot(self):
+        """Toggle the pivot point marker AND its tracks together."""
+        self._close_all_popups()
+        on=not self.show_pivot.get()
+        self.show_pivot.set(on)
+        self.show_tracks.set(on)
+        self._redraw_pivot()
+        self._redraw_tracks()
+        self._status("Pivot " + ("shown." if on else "hidden."))
+
+    def _redraw_pivot(self):
+        """Draw or clear the pivot marker based on show_pivot."""
+        if self.pivot_marker:
+            try: self.pivot_marker.delete()
+            except Exception: pass
+            self.pivot_marker=None
+        self._unregister_drag_prefix("pivot")
+        if not self.show_pivot.get(): return
+        try:
+            plat=float(self.fv["PP_Latitude"].get()); plon=float(self.fv["PP_Longitude"].get())
+        except (ValueError,TypeError): return
+        self.pivot_marker=self.map_widget.set_marker(plat,plon,text="Pivot",
+                                                      marker_color_circle="red",marker_color_outside="darkred")
+        self._register_drag("pivot",plat,plon,"Pivot","red","darkred",self._on_pivot_drag,marker=self.pivot_marker)
 
     def _toggle_tracks(self):
         self._close_all_popups()
@@ -1909,22 +1927,15 @@ class BeetentApp(ctk.CTk):
     def _toggle_shelters(self):
         self.show_shelters.set(not self.show_shelters.get())
         if self.show_shelters.get():
-            self.btn_shelters.configure(fg_color="#8a5000",text="🏠 Hide Shelters")
-            self.btn_shelter_labels.configure(state="normal")
-            self._redraw_shelters()
+            self._redraw_shelters(); self._status("Shelter pins shown.")
         else:
-            self.btn_shelters.configure(fg_color="#5a3000",text="🏠 Show Shelters")
-            self.btn_shelter_labels.configure(state="disabled")
-            self._clear_shelters()
+            self._clear_shelters(); self._status("Shelter pins hidden.")
 
     def _toggle_shelter_labels(self):
         self.show_tray_counts.set(not self.show_tray_counts.get())
-        if self.show_tray_counts.get():
-            self.btn_shelter_labels.configure(fg_color="#1a5a8a",text="🔢 Hide Trays")
-        else:
-            self.btn_shelter_labels.configure(fg_color="#3a3a3a",text="🔢 Show Trays")
         if self.show_shelters.get():
             self._redraw_shelters()
+        self._status("Tray numbers " + ("shown." if self.show_tray_counts.get() else "hidden."))
 
     def _clear_shelters(self):
         self._unregister_drag_prefix("shelter_")
@@ -2236,12 +2247,8 @@ class BeetentApp(ctk.CTk):
             plat=float(f.get("PP_Latitude",0) or 0); plon=float(f.get("PP_Longitude",0) or 0)
             if plat and plon:
                 self.map_widget.set_position(plat,plon); self.map_widget.set_zoom(14)
-                if self.pivot_marker: self.pivot_marker.delete()
-                self.pivot_marker=self.map_widget.set_marker(plat,plon,text="Pivot",
-                                                              marker_color_circle="red",
-                                                              marker_color_outside="darkred")
-                self._register_drag("pivot",plat,plon,"Pivot","red","darkred",self._on_pivot_drag,marker=self.pivot_marker)
         except (ValueError,TypeError): pass
+        self._redraw_pivot()
         self._redraw_boundary(); self._redraw_tracks(); self._redraw_passes(); self._redraw_bays(); self._redraw_corner_arms(); self._redraw_shelters()
 
     def _clear_all_overlays(self):
