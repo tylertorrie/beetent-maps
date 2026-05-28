@@ -1457,25 +1457,36 @@ class BeetentApp(ctk.CTk):
         self._status("Click and drag the ↔ handle to resize a track.")
 
     def _mode_edit_track_measurements(self):
-        """Dialog to type the exact distance from the pivot to each track centre,
-        so the rings can be corrected against real pivot-span measurements even
-        when the satellite imagery is slightly off. Also supports filling every
-        track from a single equal span length (Track N = N × span)."""
+        """Dialog to type the length of each pivot SPAN (the segment from the
+        previous tower, or the pivot for span 1, out to that tower). Internally
+        the tracks are still stored as cumulative distance-from-pivot in metres;
+        spans are just a convenient input that maps how pivots are actually
+        measured (e.g. eight 179 ft spans with a short 66 ft final span). Lets
+        the rings be corrected against real measurements when the satellite
+        imagery is slightly off."""
         self._close_all_popups()
         use_m=self.unit_var.get()=="Metres"
         unit="m" if use_m else "ft"
         conv=1.0 if use_m else 1.0/0.3048   # stored metres → display unit
-        tracks=self.current_field.get("pivot_tracks") or []
+        tracks=sorted(self.current_field.get("pivot_tracks") or [])
+        # Convert stored cumulative distances → per-span deltas for display
+        spans_display=[]
+        prev=0.0
+        for t in tracks:
+            spans_display.append((t-prev)*conv)
+            prev=t
 
         win=ctk.CTkToplevel(self)
-        win.title("Edit Pivot Track Distances")
+        win.title("Edit Pivot Span Lengths")
         win.geometry("380x500")
         win.grab_set()
 
-        ctk.CTkLabel(win,text=f"Distance from pivot to each track centre ({unit}):",
-                     font=ctk.CTkFont(size=12,weight="bold")).pack(pady=(12,6),padx=10)
+        ctk.CTkLabel(win,text=f"Length of each span ({unit}):",
+                     font=ctk.CTkFont(size=12,weight="bold")).pack(pady=(12,2),padx=10)
+        ctk.CTkLabel(win,text="Span N = previous tower (or pivot) out to tower N.",
+                     text_color="#999",font=ctk.CTkFont(size=10)).pack(padx=10,pady=(0,6))
 
-        scroll=ctk.CTkScrollableFrame(win,height=210)
+        scroll=ctk.CTkScrollableFrame(win,height=200)
         scroll.pack(fill="both",expand=True,padx=10,pady=(0,6))
 
         entry_vars=[]
@@ -1486,18 +1497,18 @@ class BeetentApp(ctk.CTk):
             for i,val in enumerate(values):
                 row=ctk.CTkFrame(scroll,fg_color="transparent")
                 row.pack(fill="x",pady=2)
-                ctk.CTkLabel(row,text=f"Track {i+1}:",width=70,anchor="w").pack(side="left")
+                ctk.CTkLabel(row,text=f"Span {i+1}:",width=70,anchor="w").pack(side="left")
                 v=tk.StringVar(value=f"{val:.1f}")
                 ctk.CTkEntry(row,textvariable=v,width=110).pack(side="left")
                 ctk.CTkLabel(row,text=unit,width=24,anchor="w").pack(side="left",padx=(4,0))
                 entry_vars.append(v)
-        rebuild_rows([r*conv for r in tracks])
+        rebuild_rows(spans_display)
 
         ctk.CTkFrame(win,height=1,fg_color="#444").pack(fill="x",padx=10,pady=4)
         ctk.CTkLabel(win,text="Equal spans",font=ctk.CTkFont(size=11,weight="bold")).pack(padx=10,anchor="w")
         eq_row=ctk.CTkFrame(win,fg_color="transparent")
         eq_row.pack(fill="x",padx=10,pady=2)
-        ctk.CTkLabel(eq_row,text="# tracks:",width=58,anchor="w").pack(side="left")
+        ctk.CTkLabel(eq_row,text="# spans:",width=58,anchor="w").pack(side="left")
         count_v=tk.StringVar(value=str(len(tracks)) if tracks else "")
         ctk.CTkEntry(eq_row,textvariable=count_v,width=48).pack(side="left",padx=(2,8))
         ctk.CTkLabel(eq_row,text=f"span ({unit}):",width=62,anchor="w").pack(side="left")
@@ -1514,27 +1525,30 @@ class BeetentApp(ctk.CTk):
             except ValueError:
                 cnt=len(entry_vars)
             if cnt<=0:
-                self._status("Enter how many tracks."); return
-            rebuild_rows([span*(i+1) for i in range(cnt)])
+                self._status("Enter how many spans."); return
+            rebuild_rows([span]*cnt)
         ctk.CTkButton(eq_row,text="Apply",width=60,command=apply_equal).pack(side="left")
-        ctk.CTkLabel(win,text="Sets Track N = N × span, measured from the pivot.",
-                     text_color="#999",font=ctk.CTkFont(size=10)).pack(padx=10,anchor="w")
+        ctk.CTkLabel(win,text="Fills every span with this length — then edit individual\nspans (e.g. a shorter final span).",
+                     text_color="#999",font=ctk.CTkFont(size=10),justify="left").pack(padx=10,anchor="w")
 
         btn_row=ctk.CTkFrame(win,fg_color="transparent")
         btn_row.pack(fill="x",padx=10,pady=(8,10))
         def do_save():
             new_tracks=[]
+            cumulative=0.0
             for v in entry_vars:
                 try:
                     val=float(v.get())
                 except ValueError:
+                    continue   # blank/invalid span → tower removed, rest shift inward
+                if val<=0:
                     continue
-                if val>0:
-                    new_tracks.append(round(val/conv,2))   # display → metres
-            self.current_field["pivot_tracks"]=sorted(new_tracks)
+                cumulative+=val/conv   # display span → metres, accumulate to distance-from-pivot
+                new_tracks.append(round(cumulative,2))
+            self.current_field["pivot_tracks"]=new_tracks
             self._refresh_track_list(); self._redraw_tracks()
             win.destroy()
-            self._status(f"Saved {len(new_tracks)} pivot track measurement(s).")
+            self._status(f"Saved {len(new_tracks)} span(s).")
         ctk.CTkButton(btn_row,text="Save",command=do_save).pack(side="left",expand=True,fill="x",padx=(0,4))
         ctk.CTkButton(btn_row,text="Cancel",fg_color="#555",command=win.destroy).pack(side="left",expand=True,fill="x")
 
