@@ -447,6 +447,26 @@ class BeetentApp(ctk.CTk):
     def _hide_context_btn(self):
         self.btn_context.configure(state="disabled", text="", command=lambda: None, fg_color="#333333")
 
+    # ── Themed text-input popup (matches the light theme + fonts) ────────────
+    def _ask_string(self, title, prompt):
+        """Light-themed input dialog (CTkInputDialog) replacing the native
+        simpledialog. Returns the entered string, or None if cancelled."""
+        try:
+            return ctk.CTkInputDialog(title=title, text=prompt).get_input()
+        except Exception:
+            return tkinter.simpledialog.askstring(title, prompt)
+
+    def _edit_track_exclusion(self):
+        self._close_all_popups()
+        cur=self.fv["track_exclusion_ft"].get() or "10"
+        val=self._ask_string("Track Exclusion",
+                             f"Clear zone each side of pivot tracks (ft).  Current: {cur}")
+        if val is None: return
+        val=val.strip()
+        if val:
+            self.fv["track_exclusion_ft"].set(val)   # write-trace → _redraw_tracks
+            self._status(f"Track exclusion set to {val} ft.")
+
     # ── Collapsible section card ────────────────────────────────────────────
     def _collapsible(self, parent, title, expanded=True):
         """A card with a clickable header that expands/collapses its content.
@@ -496,6 +516,7 @@ class BeetentApp(ctk.CTk):
             ("Set Pivot Point",         self._mode_pivot),
             ("Draw Track Circle",       self._mode_track),
             ("Edit Track Measurements", self._mode_edit_track_measurements),
+            ("Set Track Exclusion (ft)",self._edit_track_exclusion),
         ], color="#1a6b3a")
         self._pivot_btn.pack(side="left", padx=(0,4))
 
@@ -608,7 +629,6 @@ class BeetentApp(ctk.CTk):
             ("Spray_angle",        "Spray Angle (°)",        "0=N↑  90=E→  180=S↓  270=W←",           False),
             ("Sprayer_width",      "Sprayer Width (ft)",     "",                                       False),
             ("acres",              "Acres",                  "Total field area in acres",              False),
-            ("track_exclusion_ft", "Track Exclusion (ft)",  "Clear zone each side of pivot tracks (default 10 ft)", False),
         ]
         for key,display,hint,unit_dep in form_rows:
             lbl=ctk.CTkLabel(fs,text=display,anchor="w",font=ctk.CTkFont(family=FONT_LABEL,size=11))
@@ -626,6 +646,9 @@ class BeetentApp(ctk.CTk):
         # only the one matching the chosen mode is shown in the entry below.
         for k in ("num_structures","spacing","shelters_per_acre"):
             self.fv[k]=tk.StringVar()
+        # Track exclusion lives in the Pivot menu now, but keep its backing var
+        # (used by _redraw_tracks / get_tent_positions) and its write-trace.
+        self.fv["track_exclusion_ft"]=tk.StringVar(value="10")
         self._shelter_mode_labels={
             "Total shelters":           "total",
             "Shelters per acre":        "per_acre",
@@ -813,7 +836,7 @@ class BeetentApp(ctk.CTk):
                 break
 
     def _save_new_preset(self):
-        name=tkinter.simpledialog.askstring("Save Preset","Preset name:")
+        name=self._ask_string("Save Preset","Preset name:")
         if not name: return
         presets=self._load_bay_presets()
         entry={"name":name,
@@ -865,7 +888,7 @@ class BeetentApp(ctk.CTk):
                 break
 
     def _save_new_bee_preset(self):
-        name=tkinter.simpledialog.askstring("Save Bee Preset","Preset name:")
+        name=self._ask_string("Save Bee Preset","Preset name:")
         if not name: return
         presets=self._load_bee_presets()
         entry={"name":name,
@@ -913,7 +936,7 @@ class BeetentApp(ctk.CTk):
         self.field_preset_cb.configure(values=names)
 
     def _save_new_field_preset(self):
-        name=tkinter.simpledialog.askstring("Save Field Preset",
+        name=self._ask_string("Save Field Preset",
             "Preset name (saves field name, pivot, tracks, acres, boundary, corners):")
         if not name: return
         f=self._field_from_form()
@@ -1242,11 +1265,11 @@ class BeetentApp(ctk.CTk):
     def _on_year_change(self,val=None): self._refresh_field_list()
 
     def _new_company(self):
-        n=tkinter.simpledialog.askstring("New Company","Company name:")
+        n=self._ask_string("New Company","Company name:")
         if n: (DATA_DIR/n).mkdir(parents=True,exist_ok=True); self._refresh_company_list(); self.company_var.set(n); self._on_company_change()
 
     def _new_year(self):
-        y=tkinter.simpledialog.askstring("New Year","Year:",initialvalue=str(datetime.date.today().year))
+        y=self._ask_string("New Year",f"Year (e.g. {datetime.date.today().year}):")
         if y: (DATA_DIR/self.company_var.get()/y).mkdir(parents=True,exist_ok=True); self._on_company_change(); self.year_var.set(y); self._refresh_field_list()
 
     # ── Field list ─────────────────────────────────────────────────────────────
