@@ -745,8 +745,8 @@ class BeetentApp(ctk.CTk):
         self.female_bay_lbl.pack(fill="x")
         self.male_bay_lbl=ctk.CTkLabel(bc,text="Male bay width: —",anchor="w",text_color=UI_ACCENT)
         self.male_bay_lbl.pack(fill="x")
-        ctk.CTkButton(bc,text="Recalculate Bays",
-                      command=self._calc_bays).pack(fill="x",pady=(6,4))
+        # No "Recalculate Bays" button — the bay widths and map redraw
+        # automatically whenever any bay-calculator field changes.
 
         # ── Bee Allocation (collapsible) ──────────────────────────────────
         ba=self._collapsible(right,"Bee Allocation")
@@ -812,6 +812,17 @@ class BeetentApp(ctk.CTk):
         for v in self.fv.values():
             v.trace_add("write", self._on_form_change)
         self.fv["track_exclusion_ft"].trace_add("write", self._on_track_excl_change)
+        # Auto-recalc bays whenever a bay-calculator field changes (debounced).
+        for k in ("row_spacing_in","planter_width_ft","num_female_rows","num_male_rows"):
+            if k in self.fv:
+                self.fv[k].trace_add("write", self._on_bay_change)
+
+    def _on_bay_change(self, *_):
+        rid=getattr(self, "_bay_refresh_id", None)
+        if rid:
+            try: self.after_cancel(rid)
+            except Exception: pass
+        self._bay_refresh_id=self.after(400, self._calc_bays)
 
     def _on_form_change(self, *_):
         # Bee summary recomputes immediately so the user sees the math update.
@@ -1391,7 +1402,49 @@ class BeetentApp(ctk.CTk):
         if not row: return
         co,yr,name=row
         f=load_field(co,yr,name)
-        if f: self.current_field=f; self._form_from_field(); self._redraw_all()
+        if not f: return
+        self.current_field=f
+        # Load shows only the boundary — everything else stays off until the
+        # user opts in via the toolbar menus.
+        self.show_pivot.set(False)
+        self.show_tracks.set(False)
+        self.show_passes.set(False)
+        self.show_bays.set(False)
+        self.show_shelters.set(False)
+        self.shelter_circle_var.set(False)
+        self._form_from_field()
+        self._redraw_all()
+        self._zoom_to_field()
+
+    def _zoom_to_field(self):
+        """Zoom the map so the field's outer boundary just fits in the frame.
+        Falls back to the pivot point when no boundary is set."""
+        try:
+            bp = self.current_field.get("boundary_polygon") or []
+            if bp and len(bp) >= 3:
+                lats=[p[0] for p in bp]; lons=[p[1] for p in bp]
+                cy=(max(lats)+min(lats))/2.0; cx=(max(lons)+min(lons))/2.0
+                self.map_widget.update_idletasks()
+                w=self.map_widget.winfo_width()  or 700
+                h=self.map_widget.winfo_height() or 600
+                R=6378137.0
+                lat_span_m=(max(lats)-min(lats))*math.pi/180.0*R
+                lon_span_m=(max(lons)-min(lons))*math.pi/180.0*R*math.cos(math.radians(cy))
+                span_m=max(lat_span_m, lon_span_m, 1.0)*1.10   # 10% padding
+                px=min(max(w,200), max(h,200))
+                # Web-mercator ground resolution: 156543.03 * cos(lat) / 2^z m/px
+                z=math.log2(156543.03*max(0.05, math.cos(math.radians(cy)))*px/span_m)
+                z=max(1, min(20, int(z)))
+                self.map_widget.set_position(cy, cx)
+                self.map_widget.set_zoom(z)
+            else:
+                plat=float(self.current_field.get("PP_Latitude") or 0)
+                plon=float(self.current_field.get("PP_Longitude") or 0)
+                if plat and plon:
+                    self.map_widget.set_position(plat, plon)
+                    self.map_widget.set_zoom(14)
+        except Exception:
+            pass
 
     def _new_field(self):
         if self._is_all_scope():
