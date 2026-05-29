@@ -1078,11 +1078,14 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                 # Counting placeable cells makes the chosen spacing yield the
                 # requested shelter count regardless of the outside-sprayer-pass
                 # toggle — that toggle changes which cells are valid, not how many.
+                # Stagger keys off the row's INDEX in row_list (its visual order),
+                # not k — k can jump several bays per pass when the sprayer is
+                # wider than a bay, so k%2 wouldn't alternate consistently.
                 if n_sp <= 0: return False
                 c_max = int(radius / n_sp) + 2
                 total = 0
-                for pre_e, k in row_list:
-                    n_stagger = (n_sp / 2) if (k % 2) else 0.0
+                for idx, (pre_e, _k) in enumerate(row_list):
+                    n_stagger = (n_sp / 2) if (idx % 2) else 0.0
                     for c in range(-c_max, c_max + 1):
                         pre_n = c * n_sp + directional_offset + n_stagger
                         east  = pre_e * cos_r - pre_n * sin_r
@@ -1106,24 +1109,25 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                         hi = mid
                 ns_spacing = lo
 
-            # Generate the final grid at the chosen spacing
+            # Generate the final grid at the chosen spacing. Stagger and row
+            # grouping both key off the row's visual index, not k.
             raw = []
             c_max = int(radius / ns_spacing) + 2
-            for pre_e, k in row_list:
-                n_stagger = (ns_spacing / 2) if (k % 2) else 0.0
+            for idx, (pre_e, _k) in enumerate(row_list):
+                n_stagger = (ns_spacing / 2) if (idx % 2) else 0.0
                 for c in range(-c_max, c_max + 1):
                     pre_n = c * ns_spacing + directional_offset + n_stagger
                     east  = pre_e * cos_r - pre_n * sin_r
                     north = pre_n * cos_r + pre_e * sin_r
                     if not _inside(east, north): continue
                     if _valid(east, north):
-                        raw.append((east, north, k))
+                        raw.append((east, north, idx))
                     else:
                         snapped = _snap_along_pre_n(pre_e, pre_n)
                         if snapped is not None:
                             new_e = pre_e * cos_r - snapped * sin_r
                             new_n = snapped * cos_r + pre_e * sin_r
-                            raw.append((new_e, new_n, k))
+                            raw.append((new_e, new_n, idx))
 
             if not raw:
                 return ([], []) if return_rows else []
