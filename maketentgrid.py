@@ -1052,24 +1052,22 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                             return True
                 return False
 
-            # Lateral row positions: one row per sprayer pass, each SNAPPED to the
-            # nearest female-bay spot (k*tent_row_width + lat_offset) so every
-            # shelter sits 4 ft into the female bay, just east of the male bay.
-            # A row is kept only when that spot is within 20 ft of the pass edge.
-            # When sprayer_width == tent_row_width (the Bay Calculator's default)
-            # this is a no-op: each pass already lands on a bay spot at 4 ft.
-            TOL_M = 6.096   # 20 ft tolerance from the sprayer pass edge
+            # Lateral row positions: ONE ROW PER SPRAYER PASS — never skipped, so
+            # there are no empty bands in the field. Each row is snapped to the
+            # nearest female-bay spot (k*tent_row_width + 4ft) so the shelter sits
+            # 4 ft into the female bay, just east of the male bay. The snap shifts
+            # a row by at most half a bay (~20 ft for typical bays; up to ~30 ft
+            # for big bays) off the pass line — acceptable, and it's exact when
+            # sprayer_width == tent_row_width (the Bay Calculator's default).
             row_list = []   # (pre_e, bay_index k) — k also drives the stagger
             _seen_rows = set()
             for r in range(-r_max, r_max + 1):
                 edge = r * sprayer_width
                 k = round((edge - lat_offset) / tent_row_width)
                 pre_e = k * tent_row_width + lat_offset
-                if abs(pre_e - edge) > TOL_M:
-                    continue
                 key = round(pre_e, 3)
-                if key in _seen_rows:
-                    continue
+                if key in _seen_rows:   # only skip a true duplicate column
+                    continue            # (happens when one bay spans >1 pass)
                 _seen_rows.add(key)
                 row_list.append((pre_e, k))
 
