@@ -435,6 +435,9 @@ class BeetentApp(ctk.CTk):
         self.unit_var=tk.StringVar(value="Feet")
         ctk.CTkComboBox(bar,variable=self.unit_var,values=["Feet","Metres"],
                         width=90,command=self._on_unit_change).pack(side="right",padx=(0,12))
+        ctk.CTkButton(bar,text="⚙ Generate Output Files",fg_color="#1a5c8a",
+                      font=ctk.CTkFont(family=FONT_LABEL,size=12),
+                      command=self._generate).pack(side="right",padx=(0,12),pady=6)
 
     # ── Popup menu helpers ─────────────────────────────────────────────────────
     def _make_menu_btn(self, bar, label, items, color="#2b2b2b"):
@@ -634,9 +637,10 @@ class BeetentApp(ctk.CTk):
         self._field_rows={}            # tree item id -> (company, year, name)
         self._field_sort_col=None; self._field_sort_rev=False
         br=ctk.CTkFrame(lf,fg_color="transparent"); br.pack(fill="x",pady=(3,0))
-        ctk.CTkButton(br,text="+ New",width=70,command=self._new_field).pack(side="left")
-        ctk.CTkButton(br,text="Load CSV",width=80,fg_color="#555",command=self._load_csv).pack(side="left",padx=4)
-        ctk.CTkButton(br,text="Delete",width=70,fg_color="#8b1a1a",command=self._delete_field).pack(side="right")
+        ctk.CTkButton(br,text="+ New",width=58,command=self._new_field).pack(side="left")
+        ctk.CTkButton(br,text="Load CSV",width=72,fg_color="#555",command=self._load_csv).pack(side="left",padx=4)
+        ctk.CTkButton(br,text="💾 Save",width=66,command=self._save_field).pack(side="left",padx=(0,4))
+        ctk.CTkButton(br,text="Delete",width=60,fg_color="#8b1a1a",command=self._delete_field).pack(side="right")
 
         # Field Details (collapsible)
         fd=self._collapsible(right,"Field Details")
@@ -795,16 +799,9 @@ class BeetentApp(ctk.CTk):
 
         self._setup_form_traces()
 
-        ctk.CTkFrame(right,height=1,fg_color=UI_BORDER).pack(fill="x",padx=8,pady=6)
-
-        ctk.CTkButton(right,text="💾 Save Field",height=32,command=self._save_field).pack(fill="x",padx=8,pady=(0,4))
-        ctk.CTkButton(right,text="⚙ Generate Output Files",height=40,
-                      fg_color="#1a5c8a",font=ctk.CTkFont(family=FONT_LABEL,size=13),
-                      command=self._generate).pack(fill="x",padx=8,pady=(0,4))
-
-        self.log=ctk.CTkTextbox(right,height=85,font=ctk.CTkFont(size=10))
-        self.log.pack(fill="x",padx=8,pady=(0,8))
-        self.log.configure(state="disabled")
+        # Save Field moved to the field-list row; Generate moved to the top bar.
+        # Generation progress is reported on the status line (see _log), so the
+        # old log textbox (and its empty white space) is gone.
 
         # Hidden track list widget — kept for internal track management logic
         _hidden_frame=tk.Frame(self)  # never packed
@@ -2896,8 +2893,9 @@ class BeetentApp(ctk.CTk):
     def _status(self,msg): self.status_lbl.configure(text=msg)
 
     def _log(self,text):
-        self.log.configure(state="normal"); self.log.insert("end",str(text).strip()+"\n")
-        self.log.see("end"); self.log.configure(state="disabled")
+        # No log panel anymore — surface progress on the status line (last line).
+        last=str(text).strip().splitlines()[-1] if str(text).strip() else ""
+        self._status(last)
 
 
 if __name__=="__main__":

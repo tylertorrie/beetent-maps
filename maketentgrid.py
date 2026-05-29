@@ -831,8 +831,10 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
         seed_angle = float(field_dict.get('Spray_angle') or field_dict.get('Seed_angle') or 0)
 
         # Bay parameters → tent_row_width and lat_offset.
-        # tent_row_width = female_m + male_m so each row aligns with a female bay centre.
-        # lat_offset places the shelter 4 ft (1.2192 m) from the male bay edge.
+        # tent_row_width = female_m + male_m is the bay repeat distance.
+        # lat_offset places the shelter a FIXED 4 ft (1.2192 m) into the female
+        # bay from the male/female boundary — independent of bay size, so the
+        # "just east of the male bay" rule holds for any female/male count.
         nf_raw = str(field_dict.get('num_female_rows') or '').strip()
         nm_raw = str(field_dict.get('num_male_rows') or '').strip()
         rs_in_raw = str(field_dict.get('row_spacing_in') or '').strip()
@@ -841,7 +843,7 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
             female_m = (nf_i + 1) * rs_m
             male_m_w = (nm_i + 1) * rs_m
             tent_row_width = female_m + male_m_w
-            lat_offset = max(0.0, female_m / 2 - 1.2192)
+            lat_offset = 1.2192   # 4 ft east of the male/female boundary (sprayer edge)
         elif boundary_enu is not None:
             tent_row_width = sprayer_width
             lat_offset = 0.0
@@ -1050,6 +1052,27 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                             return True
                 return False
 
+            # Lateral row positions: one row per sprayer pass, each SNAPPED to the
+            # nearest female-bay spot (k*tent_row_width + lat_offset) so every
+            # shelter sits 4 ft into the female bay, just east of the male bay.
+            # A row is kept only when that spot is within 20 ft of the pass edge.
+            # When sprayer_width == tent_row_width (the Bay Calculator's default)
+            # this is a no-op: each pass already lands on a bay spot at 4 ft.
+            TOL_M = 6.096   # 20 ft tolerance from the sprayer pass edge
+            row_list = []   # (pre_e, bay_index k) — k also drives the stagger
+            _seen_rows = set()
+            for r in range(-r_max, r_max + 1):
+                edge = r * sprayer_width
+                k = round((edge - lat_offset) / tent_row_width)
+                pre_e = k * tent_row_width + lat_offset
+                if abs(pre_e - edge) > TOL_M:
+                    continue
+                key = round(pre_e, 3)
+                if key in _seen_rows:
+                    continue
+                _seen_rows.add(key)
+                row_list.append((pre_e, k))
+
             def _count_at_least(n_sp, target):
                 # True if at least `target` PLACEABLE cells exist at this spacing
                 # (valid as-is, or snappable out of a kill/track zone). Early-exits
@@ -1060,9 +1083,8 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                 if n_sp <= 0: return False
                 c_max = int(radius / n_sp) + 2
                 total = 0
-                for r in range(-r_max, r_max + 1):
-                    pre_e = r * sprayer_width + lat_offset
-                    n_stagger = (n_sp / 2) if (r % 2) else 0.0
+                for pre_e, k in row_list:
+                    n_stagger = (n_sp / 2) if (k % 2) else 0.0
                     for c in range(-c_max, c_max + 1):
                         pre_n = c * n_sp + directional_offset + n_stagger
                         east  = pre_e * cos_r - pre_n * sin_r
@@ -1089,22 +1111,21 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
             # Generate the final grid at the chosen spacing
             raw = []
             c_max = int(radius / ns_spacing) + 2
-            for r in range(-r_max, r_max + 1):
-                pre_e = r * sprayer_width + lat_offset
-                n_stagger = (ns_spacing / 2) if (r % 2) else 0.0
+            for pre_e, k in row_list:
+                n_stagger = (ns_spacing / 2) if (k % 2) else 0.0
                 for c in range(-c_max, c_max + 1):
                     pre_n = c * ns_spacing + directional_offset + n_stagger
                     east  = pre_e * cos_r - pre_n * sin_r
                     north = pre_n * cos_r + pre_e * sin_r
                     if not _inside(east, north): continue
                     if _valid(east, north):
-                        raw.append((east, north, r))
+                        raw.append((east, north, k))
                     else:
                         snapped = _snap_along_pre_n(pre_e, pre_n)
                         if snapped is not None:
                             new_e = pre_e * cos_r - snapped * sin_r
                             new_n = snapped * cos_r + pre_e * sin_r
-                            raw.append((new_e, new_n, r))
+                            raw.append((new_e, new_n, k))
 
             if not raw:
                 return ([], []) if return_rows else []
