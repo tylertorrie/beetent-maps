@@ -295,6 +295,7 @@ def blank_field(company="",year=""):
                 row_spacing_in="22",num_female_rows="8",num_male_rows="2",planter_width_ft="",
                 outside_sprayer_pass="No",track_exclusion_ft="10",
                 shelter_buffer_m="1.524",
+                boundary_edge_shelters=True,
                 gals_per_acre="3",acres="",gals_per_tray="2",tray_distribution="even",
                 boundary_polygon=None,pivot_tracks=[],corner_arms=[],
                 shelter_overrides={})
@@ -619,8 +620,10 @@ class BeetentApp(ctk.CTk):
             cb.pack(side="left",padx=4); setattr(self,cb_attr,cb)
             ctk.CTkButton(row,text="+",width=30,command=new_cmd).pack(side="left")
 
-        # Field list — sortable Field / Company / Year columns (collapsible)
-        lf=self._collapsible(right,"Fields")
+        # Field list — sortable Field / Company / Year columns (collapsible).
+        # All right-side panels start collapsed; user opens what they need and
+        # the choice persists for the rest of the session (no on-disk state).
+        lf=self._collapsible(right,"Fields",expanded=False)
         _st=ttk.Style()
         try: _st.theme_use("default")
         except Exception: pass
@@ -646,7 +649,7 @@ class BeetentApp(ctk.CTk):
         ctk.CTkButton(br,text="Delete",width=60,fg_color="#8b1a1a",command=self._delete_field).pack(side="right")
 
         # Field Details (collapsible)
-        fd=self._collapsible(right,"Field Details")
+        fd=self._collapsible(right,"Field Details",expanded=False)
 
         # Field preset (reuse a field's fixed geometry — name, pivot, tracks,
         # acres, boundary, corner zones — across years)
@@ -715,10 +718,23 @@ class BeetentApp(ctk.CTk):
         ctk.CTkSegmentedButton(fs,values=["Yes","No"],variable=self.outside_pass_var,
                                command=lambda v: self._on_form_change()).pack(fill="x",pady=(2,8))
 
+        # Boundary-edge shelters — on the SHORTER stagger class, add one shelter
+        # past each end of the row just outside the field boundary, so the
+        # perimeter reads as a clean wrap instead of zig-zagging where alternating
+        # rows end at slightly different N-S coordinates. Counts toward the
+        # requested total.
+        ctk.CTkLabel(fs,text="Boundary edge shelters",anchor="w",
+                     font=ctk.CTkFont(family=FONT_LABEL,size=11)).pack(fill="x")
+        ctk.CTkLabel(fs,text="Adds a wing shelter past each end of every other row",
+                     anchor="w",text_color=UI_MUTED,font=ctk.CTkFont(size=10)).pack(fill="x")
+        self.boundary_edge_var=tk.BooleanVar(value=True)
+        ctk.CTkCheckBox(fs,text="Enable wing shelters",variable=self.boundary_edge_var,
+                        command=self._on_form_change).pack(anchor="w",pady=(2,8))
+
         self.fv["Spray_angle"].set("0"); self.fv["Sprayer_width"].set("133")
 
         # Bay calculator (collapsible)
-        bc=self._collapsible(right,"Bay Calculator")
+        bc=self._collapsible(right,"Bay Calculator",expanded=False)
 
         # Preset row
         preset_row=ctk.CTkFrame(bc,fg_color="transparent")
@@ -752,7 +768,7 @@ class BeetentApp(ctk.CTk):
         # automatically whenever any bay-calculator field changes.
 
         # ── Bee Allocation (collapsible) ──────────────────────────────────
-        ba=self._collapsible(right,"Bee Allocation")
+        ba=self._collapsible(right,"Bee Allocation",expanded=False)
 
         bp_row=ctk.CTkFrame(ba,fg_color="transparent")
         bp_row.pack(fill="x",pady=(2,2))
@@ -1466,6 +1482,8 @@ class BeetentApp(ctk.CTk):
             val=f.get(k)
             v.set(str(bf.get(k,"")) if val is None else str(val))
         self.outside_pass_var.set(f.get("outside_sprayer_pass","No"))
+        # Default ON for fields that predate the boundary_edge_shelters flag.
+        self.boundary_edge_var.set(bool(f.get("boundary_edge_shelters",True)))
         # Sync the tray-distribution dropdown
         dist_key = f.get("tray_distribution") or "even"
         self.tray_dist_var.set(self._tray_dist_inverse.get(dist_key, "Spread evenly"))
@@ -1494,6 +1512,7 @@ class BeetentApp(ctk.CTk):
         f=self.current_field
         for k,v in self.fv.items(): f[k]=v.get().strip()
         f["outside_sprayer_pass"]=self.outside_pass_var.get()
+        f["boundary_edge_shelters"]=bool(self.boundary_edge_var.get())
         f["tray_distribution"]=self._tray_dist_labels.get(self.tray_dist_var.get(),"even")
         f["shelter_mode"]=self._shelter_mode_labels.get(self.shelter_mode_var.get(),"total")
         # Use the dropdown company/year when specific; otherwise keep the loaded
