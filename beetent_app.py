@@ -78,6 +78,7 @@ _load_bundled_fonts()
 
 SATELLITE_URL = "https://mt0.google.com/vt/lyrs=s&hl=en&x={x}&y={y}&z={z}&s=Ga"
 DATA_DIR      = Path(__file__).parent / "fields"
+ASSETS_DIR    = Path(__file__).parent / "assets"   # bundled logo (synced via git)
 DEFAULT_LAT, DEFAULT_LON, DEFAULT_ZOOM = 49.86, -111.96, 10
 
 # Sentinels for the Company / Year dropdowns — used to export across a whole
@@ -330,6 +331,7 @@ class BeetentApp(ctk.CTk):
         self.title("Bee Tent Maps")
         self.geometry("1340x840")
         self.minsize(1000,650)
+        self._set_window_icon()
 
         self.current_field = blank_field()
         self.click_mode    = None
@@ -358,7 +360,7 @@ class BeetentApp(ctk.CTk):
         self.shelter_circle_polys = []
         self.shelter_positions  = []
         self.show_shelters      = tk.BooleanVar(value=False)
-        self.show_tray_counts   = tk.BooleanVar(value=False)
+        self.pin_label_mode     = "off"   # "off" | "trays" | "shelters" — what each pin shows
         self._shelter_undo      = []   # stack of (override_key, prev_value) for Reset Move
         self.shelter_tray_counts= []  # parallel to shelter_positions; per-shelter int
         self.moving_shelter_idx = None
@@ -394,11 +396,34 @@ class BeetentApp(ctk.CTk):
         self.after(300, self._bind_drag_system)
         self.after(1000, self._git_pull)  # pull latest on startup
 
+    # ── Window icon / logo ──────────────────────────────────────────────────
+    def _set_window_icon(self):
+        ico = ASSETS_DIR / "logo.ico"
+        if not ico.exists(): return
+        try: self.iconbitmap(str(ico))
+        except Exception: pass
+        # CTk sets its own icon shortly after init; reassert ours afterwards.
+        try: self.after(300, lambda: self._reassert_icon(str(ico)))
+        except Exception: pass
+
+    def _reassert_icon(self, ico):
+        try: self.iconbitmap(ico)
+        except Exception: pass
+
     # ── Toolbar ────────────────────────────────────────────────────────────────
     def _build_toolbar(self):
         bar=ctk.CTkFrame(self,height=44,corner_radius=0)
         bar.pack(fill="x",side="top")
-        ctk.CTkLabel(bar,text="Legal Land Description:").pack(side="left",padx=(10,4),pady=8)
+        try:
+            from PIL import Image
+            _logo = ASSETS_DIR / "logo.png"
+            if _logo.exists():
+                _im = Image.open(_logo)
+                self._logo_img = ctk.CTkImage(light_image=_im, dark_image=_im, size=(26,26))
+                ctk.CTkLabel(bar, image=self._logo_img, text="").pack(side="left", padx=(10,8), pady=6)
+        except Exception:
+            pass
+        ctk.CTkLabel(bar,text="Legal Land Description:").pack(side="left",padx=(0,4),pady=8)
         self.lld_entry=ctk.CTkEntry(bar,width=230,placeholder_text="e.g. NW-32-14-22-W4")
         self.lld_entry.pack(side="left",pady=8)
         self.lld_entry.bind("<Return>",lambda e:self._search_lld())
@@ -543,7 +568,9 @@ class BeetentApp(ctk.CTk):
 
         self._shelter_btn = self._make_menu_btn(bb, "🏠 Shelters", [
             ("Toggle Pins",          self._toggle_shelters),
-            ("Toggle Trays",         self._toggle_shelter_labels),
+            ("Numbers: Tray count",  lambda: self._set_pin_mode("trays")),
+            ("Numbers: Shelter #",   lambda: self._set_pin_mode("shelters")),
+            ("Numbers: Off",         lambda: self._set_pin_mode("off")),
             ("Toggle 10 ft Buffers", self._toggle_shelter_buffers),
         ], color="#5a3000")
         self._shelter_btn.pack(side="left", padx=(0,4))
@@ -618,6 +645,7 @@ class BeetentApp(ctk.CTk):
                                               command=self._on_field_preset_selected)
         self.field_preset_cb.pack(side="left",padx=(2,2))
         ctk.CTkButton(fpr,text="+",width=30,command=self._save_new_field_preset).pack(side="left",padx=(0,2))
+        ctk.CTkButton(fpr,text="💾",width=30,command=self._update_field_preset).pack(side="left",padx=(0,2))
         ctk.CTkButton(fpr,text="🗑",width=30,command=self._delete_field_preset).pack(side="left")
 
         fs=ctk.CTkFrame(fd,fg_color="transparent"); fs.pack(fill="x",pady=(4,0))
@@ -689,6 +717,7 @@ class BeetentApp(ctk.CTk):
                                         command=self._on_preset_selected)
         self.preset_cb.pack(side="left",padx=(2,2))
         ctk.CTkButton(preset_row,text="+",width=30,command=self._save_new_preset).pack(side="left",padx=(0,2))
+        ctk.CTkButton(preset_row,text="💾",width=30,command=self._update_preset).pack(side="left",padx=(0,2))
         ctk.CTkButton(preset_row,text="🗑",width=30,command=self._delete_preset).pack(side="left")
 
         ctk.CTkFrame(bc,height=1,fg_color=UI_BORDER).pack(fill="x",pady=(2,4))
@@ -721,6 +750,7 @@ class BeetentApp(ctk.CTk):
                                             command=self._on_bee_preset_selected)
         self.bee_preset_cb.pack(side="left",padx=(2,2))
         ctk.CTkButton(bp_row,text="+",width=30,command=self._save_new_bee_preset).pack(side="left",padx=(0,2))
+        ctk.CTkButton(bp_row,text="💾",width=30,command=self._update_bee_preset).pack(side="left",padx=(0,2))
         ctk.CTkButton(bp_row,text="🗑",width=30,command=self._delete_bee_preset).pack(side="left")
 
         ctk.CTkFrame(ba,height=1,fg_color=UI_BORDER).pack(fill="x",pady=(2,4))
@@ -850,6 +880,22 @@ class BeetentApp(ctk.CTk):
         self._refresh_preset_list()
         self.preset_var.set(name)
 
+    def _update_preset(self):
+        name=self.preset_var.get()
+        if not name:
+            self._status("Select a bay preset to update (or use + to save a new one)."); return
+        entry={"name":name,
+               "row_spacing_in":self.fv["row_spacing_in"].get(),
+               "planter_width_ft":self.fv["planter_width_ft"].get(),
+               "num_female_rows":self.fv["num_female_rows"].get(),
+               "num_male_rows":self.fv["num_male_rows"].get()}
+        presets=[p for p in self._load_bay_presets() if p["name"]!=name]
+        presets.append(entry)
+        self._save_bay_presets(presets)
+        self._refresh_preset_list()
+        self.preset_var.set(name)
+        self._status(f"Updated bay preset: {name}")
+
     def _delete_preset(self):
         name=self.preset_var.get()
         if not name: return
@@ -899,6 +945,20 @@ class BeetentApp(ctk.CTk):
         self._save_bee_presets(presets)
         self._refresh_bee_preset_list()
         self.bee_preset_var.set(name)
+
+    def _update_bee_preset(self):
+        name=self.bee_preset_var.get()
+        if not name:
+            self._status("Select a bee preset to update (or use + to save a new one)."); return
+        entry={"name":name,
+               "gals_per_acre":self.fv["gals_per_acre"].get(),
+               "gals_per_tray":self.fv["gals_per_tray"].get()}
+        presets=[p for p in self._load_bee_presets() if p["name"]!=name]
+        presets.append(entry)
+        self._save_bee_presets(presets)
+        self._refresh_bee_preset_list()
+        self.bee_preset_var.set(name)
+        self._status(f"Updated bee preset: {name}")
 
     def _delete_bee_preset(self):
         name=self.bee_preset_var.get()
@@ -972,6 +1032,25 @@ class BeetentApp(ctk.CTk):
         self._refresh_track_list()
         self._redraw_all()
         self._status(f"Applied field preset: {name} — set name, angle & bees for this year.")
+
+    def _update_field_preset(self):
+        name=self.field_preset_var.get()
+        if not name:
+            self._status("Select a field preset to update (or use + to save a new one)."); return
+        f=self._field_from_form()
+        bp=f.get("boundary_polygon")
+        entry={"name":name,
+               "pivot_tracks":list(f.get("pivot_tracks") or []),
+               "boundary_polygon":[list(pt) for pt in bp] if bp else None,
+               "corner_arms":f.get("corner_arms") or []}
+        for k in self._FIELD_PRESET_SCALARS:
+            entry[k]=f.get(k,"")
+        presets=[p for p in self._load_field_presets() if p["name"]!=name]
+        presets.append(entry)
+        self._save_field_presets(presets)
+        self._refresh_field_preset_list()
+        self.field_preset_var.set(name)
+        self._status(f"Updated field preset: {name}")
 
     def _delete_field_preset(self):
         name=self.field_preset_var.get()
@@ -2122,11 +2201,14 @@ class BeetentApp(ctk.CTk):
         else:
             self._clear_shelters(); self._status("Shelter pins hidden.")
 
-    def _toggle_shelter_labels(self):
-        self.show_tray_counts.set(not self.show_tray_counts.get())
+    def _set_pin_mode(self, mode):
+        """Pin labels: 'trays' (tray count), 'shelters' (sequential #), or 'off'."""
+        self.pin_label_mode = mode
         if self.show_shelters.get():
             self._redraw_shelters()
-        self._status("Tray numbers " + ("shown." if self.show_tray_counts.get() else "hidden."))
+        self._status({"trays":"Pins show tray counts.",
+                      "shelters":"Pins show shelter numbers.",
+                      "off":"Pin numbers off."}.get(mode,""))
 
     def _clear_shelters(self):
         self._unregister_drag_prefix("shelter_")
@@ -2244,13 +2326,20 @@ class BeetentApp(ctk.CTk):
             for k_pos, tc in zip(kept_indices, per):
                 tray_count_at[k_pos] = tc
         self.shelter_tray_counts=[tray_count_at.get(i,0) for i in range(len(merged))]
-        show_trays=self.show_tray_counts.get() and bool(per)
+        mode=self.pin_label_mode
         show_circles=self.shelter_circle_var.get()
         BUFFER_M=1.524  # 5 ft radius = 10 ft diameter
+        shelter_num=0   # sequential 1..N among VISIBLE shelters (matches export numbering)
         for i,(lat,lon) in enumerate(merged):
             if i in deleted: continue
+            shelter_num+=1
             cc="#FFD700"; oc="#B8860B"
-            lbl=str(tray_count_at[i]) if show_trays else ""
+            if mode=="shelters":
+                lbl=str(shelter_num)
+            elif mode=="trays" and per:
+                lbl=str(tray_count_at[i])
+            else:
+                lbl=""
             try:
                 m=self.map_widget.set_marker(lat,lon,text=lbl,
                                               marker_color_circle=cc,
