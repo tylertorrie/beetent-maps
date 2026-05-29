@@ -31,15 +31,18 @@ UI_WARN   = "#C2410C"   # warnings
 UI_SELECT = "#CFE2FF"   # table/list selection
 
 # ── Typography ──────────────────────────────────────────────────────────────
-# Desktop equivalent of a Google-Fonts setup: bundled Space Grotesk + Inter
-# TTFs (fonts/) are loaded into the process at startup so Tk can use them.
+# Desktop equivalent of a Google-Fonts setup: bundled Space Grotesk TTFs
+# (fonts/) are loaded into the process at startup so Tk can use them.
+# Single-family rule: Space Grotesk everywhere.
 #   Space Grotesk Medium → app/page titles + section headings (weight 500)
-#   Inter                → body copy, labels, buttons, menus, inputs (weight 400)
-#   Inter Medium         → emphasized sub-labels / subheadings (weight 500)
-# Each static weight registers under its own family name, hence the split.
+#   Space Grotesk        → all other text — body, labels, nav, menus, buttons,
+#                          inputs, modals, pop-ups, badges, tooltips (weight 400)
+# FONT_LABEL is kept as a separate alias for the few "emphasized sub-label"
+# call sites; it now resolves to the same regular weight as FONT_BODY (per the
+# flatter hierarchy: only true headings get weight 500).
 FONT_HEADING = "Space Grotesk Medium"   # falls back to Tk default if unavailable
-FONT_BODY    = "Inter"
-FONT_LABEL   = "Inter Medium"
+FONT_BODY    = "Space Grotesk"
+FONT_LABEL   = "Space Grotesk"
 _FONTS_DIR   = Path(__file__).parent / "fonts"
 
 def _load_bundled_fonts():
