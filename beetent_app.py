@@ -291,6 +291,7 @@ def blank_field(company="",year=""):
                 spacing="",shelter_spacing="",directional_offset="",
                 row_spacing_in="22",num_female_rows="8",num_male_rows="2",planter_width_ft="",
                 outside_sprayer_pass="No",track_exclusion_ft="10",
+                shelter_buffer_m="1.524",
                 gals_per_acre="3",acres="",gals_per_tray="2",tray_distribution="even",
                 boundary_polygon=None,pivot_tracks=[],corner_arms=[],
                 shelter_overrides={})
@@ -468,9 +469,12 @@ class BeetentApp(ctk.CTk):
 
     def _show_context_btn(self, text, cmd):
         self.btn_context.configure(text=text, command=cmd, state="normal", fg_color="#225588")
+        if not self.btn_context.winfo_ismapped():
+            self.btn_context.pack(side="right", padx=(4,0))
 
     def _hide_context_btn(self):
-        self.btn_context.configure(state="disabled", text="", command=lambda: None, fg_color="#333333")
+        self.btn_context.configure(state="disabled", text="", command=lambda: None)
+        self.btn_context.pack_forget()   # remove entirely so no empty grey box shows
 
     # ── Themed text-input popup (matches the light theme + fonts) ────────────
     def _ask_string(self, title, prompt):
@@ -571,17 +575,18 @@ class BeetentApp(ctk.CTk):
             ("Numbers: Tray count",  lambda: self._set_pin_mode("trays")),
             ("Numbers: Shelter #",   lambda: self._set_pin_mode("shelters")),
             ("Numbers: Off",         lambda: self._set_pin_mode("off")),
-            ("Toggle 10 ft Buffers", self._toggle_shelter_buffers),
+            ("Toggle Buffer Zone",   self._toggle_shelter_buffers),
+            ("Set Buffer Size",      self._edit_shelter_buffer),
         ], color="#5a3000")
         self._shelter_btn.pack(side="left", padx=(0,4))
 
         ctk.CTkButton(bb, text="↶ Reset Move", width=110, fg_color="#4a2a00",
                       command=self._undo_shelter_move).pack(side="left", padx=(0,4))
 
-        # Context action button (shown when a mode needs a "Done" action)
-        self.btn_context = ctk.CTkButton(bb, text="", width=130, fg_color="#333333",
+        # Context action button (only shown when a mode needs a "Done" action)
+        self.btn_context = ctk.CTkButton(bb, text="", width=130, fg_color="#225588",
                                           state="disabled", command=lambda: None)
-        self.btn_context.pack(side="right", padx=(4,0))
+        # starts hidden — _show_context_btn packs it when a mode needs it
 
         self.map_frame=mf
 
@@ -2224,7 +2229,24 @@ class BeetentApp(ctk.CTk):
     def _toggle_shelter_buffers(self):
         self.shelter_circle_var.set(not self.shelter_circle_var.get())
         if self.show_shelters.get(): self._redraw_shelters()
-        self._status("10 ft buffers " + ("shown." if self.shelter_circle_var.get() else "hidden."))
+        self._status("Buffer zone " + ("shown." if self.shelter_circle_var.get() else "hidden."))
+
+    def _edit_shelter_buffer(self):
+        self._close_all_popups()
+        use_m=self.unit_var.get()=="Metres"
+        unit="m" if use_m else "ft"
+        cur_m=float(self.current_field.get("shelter_buffer_m") or 0)
+        cur_disp=cur_m if use_m else cur_m/0.3048
+        val=self._ask_string("Shelter Buffer",
+            f"Buffer radius around each shelter ({unit}).  0 = no buffer.  Current: {cur_disp:g}")
+        if val is None: return
+        try: v=float(val.strip())
+        except ValueError: self._status("Enter a number (0 for none)."); return
+        if v<0: v=0
+        self.current_field["shelter_buffer_m"]=str(v if use_m else v*0.3048)
+        if v>0: self.shelter_circle_var.set(True)
+        if self.show_shelters.get(): self._redraw_shelters()
+        self._status(f"Shelter buffer set to {v:g} {unit}." if v>0 else "Shelter buffer removed (0).")
 
     def _record_shelter_change(self, idx):
         """Snapshot the override for this shelter before changing it, so Reset
@@ -2327,8 +2349,9 @@ class BeetentApp(ctk.CTk):
                 tray_count_at[k_pos] = tc
         self.shelter_tray_counts=[tray_count_at.get(i,0) for i in range(len(merged))]
         mode=self.pin_label_mode
-        show_circles=self.shelter_circle_var.get()
-        BUFFER_M=1.524  # 5 ft radius = 10 ft diameter
+        try: BUFFER_M=float(self.current_field.get("shelter_buffer_m") or 0)
+        except (ValueError,TypeError): BUFFER_M=0.0
+        show_circles=self.shelter_circle_var.get() and BUFFER_M>0   # 0 size = no buffer
         shelter_num=0   # sequential 1..N among VISIBLE shelters (matches export numbering)
         for i,(lat,lon) in enumerate(merged):
             if i in deleted: continue
@@ -2825,8 +2848,10 @@ class BeetentApp(ctk.CTk):
             tkinter.messagebox.showwarning("No fields",
                 "No saved fields match the current Company / Year selection."); return
         include_buffers=tkinter.messagebox.askyesno("Buffer zones",
-            "Include the 10 ft buffer circles around each shelter in the\n"
-            "John Deere Operations Center file?")
+            "Include each shelter's buffer zone as a passable interior boundary\n"
+            "in the John Deere Operations Center file?\n\n"
+            "(Uses each field's buffer size; fields with a 0 buffer add none.\n"
+            "The field's outer boundary is never included.)")
         co=self.company_var.get(); yr=self.year_var.get()
         tag="%s_%s" % ("AllCompanies" if co==ALL_COMPANIES else co,
                        "AllYears" if yr==ALL_YEARS else yr)
@@ -2849,8 +2874,11 @@ class BeetentApp(ctk.CTk):
                     if not positions:
                         self.after(0,lambda n=name:self._log("  skipped %s — no shelters" % n)); continue
                     fname=str(f.get("Name") or name).strip()
+                    try: buf_m=float(f.get("shelter_buffer_m") or 0)
+                    except (ValueError,TypeError): buf_m=0.0
                     maketentgrid.export_field_outputs(positions,pivotpoint,str(out_dir),fname,
-                                                      include_buffers=include_buffers)
+                                                      include_buffers=include_buffers,
+                                                      buffer_radius_m=buf_m)
                     ok+=1
                     self.after(0,lambda n=fname,k=len(positions):self._log("  ✓ %s (%d shelters)" % (n,k)))
                 self.after(0,lambda:self._log("Done. %d/%d fields exported." % (ok,len(scope))))

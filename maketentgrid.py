@@ -566,7 +566,12 @@ def _circle_lonlat(lat, lon, r_m, n=24):
 def _make_geojson_with_buffers(lonlat_list, field_name, include_buffers=False,
                                buffer_radius_m=1.524):
     """GeoJSON FeatureCollection: shelter points, plus optional buffer-circle
-    polygons (one per shelter) for John Deere Operations Center."""
+    polygons (one per shelter) for John Deere Operations Center.
+
+    Buffer polygons are tagged as PASSABLE INTERIOR boundaries so Operations
+    Center treats them as drive-through interior zones — not impassable
+    interiors and not the field's exterior boundary. The field's outer
+    boundary is intentionally NOT written here (it's already in Ops Center)."""
     features = []
     for i, (lon, lat) in enumerate(lonlat_list):
         features.append({
@@ -574,13 +579,25 @@ def _make_geojson_with_buffers(lonlat_list, field_name, include_buffers=False,
             "geometry": {"type": "Point", "coordinates": [lon, lat]},
             "properties": {"id": i + 1, "name": "Shelter_%d" % (i + 1), "type": "bee_shelter"},
         })
-    if include_buffers:
+    if include_buffers and buffer_radius_m and buffer_radius_m > 0:
         for i, (lon, lat) in enumerate(lonlat_list):
             ring = _circle_lonlat(lat, lon, buffer_radius_m, 24)
             features.append({
                 "type": "Feature",
                 "geometry": {"type": "Polygon", "coordinates": [ring]},
-                "properties": {"id": i + 1, "name": "Buffer_%d" % (i + 1), "type": "buffer_zone"},
+                "properties": {
+                    "id": i + 1,
+                    "name": "Buffer_%d" % (i + 1),
+                    # Signal a passable interior boundary across the property
+                    # names different importers look for.
+                    "type": "interior",
+                    "boundaryType": "interior",
+                    "boundary_type": "interior",
+                    "interior": True,
+                    "exterior": False,
+                    "passable": True,
+                    "drivable": True,
+                },
             })
     return json.dumps({
         "type": "FeatureCollection",
