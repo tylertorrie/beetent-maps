@@ -794,8 +794,8 @@ class BeetentApp(ctk.CTk):
                         values=list(self._tray_dist_labels.keys()),
                         command=self._on_tray_dist_change).pack(fill="x",pady=(0,4))
 
-        ctk.CTkButton(ba,text="Calculate Trays → Update Pins",
-                      command=self._calc_bees).pack(fill="x",pady=(4,4))
+        # No "Calculate Trays" button — the summary and the map redraw
+        # automatically whenever any bee allocation field changes.
 
         self._setup_form_traces()
 
@@ -1266,13 +1266,6 @@ class BeetentApp(ctk.CTk):
                 deficit -= take
                 if deficit == 0: break
         return per
-
-    def _calc_bees(self):
-        """Explicit recalc triggered by the button — refresh the summary lines
-        and redraw shelter pins so the new tray counts appear on the map."""
-        self._refresh_bee_summary()
-        if self.show_shelters.get():
-            self._redraw_shelters()
 
     def _on_tray_dist_change(self, _=None):
         """Persist the strategy on the field and trigger a recompute."""
