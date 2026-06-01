@@ -1732,8 +1732,11 @@ class BeetentApp(ctk.CTk):
                                           marker_color_circle="#FFD700",marker_color_outside="#B8860B",
                                           command=self._make_bnd_vertex_cb(i))
             self.boundary_markers.append(m)
+            # Pass marker so _b1_motion can drag the pin's canvas items
+            # live with the cursor (rather than only snapping on release).
             self._register_drag(f"bnd_{i}",lat,lon,str(i+1),"#FFD700","#B8860B",
-                                lambda la,lo,i=i: self._on_bnd_vertex_drag(i,la,lo))
+                                lambda la,lo,i=i: self._on_bnd_vertex_drag(i,la,lo),
+                                marker=m)
         self._update_bnd_preview()
         self.click_mode="boundary_edit"
         self._selected_bnd_vertex=None
@@ -1776,7 +1779,8 @@ class BeetentApp(ctk.CTk):
                                       command=self._make_bnd_vertex_cb(idx))
         self.boundary_markers[idx]=m
         self._register_drag(f"bnd_{idx}",lat,lon,str(idx+1),cc,oc,
-                            lambda la,lo,i=idx: self._on_bnd_vertex_drag(i,la,lo))
+                            lambda la,lo,i=idx: self._on_bnd_vertex_drag(i,la,lo),
+                            marker=m)
 
     def _delete_selected_bnd_vertex(self):
         idx=self._selected_bnd_vertex
@@ -1908,7 +1912,8 @@ class BeetentApp(ctk.CTk):
                                           command=self._make_bnd_vertex_cb(idx))
             self.boundary_markers[idx]=m
             self._register_drag(f"bnd_{idx}",lat,lon,str(idx+1),"#FFD700","#B8860B",
-                                lambda la,lo,i=idx: self._on_bnd_vertex_drag(i,la,lo))
+                                lambda la,lo,i=idx: self._on_bnd_vertex_drag(i,la,lo),
+                                marker=m)
             self._update_bnd_preview()
             self.click_mode="boundary_edit"
             self._status("Vertex moved. Click another vertex or ✔ Save Boundary.")
@@ -1920,6 +1925,10 @@ class BeetentApp(ctk.CTk):
             r_m=haversine_m(plat,plon,lat,lon)
             self.current_field.setdefault("pivot_tracks",[]).append(round(r_m,2))
             self.click_mode=None; self._status(f"Track added: {r_m:.1f} m ({r_m/0.3048:.1f} ft)")
+            # Auto-enable the tracks layer so the newly-added circle is visible
+            # without the user having to remember to toggle it on. (Field-select
+            # turns this off by default.)
+            self.show_tracks.set(True)
             self._refresh_track_list(); self._redraw_tracks()
 
         elif isinstance(mode,tuple) and mode[0]=="resize_track":
@@ -2039,7 +2048,8 @@ class BeetentApp(ctk.CTk):
                                       command=self._make_bnd_vertex_cb(idx))
         self.boundary_markers[idx]=m
         self._register_drag(f"bnd_{idx}",lat,lon,str(idx+1),"#FFD700","#B8860B",
-                            lambda la,lo,i=idx: self._on_bnd_vertex_drag(i,la,lo))
+                            lambda la,lo,i=idx: self._on_bnd_vertex_drag(i,la,lo),
+                            marker=m)
         self._update_bnd_preview()
         # Live-update bays / passes / track clipping so the user sees the
         # downstream effect of the move without having to hit "Save Boundary".
@@ -2059,6 +2069,7 @@ class BeetentApp(ctk.CTk):
         if val is None: return
         r_m=val if use_m else val*0.3048
         self.current_field.setdefault("pivot_tracks",[]).append(round(r_m,2))
+        self.show_tracks.set(True)   # ensure the newly-added circle is visible
         self._refresh_track_list(); self._redraw_tracks()
 
     def _remove_track(self):
@@ -2195,6 +2206,7 @@ class BeetentApp(ctk.CTk):
                 cumulative+=val/conv   # display span → metres, accumulate to distance-from-pivot
                 new_tracks.append(round(cumulative,2))
             self.current_field["pivot_tracks"]=new_tracks
+            if new_tracks: self.show_tracks.set(True)   # make the saved tracks visible
             self._refresh_track_list(); self._redraw_tracks()
             win.destroy()
             self._status(f"Saved {len(new_tracks)} span(s).")
@@ -2244,35 +2256,47 @@ class BeetentApp(ctk.CTk):
         except (ValueError,TypeError): return
         excl_m=float(self.fv.get("track_exclusion_ft",self.excl_var).get() or "10")*0.3048
         bp=self.current_field.get("boundary_polygon")
-        clip_to_bnd = bool(bp and len(bp)>=3)
+        has_bnd = bool(bp and len(bp)>=3)
         for i,r_m in enumerate(self.current_field.get("pivot_tracks") or []):
             for r,col,w in [(r_m+excl_m,"#32CD32",2),(max(1,r_m-excl_m),"#32CD32",1)]:
                 pts = circle_pts(plat,plon,r,n=180)
-                if not clip_to_bnd:
-                    # No boundary → draw the full circle as before.
+                # Decide whether to draw as a single polygon (fast, matches the
+                # historical look exactly) or as clipped path segments. We only
+                # need the clipped path when the circle actually crosses the
+                # boundary; for the common case where the track is entirely
+                # inside the field, the polygon is identical and cheaper.
+                if not has_bnd:
+                    inside_count = None   # signal "no clip"
+                else:
+                    flags = [point_in_latlon_polygon(la, lo, bp) for la, lo in pts]
+                    inside_count = sum(flags)
+                if inside_count is None or inside_count == len(pts):
+                    # Entire circle inside boundary (or no boundary at all) →
+                    # draw as a closed polygon outline.
                     self.track_circles.append(self.map_widget.set_polygon(
-                        pts,fill_color=None,outline_color=col,border_width=w))
+                        pts, fill_color=None, outline_color=col, border_width=w))
                     continue
-                # Boundary present → draw the circle only where it's inside the
-                # boundary polygon. Walk the sample points; emit one set_path
-                # per contiguous run that's inside the polygon.
+                if inside_count == 0:
+                    # Entire circle outside the boundary → don't draw anything.
+                    continue
+                # Mixed: emit path segments only for the inside runs.
                 pts_closed = pts + [pts[0]]
-                inside_flags = [point_in_latlon_polygon(la, lo, bp) for la, lo in pts_closed]
+                flags_closed = flags + [flags[0]]
                 segment = []
-                def _flush():
-                    if len(segment) >= 2:
+                def _flush(_seg, _col=col, _w=w):
+                    if len(_seg) >= 2:
                         try:
-                            path = self.map_widget.set_path(list(segment),
-                                                            color=col, width=w)
+                            path = self.map_widget.set_path(list(_seg),
+                                                            color=_col, width=_w)
                             self.track_circles.append(path)
                         except Exception:
                             pass
                 for k, (la, lo) in enumerate(pts_closed):
-                    if inside_flags[k]:
+                    if flags_closed[k]:
                         segment.append((la, lo))
                     else:
-                        _flush(); segment = []
-                _flush()
+                        _flush(segment); segment = []
+                _flush(segment)
         if not skip_shelters and self.show_shelters.get(): self._redraw_shelters()
 
     def _on_track_drag(self,idx,lat,lon,final=False):
