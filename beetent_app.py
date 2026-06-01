@@ -415,6 +415,7 @@ def blank_field(company="",year=""):
                 row_spacing_in="22",num_female_rows="8",num_male_rows="2",
                 row_layout="centered",   # "outer" | "centered" | "custom"
                 custom_row_mask="",       # only used when row_layout == "custom"
+                use_bays=True,            # False = blanket-planted crop, no female-bay constraint
                 outside_sprayer_pass="No",track_exclusion_ft="10",
                 shelter_buffer_m="1.524",
                 planter_passes=None,           # [[(lat,lon), ...], ...]  imported from JD
@@ -900,6 +901,16 @@ class BeetentApp(ctk.CTk):
         ctk.CTkButton(preset_row,text="🗑",width=30,command=self._delete_preset).pack(side="left")
 
         ctk.CTkFrame(bc,height=1,fg_color=UI_BORDER).pack(fill="x",pady=(2,4))
+
+        # Crop type: bays vs blanket-planted. Canola needs female bays so the
+        # planter leaves the male strips empty for pollination access; other
+        # crops are blanket-planted with no bay structure, so shelters can
+        # sit anywhere in the field. With this off, get_tent_positions
+        # ignores the row mask / bay layout and uses a uniform grid.
+        self.use_bays_var = tk.BooleanVar(value=True)
+        ctk.CTkCheckBox(bc, text="Crop uses planting bays (e.g. canola)",
+                        variable=self.use_bays_var,
+                        command=self._on_use_bays_toggle).pack(anchor="w", pady=(2,4))
 
         bay_rows=[
             ("row_spacing_in",   "Row Spacing (inches)"),
@@ -1786,6 +1797,9 @@ class BeetentApp(ctk.CTk):
         self.row_layout_var.set(self._row_layout_inverse.get(rl,"Centered male"))
         self.custom_mask_var.set(str(f.get("custom_row_mask","")))
         self.use_imported_passes_var.set(bool(f.get("use_imported_passes",True)))
+        # Pre-existing fields default to bay mode (canola). New non-canola
+        # fields will save the unchecked state.
+        self.use_bays_var.set(bool(f.get("use_bays",True)))
         self._on_row_layout_change()
         # Sync the tray-distribution dropdown
         dist_key = f.get("tray_distribution") or "even"
@@ -1820,6 +1834,7 @@ class BeetentApp(ctk.CTk):
         f["row_layout"]=self._row_layout_labels.get(self.row_layout_var.get(),"centered")
         f["custom_row_mask"]=self.custom_mask_var.get().strip()
         f["use_imported_passes"]=bool(self.use_imported_passes_var.get())
+        f["use_bays"]=bool(self.use_bays_var.get())
         # Use the dropdown company/year when specific; otherwise keep the loaded
         # field's own (so a field opened from an All/All list still saves home).
         co=self.company_var.get(); yr=self.year_var.get()
@@ -3147,6 +3162,14 @@ class BeetentApp(ctk.CTk):
         right_f = nf - left_f
         return "F" * left_f + "M" * nm + "F" * right_f
 
+    def _on_use_bays_toggle(self):
+        """Crop-uses-bays checkbox flipped. Refreshes the bay overlay (it
+        only makes sense in bay mode) and queues a shelter recompute so
+        the new placement strategy takes effect immediately."""
+        if self.show_bays.get():
+            self._redraw_bays()
+        self._on_form_change()   # debounced shelter recompute
+
     def _on_row_layout_change(self):
         """Dropdown changed — show/hide the custom-mask entry and refresh
         the mask preview label."""
@@ -3220,6 +3243,8 @@ class BeetentApp(ctk.CTk):
     def _redraw_bays(self):
         self._clear_bays()
         if not self.show_bays.get(): return
+        # No bay structure in blanket-planted mode → nothing to draw.
+        if not self.current_field.get("use_bays", True): return
         try:
             plat=float(self.fv["PP_Latitude"].get()); plon=float(self.fv["PP_Longitude"].get())
             angle=float(self.fv["Spray_angle"].get() or 0)

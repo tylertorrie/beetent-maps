@@ -1027,7 +1027,19 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
         nf_raw = str(field_dict.get('num_female_rows') or '').strip()
         nm_raw = str(field_dict.get('num_male_rows') or '').strip()
         rs_in_raw = str(field_dict.get('row_spacing_in') or '').strip()
-        if nf_raw and nm_raw and rs_in_raw:
+        # Blanket-planted crops (use_bays=False): there's no female-bay
+        # structure to snap to, so we use a uniform grid at sprayer_width
+        # intervals with no lateral offset. Defaults True so existing fields
+        # (canola) keep their current behaviour.
+        use_bays = field_dict.get('use_bays', True)
+        if isinstance(use_bays, str):
+            use_bays = use_bays.strip().lower() in ('1','true','yes','y','on')
+        else:
+            use_bays = bool(use_bays)
+        if not use_bays:
+            tent_row_width = sprayer_width
+            lat_offset = 0.0
+        elif nf_raw and nm_raw and rs_in_raw:
             nf_i = int(nf_raw); nm_i = int(nm_raw); rs_m = float(rs_in_raw) * 0.0254
             female_m = (nf_i + 1) * rs_m
             male_m_w = (nm_i + 1) * rs_m
@@ -1167,7 +1179,10 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
             if not p or len(p) < 2: continue
             planter_passes.append([(float(pt[0]), float(pt[1])) for pt in p])
 
-        if use_imported and planter_passes and not user_spacing and num_tents:
+        # Pass-following is bay-aware (it maps row mask → female-bay
+        # centerlines). With no bays, fall through to the synthetic uniform
+        # grid where lat_offset=0 and tent_row_width=sprayer_width already.
+        if use_imported and planter_passes and not user_spacing and num_tents and use_bays:
             row_layout_v = str(field_dict.get('row_layout') or 'centered').strip().lower()
             custom_mask  = str(field_dict.get('custom_row_mask') or '').strip()
             nf_i_pf = int(nf_raw) if nf_raw else 8
