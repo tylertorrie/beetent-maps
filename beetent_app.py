@@ -680,12 +680,17 @@ class BeetentApp(ctk.CTk):
         bb=ctk.CTkFrame(mf,fg_color="transparent")
         bb.pack(fill="x",padx=6,pady=(6,2))
 
+        # Pivot menu: pivot point + pivot tracks (concentric circles) + corner
+        # tracks (polygon paths anchored to absolute lat/lon — stay put when
+        # the pivot is moved). All share the same exclusion width.
         self._pivot_btn = self._make_menu_btn(bb, "📍 Pivot", [
             ("Toggle on/off",           self._toggle_pivot),
             ("Set Pivot Point",         self._mode_pivot),
             ("Draw Track Circle",       self._mode_track),
             ("Edit Track Measurements", self._mode_edit_track_measurements),
             ("Set Track Exclusion (ft)",self._edit_track_exclusion),
+            ("Add Corner Path",         self._mode_add_corner_path),
+            ("Delete Corner Path",      self._mode_delete_corner_ui),
         ], color="#1a6b3a")
         self._pivot_btn.pack(side="left", padx=(0,4))
 
@@ -696,17 +701,6 @@ class BeetentApp(ctk.CTk):
             ("Delete",       self._clear_boundary),
         ], color="#5a3a8a")
         self._bnd_btn.pack(side="left", padx=(0,4))
-
-        # Corner tracks: extra exclusion zones (paths or circles) anchored to
-        # absolute lat/lon, so they stay put when the pivot is moved. Each one
-        # uses the same exclusion width as a pivot track (Set Track Exclusion).
-        self._corner_btn = self._make_menu_btn(bb, "🎯 Corner Tracks", [
-            ("Toggle on/off", self._toggle_corner_arms),
-            ("Add Path",      self._mode_add_corner_path),
-            ("Add Circle",    self._mode_add_corner_circle),
-            ("Delete",        self._mode_delete_corner_ui),
-        ], color="#7a4a2a")
-        self._corner_btn.pack(side="left", padx=(0,4))
 
         self._sp_btn = self._make_menu_btn(bb, "🌊 Sprayer", [
             ("Toggle on/off", self._toggle_passes),
@@ -996,7 +990,12 @@ class BeetentApp(ctk.CTk):
     def _on_track_excl_change(self, *_):
         if getattr(self, "_track_excl_refresh_id", None):
             self.after_cancel(self._track_excl_refresh_id)
-        self._track_excl_refresh_id = self.after(600, self._redraw_tracks)
+        # Corner-track offset paths use the same excl_m as pivot tracks, so a
+        # change to track_exclusion_ft needs to redraw both.
+        def _refresh():
+            self._redraw_tracks()
+            self._redraw_corner_arms()
+        self._track_excl_refresh_id = self.after(600, _refresh)
 
     def _init_map(self):
         # No on-disk tile cache: tiles live only in memory for the session, so
@@ -1462,22 +1461,59 @@ class BeetentApp(ctk.CTk):
         self.fv[key].set(self.shelter_value_var.get())   # fv trace → _on_form_change → redraw
 
     def _refresh_bee_summary(self):
-        """Update the three computed lines under the Bee Allocation block."""
-        n = len(self.shelter_positions or [])
-        total_trays, per, short, total_gals = self._compute_bee_distribution(n)
-        if total_trays is None:
+        """Update the three computed lines under the Bee Allocation block.
+
+        Total gallons and total trays come straight from the form values
+        (gals/acre × acres, then ÷ gals/tray) so the user sees them update
+        the instant they type — no need to draw shelters first. Per-shelter
+        and the "math gives fewer than N" warning still need the actual
+        shelter count, so those stay '—' until shelters are computed."""
+        # Pull raw form numbers. Missing/invalid → leave as None so the totals
+        # collapse to "—" rather than showing a misleading zero.
+        def _num(key):
+            v = self.fv.get(key)
+            if v is None: return None
+            try:
+                x = float(v.get())
+                return x if x > 0 else None
+            except (ValueError, AttributeError):
+                return None
+        gpa = _num("gals_per_acre")
+        acres = _num("acres")
+        gpt = _num("gals_per_tray")
+
+        # Total gallons line (needs gpa + acres only).
+        if gpa is not None and acres is not None:
+            total_gals = gpa * acres
+            self.bee_total_gals_lbl.configure(text=f"Total gals:   {total_gals:g}")
+        else:
+            total_gals = None
             self.bee_total_gals_lbl.configure(text="Total gals:   —")
+
+        # Total trays line (needs gpa + acres + gpt). Math-only baseline; if
+        # there are more shelters than that, the per-shelter pass bumps each
+        # to ≥ 1 and the displayed total goes up.
+        n = len(self.shelter_positions or [])
+        if total_gals is not None and gpt is not None:
+            math_trays = int(math.ceil(total_gals / gpt))
+            total_trays = max(math_trays, n) if n > 0 else math_trays
+            self.bee_total_trays_lbl.configure(text=f"Total trays:  {total_trays}")
+        else:
+            math_trays = total_trays = None
             self.bee_total_trays_lbl.configure(text="Total trays:  —")
+
+        # Per-shelter + warning lines need the actual shelter count.
+        if n <= 0 or total_trays is None:
             self.bee_per_shelter_lbl.configure(text="Per shelter:  —")
             self.bee_short_lbl.configure(text="")
             return
+
+        total_trays_d, per, short, _tg = self._compute_bee_distribution(n)
         if per:
             lo, hi = min(per), max(per)
             ps_txt = f"{lo} trays" if lo == hi else f"{lo}–{hi} trays"
         else:
             ps_txt = "—"
-        self.bee_total_gals_lbl.configure(text=f"Total gals:   {total_gals:g}")
-        self.bee_total_trays_lbl.configure(text=f"Total trays:  {total_trays}")
         self.bee_per_shelter_lbl.configure(text=f"Per shelter:  {ps_txt}")
         if short > 0:
             self.bee_short_lbl.configure(text=f"⚠ {n} shelters but bee math gives only {n-short} trays — bumped up to 1 each")
@@ -2092,13 +2128,17 @@ class BeetentApp(ctk.CTk):
         if self.show_shelters.get(): self._redraw_shelters()
 
     def _toggle_pivot(self):
-        """Toggle the pivot point marker AND its tracks together."""
+        """Toggle the pivot point marker, pivot tracks, AND corner tracks
+        together — they're all part of the same conceptual layer (pivot +
+        anything anchored relative to it / around its kill zone)."""
         self._close_all_popups()
-        on=not self.show_pivot.get()
+        on = not self.show_pivot.get()
         self.show_pivot.set(on)
         self.show_tracks.set(on)
+        self.show_corner_arms.set(on)
         self._redraw_pivot()
         self._redraw_tracks()
+        self._redraw_corner_arms()
         self._status("Pivot " + ("shown." if on else "hidden."))
 
     def _redraw_pivot(self):
@@ -2453,6 +2493,55 @@ class BeetentApp(ctk.CTk):
         self._status("Corner tracks " +
                      ("shown." if self.show_corner_arms.get() else "hidden."))
 
+    def _offset_path_latlon(self, pts_latlon, excl_m):
+        """Return (left, right) lat/lon polylines parallel to pts_latlon at
+        perpendicular distance excl_m on each side. At interior vertices the
+        offset uses the unit-bisector of the two adjacent perpendiculars, so
+        the offset stays roughly constant through corners (purely visual —
+        the shelter-exclusion math in maketentgrid is exact point-to-segment).
+        """
+        if len(pts_latlon) < 2: return [], []
+        # Use first point as the local ENU origin so all offsets share the
+        # same projection; small fields (< a few km) don't accumulate error.
+        lat0, lon0 = pts_latlon[0]
+        enu = [latlon_to_enu(la, lo, lat0, lon0) for la, lo in pts_latlon]
+        n_pts = len(enu)
+        perp = []
+        for i in range(n_pts):
+            # incoming segment direction (None at first vertex)
+            in_d = None
+            if i > 0:
+                dx = enu[i][0] - enu[i-1][0]
+                dy = enu[i][1] - enu[i-1][1]
+                L = math.sqrt(dx*dx + dy*dy)
+                if L > 0: in_d = (dx/L, dy/L)
+            # outgoing segment direction (None at last vertex)
+            out_d = None
+            if i < n_pts - 1:
+                dx = enu[i+1][0] - enu[i][0]
+                dy = enu[i+1][1] - enu[i][1]
+                L = math.sqrt(dx*dx + dy*dy)
+                if L > 0: out_d = (dx/L, dy/L)
+            # Build a unit perpendicular at this vertex. perp(d) = (-dy, dx).
+            if in_d and out_d:
+                px = (-in_d[1] - out_d[1]) * 0.5
+                py = ( in_d[0] + out_d[0]) * 0.5
+            elif in_d:
+                px, py = -in_d[1], in_d[0]
+            elif out_d:
+                px, py = -out_d[1], out_d[0]
+            else:
+                px, py = 0.0, 0.0
+            L = math.sqrt(px*px + py*py)
+            if L > 0: px, py = px/L, py/L
+            perp.append((px, py))
+        left = []
+        right = []
+        for (e, n), (px, py) in zip(enu, perp):
+            left.append(enu_to_latlon(e + excl_m * px, n + excl_m * py, lat0, lon0))
+            right.append(enu_to_latlon(e - excl_m * px, n - excl_m * py, lat0, lon0))
+        return left, right
+
     def _redraw_corner_arms(self):
         for o in self.corner_arm_overlays:
             if not getattr(o,"_is_preview",False):
@@ -2463,22 +2552,37 @@ class BeetentApp(ctk.CTk):
         # so toggling off actually clears them; toggling back on rebuilds.
         if not self.show_corner_arms.get(): return
         arms=self.current_field.get("corner_arms") or []
-        colors=["#CC44FF","#44CCFF","#FF44AA","#44FFCC","#FF9944","#44AAFF"]
-        for i,arm in enumerate(arms):
-            col=colors[i % len(colors)]
+        # Match pivot tracks: lime-green ±excl_m offset lines, no centerline.
+        # Color is the same as pivot tracks so they read as "the same kind of
+        # zone" — the only difference is that corner tracks are anchored to
+        # absolute lat/lon and don't move when the pivot does.
+        col = "#32CD32"
+        try:
+            excl_m = float(self.fv.get("track_exclusion_ft", self.excl_var).get() or "10") * 0.3048
+        except (ValueError, AttributeError):
+            excl_m = 10 * 0.3048
+        for arm in arms:
             try:
-                if arm.get("type")=="circle":
-                    o=self.map_widget.set_polygon(
-                        circle_pts(arm["lat"],arm["lon"],arm["radius_m"]),
-                        fill_color=None,outline_color=col,border_width=2)
+                if arm.get("type") == "circle":
+                    # Legacy data: render as a single outline polygon. New
+                    # corner tracks are paths only (Add Circle removed).
+                    o = self.map_widget.set_polygon(
+                        circle_pts(arm["lat"], arm["lon"], arm["radius_m"]),
+                        fill_color=None, outline_color=col, border_width=2)
+                    self.corner_arm_overlays.append(o)
                 else:
-                    pts=arm.get("pts") or []
-                    if len(pts)>=2:
-                        o=self.map_widget.set_path([(p[0],p[1]) for p in pts],color=col,width=3)
-                    else:
-                        continue
-                self.corner_arm_overlays.append(o)
-            except Exception: pass
+                    pts = arm.get("pts") or []
+                    if len(pts) < 2: continue
+                    pts_ll = [(p[0], p[1]) for p in pts]
+                    left, right = self._offset_path_latlon(pts_ll, excl_m)
+                    if len(left) >= 2:
+                        self.corner_arm_overlays.append(
+                            self.map_widget.set_path(left, color=col, width=2))
+                    if len(right) >= 2:
+                        self.corner_arm_overlays.append(
+                            self.map_widget.set_path(right, color=col, width=1))
+            except Exception:
+                pass
 
     # ── Sprayer passes extras ──────────────────────────────────────────────────
     def _mode_edit_passes(self):
