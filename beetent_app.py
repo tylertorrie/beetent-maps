@@ -776,9 +776,10 @@ class BeetentApp(ctk.CTk):
             ctk.CTkButton(row,text="+",width=30,command=new_cmd).pack(side="left")
 
         # Field list — sortable Field / Company / Year columns (collapsible).
-        # All right-side panels start collapsed; user opens what they need and
-        # the choice persists for the rest of the session (no on-disk state).
-        lf=self._collapsible(right,"Fields",expanded=False)
+        # Fields starts expanded so the user lands on something usable; the
+        # other right-side panels (Field Details / Bay / Bee) stay collapsed
+        # until the user opens them.
+        lf=self._collapsible(right,"Fields",expanded=True)
         _st=ttk.Style()
         try: _st.theme_use("default")
         except Exception: pass
@@ -1661,7 +1662,15 @@ class BeetentApp(ctk.CTk):
     def _refresh_company_list(self):
         real=list_companies() or ["Default"]
         self.company_cb.configure(values=[ALL_COMPANIES]+real)
-        self.company_var.set(real[0]); self._on_company_change(real[0])
+        # Startup default: All companies + the current calendar year. Gives
+        # the user a "see everything from this year" view without having to
+        # pick a specific company first. _on_company_change populates the
+        # year list (union across companies) and would otherwise set year
+        # to ALL_YEARS — we override that to the current year.
+        self.company_var.set(ALL_COMPANIES)
+        self._on_company_change(ALL_COMPANIES)
+        self.year_var.set(str(datetime.date.today().year))
+        self._refresh_field_list()
 
     def _on_company_change(self,val=None):
         co=self.company_var.get()
