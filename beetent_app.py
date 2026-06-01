@@ -136,6 +136,93 @@ def _sec_pos(sec):
     idx=sec-1; row=idx//6
     return row, (idx%6) if row%2==0 else (5-idx%6)
 
+def reverse_geocode_lld(lat, lon, granularity='quarter'):
+    """Return the LLD string covering (lat, lon) at the requested granularity,
+    or None if the point is outside the prairie LLD grid.
+
+    granularity ∈ {'section', 'half', 'quarter'} (defaults to 'quarter'):
+        section  → "32-14-22-W4"
+        half     → "N-32-14-22-W4"     (N/S/E/W)
+        quarter  → "NE-32-14-22-W4"
+
+    Prefers the Alberta Township System V4.1 bbox lookup (when available);
+    falls back to the math-grid for Saskatchewan, Manitoba, or AB sections
+    that aren't in the shape file."""
+    if _ATS_SECTIONS is None:
+        _load_ats_sections()
+
+    mer = twp = rng = sec = None
+    sec_lat_min = sec_lat_max = sec_lon_min = sec_lon_max = None
+
+    # ── 1) Exact ATS lookup. Linear scan over ~50k bboxes is fast enough for
+    # the one-shot use this is called from (pivot placement / drag end).
+    for key, bbox in _ATS_SECTIONS.items():
+        lat_min, lat_max, lon_min, lon_max = bbox
+        if lat_min <= lat <= lat_max and lon_min <= lon <= lon_max:
+            mer, twp, rng, sec = key
+            sec_lat_min, sec_lat_max = lat_min, lat_max
+            sec_lon_min, sec_lon_max = lon_min, lon_max
+            break
+
+    # ── 2) Math fallback (SK/MB; or AB outside the bundled shape file).
+    if mer is None:
+        # Meridians get more negative as mer increases (1=-97.45 … 6=-118).
+        # We want the meridian directly east of the point — the LAST mer in
+        # iteration order whose lon is still > our lon (i.e., still east of us).
+        chosen_mer = None
+        for m in (1, 2, 3, 4, 5, 6):
+            if _MERIDIANS[m] > lon:
+                chosen_mer = m
+            else:
+                break
+        if chosen_mer is None:
+            return None
+        mer = chosen_mer
+        mlon = _MERIDIANS[mer]
+        h = 9.6561
+        # Township row (1..127): inverse of sw_lat = 49 + (twp-1)*h/111.12
+        twp_calc = int((lat - 49.0) * 111.12 / h) + 1
+        if not (1 <= twp_calc <= 127):
+            return None
+        twp = twp_calc
+        sw_lat = 49.0 + (twp - 1) * h / 111.12
+        clat = sw_lat + 0.5 * h / 111.12
+        lkm = 1.0 / (111.12 * math.cos(math.radians(clat)))
+        # Range: ranges go WEST of the meridian; sec_e = mlon - (rng-1)*h*lkm
+        rng_calc = int((mlon - lon) / (h * lkm)) + 1
+        if rng_calc < 1:
+            return None
+        rng = rng_calc
+        # Section position within the township (6×6 snake-numbered grid).
+        sr = int((lat - sw_lat) * 111.12 / (h / 6.0))
+        sr = max(0, min(5, sr))
+        twp_e = mlon - (rng - 1) * h * lkm
+        sc = int((twp_e - lon) / (h / 6.0 * lkm))
+        sc = max(0, min(5, sc))
+        # Snake: even rows (0,2,4) west→east; odd rows reverse direction.
+        # _sec_pos uses (col 0 = east end). Sections 1..6 go col 0..5 on row 0.
+        if sr % 2 == 0:
+            sec = sr * 6 + sc + 1
+        else:
+            sec = sr * 6 + (5 - sc) + 1
+        # Synthesise the section's bbox so the quarter/half pick below works.
+        sec_lat_min = sw_lat + sr * h / 6 / 111.12
+        sec_lat_max = sec_lat_min + h / 6 / 111.12
+        sec_lon_max = mlon - (rng - 1) * h * lkm - sc * h / 6 * lkm        # east
+        sec_lon_min = sec_lon_max - h / 6 * lkm                            # west
+
+    base = "%d-%d-%d-W%d" % (sec, twp, rng, mer)
+    if granularity == 'section':
+        return base
+
+    mid_lat = (sec_lat_min + sec_lat_max) / 2
+    mid_lon = (sec_lon_min + sec_lon_max) / 2
+    ns = 'N' if lat >= mid_lat else 'S'
+    ew = 'E' if lon >= mid_lon else 'W'
+    if granularity == 'half':
+        return "%s-%s" % (ns, base)
+    return "%s%s-%s" % (ns, ew, base)
+
 def geocode_lld(query):
     q = re.sub(r"[-\s,]+","-",query.strip().upper())
     twp=rng=mer=sec=quarter=half=None
@@ -232,6 +319,38 @@ def circle_pts(lat,lon,r_m,n=90):
         pts.append((lat+r_m/111111*math.cos(b), lon+r_m/(111111*math.cos(math.radians(lat)))*math.sin(b)))
     return pts
 
+def polygon_area_m2(latlon_polygon):
+    """Shoelace area in square metres for a lat/lon polygon. Uses ENU centred
+    on the polygon centroid so distortion stays minimal at any latitude."""
+    n = len(latlon_polygon)
+    if n < 3: return 0.0
+    lat0 = sum(p[0] for p in latlon_polygon) / n
+    lon0 = sum(p[1] for p in latlon_polygon) / n
+    pts = [latlon_to_enu(p[0], p[1], lat0, lon0) for p in latlon_polygon]
+    s = 0.0
+    for i in range(n):
+        x1, y1 = pts[i]; x2, y2 = pts[(i + 1) % n]
+        s += x1 * y2 - x2 * y1
+    return abs(s) * 0.5
+
+ACRES_PER_M2 = 1.0 / 4046.8564224
+
+def point_in_latlon_polygon(lat, lon, polygon):
+    """Ray-casting point-in-polygon directly on lat/lon. Polygon is
+    [(lat,lon), ...] or [[lat,lon], ...]. Accurate enough for clipping
+    overlays at a single field's spatial scale."""
+    inside = False
+    n = len(polygon)
+    if n < 3: return False
+    j = n - 1
+    for i in range(n):
+        yi, xi = polygon[i][0], polygon[i][1]
+        yj, xj = polygon[j][0], polygon[j][1]
+        if ((yi > lat) != (yj > lat)) and (lon < (xj - xi) * (lat - yi) / (yj - yi + 1e-30) + xi):
+            inside = not inside
+        j = i
+    return inside
+
 def latlon_to_enu(lat,lon,pivot_lat,pivot_lon):
     pe,pn=utmish.from_lonlat(pivot_lon,pivot_lat,pivot_lon)
     e,n=utmish.from_lonlat(lon,lat,pivot_lon)
@@ -288,7 +407,7 @@ def clip_line_to_polygon(px,py,dx,dy,polygon):
 # ── Storage ───────────────────────────────────────────────────────────────────
 def blank_field(company="",year=""):
     return dict(Name="",company=company,year=year,
-                PP_Latitude="",PP_Longitude="",
+                PP_Latitude="",PP_Longitude="",lld="",
                 Spray_angle="0",Sprayer_width="133",
                 shelter_mode="total",num_structures="",shelters_per_acre="",
                 spacing="",shelter_spacing="",directional_offset="",
@@ -353,6 +472,8 @@ class BeetentApp(ctk.CTk):
         self.outer_sprayer_poly = None
         self.bay_polygons     = []
         self.lld_boundary_poly  = None
+        self.lld_corners        = None   # cached corners of last LLD search (lat,lon list)
+        self.lld_label          = ""     # label of the last LLD result, for status
         self.corner_arm_overlays    = []   # list of map path/polygon objects
         self.corner_arm_pts         = []   # points being drawn for in-progress path
         self.corner_arm_circle_center = None  # (lat,lon) for in-progress circle
@@ -361,6 +482,7 @@ class BeetentApp(ctk.CTk):
         self.show_bays        = tk.BooleanVar(value=False)
         self.show_pivot       = tk.BooleanVar(value=True)   # pivot marker + tracks together
         self.show_tracks      = tk.BooleanVar(value=True)
+        self.show_lld_box     = tk.BooleanVar(value=True)   # yellow LLD search highlight
         self.shelter_markers    = []
         self.shelter_circle_polys = []
         self.shelter_positions  = []
@@ -432,7 +554,14 @@ class BeetentApp(ctk.CTk):
         self.lld_entry=ctk.CTkEntry(bar,width=230,placeholder_text="e.g. NW-32-14-22-W4")
         self.lld_entry.pack(side="left",pady=8)
         self.lld_entry.bind("<Return>",lambda e:self._search_lld())
-        ctk.CTkButton(bar,text="Go",width=48,command=self._search_lld).pack(side="left",padx=(4,20),pady=8)
+        ctk.CTkButton(bar,text="Go",width=48,command=self._search_lld).pack(side="left",padx=(4,4),pady=8)
+        # LLD highlight box toggle — the yellow rectangle around the searched
+        # quarter section can get in the way once you're zoomed in working on
+        # the field, so we let users hide/show it without re-searching.
+        ctk.CTkSwitch(bar,text="LLD box",variable=self.show_lld_box,
+                      command=self._toggle_lld_box,
+                      font=ctk.CTkFont(family=FONT_LABEL,size=11)
+                      ).pack(side="left",padx=(0,20),pady=8)
         self.status_lbl=ctk.CTkLabel(bar,text="",text_color=UI_MUTED,width=340,anchor="w")
         self.status_lbl.pack(side="left",padx=16)
         ctk.CTkLabel(bar,text="Units:").pack(side="right",padx=(0,4))
@@ -669,6 +798,7 @@ class BeetentApp(ctk.CTk):
             ("Name",               "Name",                  "Field name — used as folder/file name", False),
             ("PP_Latitude",        "Pivot Latitude",         "Decimal degrees — or click 📍 on map",  False),
             ("PP_Longitude",       "Pivot Longitude",        "Decimal degrees",                        False),
+            ("lld",                "Legal Land Description", "Auto-filled to NE/NW/SE/SW when pivot is placed. Editable — type a section (32-14-22-W4), half (N-32-14-22-W4), or quarter (NE-32-14-22-W4).", False),
             ("Spray_angle",        "Spray Angle (°)",        "0=N↑  90=E→  180=S↓  270=W←",           False),
             ("Sprayer_width",      "Sprayer Width (ft)",     "",                                       False),
             ("acres",              "Acres",                  "Total field area in acres",              False),
@@ -1537,12 +1667,38 @@ class BeetentApp(ctk.CTk):
         self.map_widget.set_position(lat,lon)
         zoom=15 if label[:2] in ("NE","NW","SE","SW") or label[1:2]=="½" else 13 if label.startswith("Sec") else 11
         self.map_widget.set_zoom(zoom)
+        # Stash result so the user can toggle the highlight off and back on
+        # without re-searching. Only draws now if the toggle is on.
+        self.lld_corners = corners
+        self.lld_label = label
+        self._render_lld_box()
+        self._status(f"→ {label}")
+
+    def _render_lld_box(self):
+        """(Re)draw the LLD highlight rectangle iff `show_lld_box` is on and
+        we have cached corners from a previous search."""
         if self.lld_boundary_poly:
             try: self.lld_boundary_poly.delete()
             except Exception: pass
-        self.lld_boundary_poly=self.map_widget.set_polygon(
-            corners,fill_color=None,outline_color="#FFFF88",border_width=2)
-        self._status(f"→ {label}")
+            self.lld_boundary_poly = None
+        if not self.show_lld_box.get(): return
+        if not self.lld_corners: return
+        try:
+            self.lld_boundary_poly = self.map_widget.set_polygon(
+                self.lld_corners, fill_color=None, outline_color="#FFFF88",
+                border_width=2)
+        except Exception:
+            pass
+
+    def _toggle_lld_box(self):
+        """Switch handler — show or hide the cached LLD highlight."""
+        self._render_lld_box()
+        if self.show_lld_box.get():
+            if self.lld_corners:
+                self._status(f"LLD box on ({self.lld_label})." if self.lld_label
+                             else "LLD box on.")
+        else:
+            self._status("LLD box hidden.")
 
     def _mode_pivot(self):
         self._close_all_popups()
@@ -1559,8 +1715,8 @@ class BeetentApp(ctk.CTk):
     def _mode_boundary(self):
         self._close_all_popups()
         self.click_mode="boundary"; self.boundary_pts=[]; self._clear_boundary_overlays()
-        self._show_context_btn("✔ Close Boundary", self._close_boundary)
-        self._status("Click map to add boundary vertices. ✔ Close when done.")
+        self._show_context_btn("✔ Save Boundary", self._close_boundary)
+        self._status("Click map to add boundary vertices. ✔ Save when done.")
 
     def _mode_edit_boundary(self):
         self._close_all_popups()
@@ -1581,8 +1737,8 @@ class BeetentApp(ctk.CTk):
         self._update_bnd_preview()
         self.click_mode="boundary_edit"
         self._selected_bnd_vertex=None
-        self._show_context_btn("✔ Done Editing", self._close_boundary)
-        self._status("Click a vertex to select it (drag to move, 🗑 Delete to remove). Esc to deselect. ✔ Done when finished.")
+        self._show_context_btn("✔ Save Boundary", self._close_boundary)
+        self._status("Click a vertex to select it (drag to move, 🗑 Delete to remove). Esc to deselect. ✔ Save when finished.")
 
     def _make_bnd_vertex_cb(self,idx):
         def cb(marker):
@@ -1605,8 +1761,8 @@ class BeetentApp(ctk.CTk):
         if self._selected_bnd_vertex is not None:
             self._redraw_bnd_vertex(self._selected_bnd_vertex,selected=False)
         self._selected_bnd_vertex=None
-        self._show_context_btn("✔ Done Editing",self._close_boundary)
-        self._status("Click a vertex to select it (drag to move, 🗑 Delete to remove). ✔ Done when finished.")
+        self._show_context_btn("✔ Save Boundary",self._close_boundary)
+        self._status("Click a vertex to select it (drag to move, 🗑 Delete to remove). ✔ Save when finished.")
 
     def _redraw_bnd_vertex(self,idx,selected=False):
         if idx>=len(self.boundary_pts) or idx>=len(self.boundary_markers): return
@@ -1727,6 +1883,7 @@ class BeetentApp(ctk.CTk):
 
         if mode=="pivot":
             self.fv["PP_Latitude"].set(f"{lat:.7f}"); self.fv["PP_Longitude"].set(f"{lon:.7f}")
+            self._autofill_lld(lat, lon)
             self.show_pivot.set(True)
             self._redraw_pivot()
             self.click_mode=None; self._status(f"Pivot: {lat:.5f}, {lon:.5f}")
@@ -1754,7 +1911,7 @@ class BeetentApp(ctk.CTk):
                                 lambda la,lo,i=idx: self._on_bnd_vertex_drag(i,la,lo))
             self._update_bnd_preview()
             self.click_mode="boundary_edit"
-            self._status("Vertex moved. Click another vertex or ✔ Done Editing.")
+            self._status("Vertex moved. Click another vertex or ✔ Save Boundary.")
 
         elif mode=="track":
             try:
@@ -1822,8 +1979,22 @@ class BeetentApp(ctk.CTk):
         self.click_mode=None
         self._hide_context_btn()
         self._clear_boundary_markers(); self._redraw_boundary()
-        self._status(f"Boundary set ({len(self.boundary_pts)} vertices).")
-        self.boundary_pts=[]; self._redraw_passes()
+        # Auto-fill acres from the drawn polygon. The user can still type their
+        # own number into the Acres entry afterward to override the calculated
+        # value (e.g. for known surveyed acreage that differs from the rough
+        # outline). The next time they save a boundary, this will recompute.
+        area_m2 = polygon_area_m2([(p[0], p[1]) for p in self.boundary_pts])
+        acres = area_m2 * ACRES_PER_M2
+        if acres > 0:
+            try: self.fv["acres"].set(f"{acres:.2f}")
+            except Exception: pass
+            self._status(f"Boundary set ({len(self.boundary_pts)} vertices) — {acres:.2f} acres.")
+        else:
+            self._status(f"Boundary set ({len(self.boundary_pts)} vertices).")
+        self.boundary_pts=[]
+        self._redraw_passes()
+        if self.show_bays.get():   self._redraw_bays()
+        if self.show_tracks.get(): self._redraw_tracks(skip_shelters=True)
         if self.show_shelters.get(): self._redraw_shelters()
 
     def _clear_boundary(self):
@@ -1859,7 +2030,7 @@ class BeetentApp(ctk.CTk):
     def _on_bnd_vertex_drag(self,idx,lat,lon):
         if self._selected_bnd_vertex==idx:
             self._selected_bnd_vertex=None
-            self._show_context_btn("✔ Done Editing",self._close_boundary)
+            self._show_context_btn("✔ Save Boundary",self._close_boundary)
         self.boundary_pts[idx]=(lat,lon)
         try: self.boundary_markers[idx].delete()
         except Exception: pass
@@ -1870,6 +2041,15 @@ class BeetentApp(ctk.CTk):
         self._register_drag(f"bnd_{idx}",lat,lon,str(idx+1),"#FFD700","#B8860B",
                             lambda la,lo,i=idx: self._on_bnd_vertex_drag(i,la,lo))
         self._update_bnd_preview()
+        # Live-update bays / passes / track clipping so the user sees the
+        # downstream effect of the move without having to hit "Save Boundary".
+        # Commit the in-progress points into the field so the redraw helpers
+        # (which read current_field["boundary_polygon"]) see the new shape.
+        if len(self.boundary_pts) >= 3:
+            self.current_field["boundary_polygon"] = [list(p) for p in self.boundary_pts]
+            if self.show_passes.get(): self._redraw_passes()
+            if self.show_bays.get():   self._redraw_bays()
+            if self.show_tracks.get(): self._redraw_tracks(skip_shelters=True)
 
     # ── Pivot tracks ───────────────────────────────────────────────────────────
     def _add_track_manual(self):
@@ -2063,10 +2243,36 @@ class BeetentApp(ctk.CTk):
             plat=float(self.fv["PP_Latitude"].get()); plon=float(self.fv["PP_Longitude"].get())
         except (ValueError,TypeError): return
         excl_m=float(self.fv.get("track_exclusion_ft",self.excl_var).get() or "10")*0.3048
+        bp=self.current_field.get("boundary_polygon")
+        clip_to_bnd = bool(bp and len(bp)>=3)
         for i,r_m in enumerate(self.current_field.get("pivot_tracks") or []):
             for r,col,w in [(r_m+excl_m,"#32CD32",2),(max(1,r_m-excl_m),"#32CD32",1)]:
-                self.track_circles.append(self.map_widget.set_polygon(
-                    circle_pts(plat,plon,r),fill_color=None,outline_color=col,border_width=w))
+                pts = circle_pts(plat,plon,r,n=180)
+                if not clip_to_bnd:
+                    # No boundary → draw the full circle as before.
+                    self.track_circles.append(self.map_widget.set_polygon(
+                        pts,fill_color=None,outline_color=col,border_width=w))
+                    continue
+                # Boundary present → draw the circle only where it's inside the
+                # boundary polygon. Walk the sample points; emit one set_path
+                # per contiguous run that's inside the polygon.
+                pts_closed = pts + [pts[0]]
+                inside_flags = [point_in_latlon_polygon(la, lo, bp) for la, lo in pts_closed]
+                segment = []
+                def _flush():
+                    if len(segment) >= 2:
+                        try:
+                            path = self.map_widget.set_path(list(segment),
+                                                            color=col, width=w)
+                            self.track_circles.append(path)
+                        except Exception:
+                            pass
+                for k, (la, lo) in enumerate(pts_closed):
+                    if inside_flags[k]:
+                        segment.append((la, lo))
+                    else:
+                        _flush(); segment = []
+                _flush()
         if not skip_shelters and self.show_shelters.get(): self._redraw_shelters()
 
     def _on_track_drag(self,idx,lat,lon,final=False):
@@ -2660,6 +2866,7 @@ class BeetentApp(ctk.CTk):
     # ── Pivot drag handler ─────────────────────────────────────────────────────
     def _on_pivot_drag(self,lat,lon):
         self.fv["PP_Latitude"].set(f"{lat:.7f}"); self.fv["PP_Longitude"].set(f"{lon:.7f}")
+        self._autofill_lld(lat, lon)
         if self.pivot_marker:
             try: self.pivot_marker.delete()
             except Exception: pass
@@ -2669,6 +2876,20 @@ class BeetentApp(ctk.CTk):
         self._register_drag("pivot",lat,lon,"Pivot","red","darkred",self._on_pivot_drag,marker=self.pivot_marker)
         self._status(f"Pivot moved: {lat:.5f}, {lon:.5f}")
         self._redraw_boundary(); self._redraw_passes(); self._redraw_tracks()
+
+    def _autofill_lld(self, lat, lon):
+        """Compute the quarter-section LLD for (lat, lon) and write it to the
+        LLD entry. Mirrors the acres-on-boundary-save flow: a fresh placement
+        replaces whatever was there. The user can type a different format
+        (half, section, or even LSD) afterwards and that value sticks until
+        the pivot is moved again."""
+        try:
+            lld = reverse_geocode_lld(lat, lon, granularity='quarter')
+        except Exception:
+            lld = None
+        if lld and self.fv.get("lld") is not None:
+            try: self.fv["lld"].set(lld)
+            except Exception: pass
 
     # ── Drag system ────────────────────────────────────────────────────────────
     def _register_drag(self,key,lat,lon,text,cc,oc,update_fn,marker=None):
