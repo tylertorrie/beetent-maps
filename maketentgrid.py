@@ -863,6 +863,115 @@ def parse_jd_seeding_shapefile(shp_path):
     return passes
 
 
+def resolve_row_mask(nf, nm, layout, custom):
+    """Build the M/F-per-row mask string for the planter.
+    Mirrors the GUI helper of the same name in beetent_app.py so
+    get_tent_positions can resolve it without touching the form."""
+    total = max(0, int(nf) + int(nm))
+    if total == 0: return ""
+    if layout == 'custom':
+        s = "".join(c for c in (custom or "").upper() if c in "MF")
+        if len(s) == total and s.count("M") == int(nm) and s.count("F") == int(nf):
+            return s
+        layout = 'centered'   # safety net
+    if layout == 'outer':
+        left = int(nm) // 2
+        right = int(nm) - left
+        return "M" * left + "F" * int(nf) + "M" * right
+    left_f = int(nf) // 2
+    right_f = int(nf) - left_f
+    return "F" * left_f + "M" * int(nm) + "F" * right_f
+
+
+def _haversine_m(lat1, lon1, lat2, lon2):
+    R = 6378137.0
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = (math.sin(dlat/2)**2 +
+         math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) *
+         math.sin(dlon/2)**2)
+    return 2 * R * math.asin(math.sqrt(a))
+
+
+def _polyline_cumlen_m(poly):
+    """Cumulative arc length in metres for a [(lat,lon), ...] polyline."""
+    cl = [0.0]
+    for i in range(len(poly) - 1):
+        d = _haversine_m(poly[i][0], poly[i][1], poly[i+1][0], poly[i+1][1])
+        cl.append(cl[-1] + d)
+    return cl
+
+
+def _interp_at_arclen(poly, cl, target_m):
+    """Return the (lat, lon) point along `poly` at cumulative arc length
+    `target_m` metres (clamped to the polyline's range)."""
+    if not poly: return (0.0, 0.0)
+    if target_m <= cl[0]: return poly[0]
+    if target_m >= cl[-1]: return poly[-1]
+    # Linear scan — fine for typical polylines (≤ a few thousand vertices).
+    for i in range(len(cl) - 1):
+        if cl[i+1] >= target_m:
+            seg = cl[i+1] - cl[i]
+            t = 0.0 if seg <= 0 else (target_m - cl[i]) / seg
+            lat = poly[i][0] + t * (poly[i+1][0] - poly[i][0])
+            lon = poly[i][1] + t * (poly[i+1][1] - poly[i][1])
+            return (lat, lon)
+    return poly[-1]
+
+
+def _midpoint_polyline(a, b, n_samples=80):
+    """Midpoint polyline between two pass polylines.
+
+    Boustrophedon planters reverse direction every pass, so we first detect
+    whether `b` runs opposite to `a` (compare endpoint distances) and reverse
+    if so. Then we resample both at the same arc-length fractions and average.
+    """
+    if not a or not b: return []
+    # If a's start is closer to b's end than to b's start, b is reversed.
+    d_aligned   = _haversine_m(a[0][0], a[0][1], b[0][0], b[0][1])
+    d_reversed  = _haversine_m(a[0][0], a[0][1], b[-1][0], b[-1][1])
+    if d_reversed < d_aligned:
+        b = list(reversed(b))
+    ca = _polyline_cumlen_m(a)
+    cb = _polyline_cumlen_m(b)
+    total_a, total_b = ca[-1], cb[-1]
+    if total_a <= 0 or total_b <= 0: return []
+    out = []
+    for i in range(n_samples + 1):
+        frac = i / n_samples
+        pa = _interp_at_arclen(a, ca, frac * total_a)
+        pb = _interp_at_arclen(b, cb, frac * total_b)
+        out.append(((pa[0] + pb[0]) * 0.5, (pa[1] + pb[1]) * 0.5))
+    return out
+
+
+def _shelter_row_centerlines(passes, layout, mask):
+    """Compute the polylines along which shelters should be placed, given
+    the imported planter passes and the row mask.
+
+    - "outer" layout (mask M…M at the ends): female bays span across two
+      passes, so the bay centre is AT each pass centre. Returns the passes
+      as-is. Outermost passes are still included; if they produce shelters
+      past the boundary they'll be filtered out by the inside-polygon check.
+
+    - "centered" layout (mask F…M…F with male block in the middle): bay
+      centre is BETWEEN adjacent passes, so we emit one midpoint polyline
+      per adjacent pair (N - 1 centerlines for N passes).
+
+    - "custom": pick outer-style if mask starts or ends with M, otherwise
+      centred-style.
+    """
+    if not passes: return []
+    if layout == 'custom':
+        layout = 'outer' if (mask and (mask[0] == 'M' or mask[-1] == 'M')) else 'centered'
+    if layout == 'outer':
+        return [list(p) for p in passes]
+    # centered
+    return [_midpoint_polyline(passes[i], passes[i+1])
+            for i in range(len(passes) - 1)
+            if len(passes[i]) >= 2 and len(passes[i+1]) >= 2]
+
+
 def get_tent_positions(field_dict, use_metric=True, return_rows=False):
     """
     Compute shelter positions from a field dict, return [(lat, lon), ...] in NW-snake
@@ -1009,6 +1118,218 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                         if (east - px)**2 + (north - py)**2 < excl_m2:
                             return True
             return False
+
+        # =====================================================================
+        # PASS-FOLLOWING MODE — use imported JD planter passes as ground truth.
+        #
+        # When the field has uploaded planter_passes AND use_imported_passes is
+        # on, we ignore the synthetic grid entirely and place shelters along
+        # centerlines derived from the actual passes:
+        #   outer-mask    → centerlines = the passes themselves
+        #   centered-mask → centerlines = midpoints between adjacent passes
+        # The row mask (resolved from row_layout + custom_row_mask) decides
+        # which strategy applies.
+        #
+        # Falls through to the synthetic-grid branch when there's no usable
+        # planter data, the toggle is off, the user gave a manual spacing
+        # (those modes don't make sense without a 2D grid), or num_tents is
+        # missing.
+        # =====================================================================
+        planter_passes_raw = field_dict.get('planter_passes') or []
+        use_imported = bool(field_dict.get('use_imported_passes', True))
+        # Normalise to list of [(lat, lon), ...] lists; saved JSON gives [[lat,lon],...].
+        planter_passes = []
+        for p in planter_passes_raw:
+            if not p or len(p) < 2: continue
+            planter_passes.append([(float(pt[0]), float(pt[1])) for pt in p])
+
+        if use_imported and planter_passes and not user_spacing and num_tents:
+            row_layout_v = str(field_dict.get('row_layout') or 'centered').strip().lower()
+            custom_mask  = str(field_dict.get('custom_row_mask') or '').strip()
+            nf_i_pf = int(nf_raw) if nf_raw else 8
+            nm_i_pf = int(nm_raw) if nm_raw else 2
+            mask = resolve_row_mask(nf_i_pf, nm_i_pf, row_layout_v, custom_mask)
+            centerlines = _shelter_row_centerlines(planter_passes, row_layout_v, mask)
+
+            # Convert each centerline to ENU (relative to pivot) and prebuild
+            # arc-length so we can sample evenly and exclude in one pass.
+            enu_centerlines = []
+            for cl in centerlines:
+                if len(cl) < 2: continue
+                cl_enu = [latlon_list_to_enu([pt], pivotpoint[0], pivotpoint[1])[0]
+                          for pt in cl]
+                # cumulative metric length in ENU (matches lat/lon haversine well
+                # at field scale)
+                lens = [0.0]
+                for i in range(len(cl_enu) - 1):
+                    dx = cl_enu[i+1][0] - cl_enu[i][0]
+                    dy = cl_enu[i+1][1] - cl_enu[i][1]
+                    lens.append(lens[-1] + math.sqrt(dx*dx + dy*dy))
+                if lens[-1] <= 0: continue
+                enu_centerlines.append((cl, cl_enu, lens))
+
+            def _interp_enu(cl_enu, lens, target_m):
+                if target_m <= lens[0]: return cl_enu[0]
+                if target_m >= lens[-1]: return cl_enu[-1]
+                for i in range(len(lens) - 1):
+                    if lens[i+1] >= target_m:
+                        seg = lens[i+1] - lens[i]
+                        t = 0.0 if seg <= 0 else (target_m - lens[i]) / seg
+                        return (cl_enu[i][0] + t * (cl_enu[i+1][0] - cl_enu[i][0]),
+                                cl_enu[i][1] + t * (cl_enu[i+1][1] - cl_enu[i][1]))
+                return cl_enu[-1]
+
+            # Same exclusion rules as the synthetic-grid branch.
+            excl_m_safe_pf = excl_m + 0.01
+            PASS_KILL_HALF_M_PF = 30.0 * 0.3048
+            pass_center_pf = sprayer_width / 2.0
+
+            def _pf_valid(east, north):
+                # Inside boundary (with the same round-trip safety check used
+                # by the synthetic branch)
+                if boundary_enu:
+                    if not _point_in_polygon(east, north, boundary_enu):
+                        return False
+                    lon, lat = utmish.to_lonlat(east + easting, north + northing,
+                                                 pivotpoint[0])
+                    re_e, re_n = utmish.from_lonlat(lon, lat, pivotpoint[0])
+                    if not _point_in_polygon(re_e - easting, re_n - northing,
+                                              boundary_enu):
+                        return False
+                else:
+                    if east*east + north*north > radius_sqr: return False
+                # Pivot inner exclusion: don't sit on top of the pivot.
+                if east*east + north*north < sprayer_width * sprayer_width:
+                    return False
+                # Outside-pass kill zone (centre 60 ft of the outside pass).
+                if outside_pass:
+                    if boundary_enu:
+                        # min distance to boundary
+                        min_d2 = float('inf')
+                        n_b = len(boundary_enu)
+                        for i in range(n_b):
+                            ax, ay = boundary_enu[i]
+                            bx, by = boundary_enu[(i+1) % n_b]
+                            dx, dy = bx - ax, by - ay
+                            seg2 = dx*dx + dy*dy
+                            if seg2 > 0:
+                                t = max(0.0, min(1.0, ((east-ax)*dx + (north-ay)*dy) / seg2))
+                                px, py = ax + t*dx, ay + t*dy
+                            else:
+                                px, py = ax, ay
+                            d2 = (east-px)**2 + (north-py)**2
+                            if d2 < min_d2: min_d2 = d2
+                        d_b = math.sqrt(min_d2)
+                    else:
+                        d_b = radius - math.sqrt(east*east + north*north)
+                    if abs(d_b - pass_center_pf) <= PASS_KILL_HALF_M_PF:
+                        return False
+                if pivot_tracks:
+                    d = math.sqrt(east*east + north*north)
+                    if any(abs(d - tr) < excl_m_safe_pf for tr in pivot_tracks):
+                        return False
+                if corner_excl and _in_corner_excl(east, north):
+                    return False
+                return True
+
+            # Estimate target N-S spacing from the total length of all
+            # centerlines and the requested shelter count, then verify and
+            # tighten with a quick adjustment loop.
+            total_len_m = sum(lens[-1] for _, _, lens in enu_centerlines)
+            if total_len_m <= 0 or not enu_centerlines:
+                return ([], []) if return_rows else []
+            # Add a tiny over-shoot factor so exclusions eat the slack without
+            # leaving us short.
+            ns_spacing_pf = max(1.0, total_len_m / max(1, num_tents))
+
+            def _place_at(ns):
+                # Walk each centerline at ns metres and collect valid points
+                # tagged with row_idx (the centerline they came from).
+                pts = []
+                for r_idx, (_, cl_enu, lens) in enumerate(enu_centerlines):
+                    total = lens[-1]
+                    if total <= 0 or ns <= 0: continue
+                    n = int(total / ns) + 1
+                    # Centre the spacing along the centerline so we don't get
+                    # a long dangling tail at one end only.
+                    offset = (total - (n - 1) * ns) * 0.5
+                    if offset < 0: offset = 0.0
+                    for j in range(n):
+                        t = offset + j * ns
+                        if t < 0 or t > total: continue
+                        e, n_v = _interp_enu(cl_enu, lens, t)
+                        if _pf_valid(e, n_v):
+                            pts.append((e, n_v, r_idx))
+                return pts
+
+            # Binary search for the largest spacing that yields >= num_tents
+            # valid placements. _place_at is monotonically non-decreasing as
+            # spacing decreases, so a 24-step bisection over [0.5 m, 2×total]
+            # converges to sub-mm precision and reliably hits the target
+            # (where the previous proportional-scaling loop could oscillate).
+            lo, hi = 0.5, max(2.0, total_len_m * 2)
+            if len(_place_at(lo)) < num_tents:
+                # Even at the tightest spacing we can't fit num_tents; take
+                # whatever we get at lo.
+                placed = _place_at(lo)
+            else:
+                for _ in range(24):
+                    mid = (lo + hi) / 2
+                    if len(_place_at(mid)) >= num_tents:
+                        lo = mid
+                    else:
+                        hi = mid
+                ns_spacing_pf = lo
+                placed = _place_at(ns_spacing_pf)
+
+            if not placed:
+                return ([], []) if return_rows else []
+
+            # Snake order by row (NW-style consistent with the synthetic branch).
+            # Sort each row's points by their projection onto the dominant axis.
+            from collections import defaultdict
+            groups = defaultdict(list)
+            for e, n, r in placed:
+                groups[r].append((e, n))
+
+            # Determine a global "lateral" direction from the average pass
+            # heading (approximated by the first-to-last vector of the first
+            # centerline). Travel direction is along the pass.
+            ax = enu_centerlines[0][1][0][0]; ay = enu_centerlines[0][1][0][1]
+            bx = enu_centerlines[0][1][-1][0]; by = enu_centerlines[0][1][-1][1]
+            tlen = math.sqrt((bx-ax)**2 + (by-ay)**2) or 1
+            tdx_pf, tdy_pf = (bx-ax)/tlen, (by-ay)/tlen     # travel direction
+            ldx_pf, ldy_pf = -tdy_pf, tdx_pf                # lateral direction
+
+            def row_lat_coord_pf(r):
+                pts = groups[r]
+                return sum(e*ldx_pf + n*ldy_pf for e, n in pts) / len(pts)
+            sorted_rows = sorted(groups.keys(), key=row_lat_coord_pf)
+
+            ordered = []
+            ordered_rows = []
+            for i, r in enumerate(sorted_rows):
+                pts = sorted(groups[r], key=lambda en: en[0]*tdx_pf + en[1]*tdy_pf)
+                # Snake: alternate row direction so the numbering flows.
+                if i % 2 == 1:
+                    pts = list(reversed(pts))
+                ordered.extend(pts)
+                ordered_rows.extend([i] * len(pts))
+
+            # Trim any small excess (the spacing-fit loop usually lands within ±1).
+            if len(ordered) > num_tents:
+                ordered = ordered[:num_tents]
+                ordered_rows = ordered_rows[:num_tents]
+
+            result = []
+            kept_rows = []
+            for (e, n), r_idx in zip(ordered, ordered_rows):
+                lon, lat = utmish.to_lonlat(e + easting, n + northing, pivotpoint[0])
+                result.append((lat, lon))
+                kept_rows.append(r_idx)
+            if return_rows:
+                return result, kept_rows
+            return result
 
         # =====================================================================
         # TRUE RECTANGULAR GRID (num_tents mode)
