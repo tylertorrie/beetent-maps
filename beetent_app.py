@@ -413,6 +413,7 @@ def blank_field(company="",year=""):
                 acres_per_shelter="",
                 spacing="",shelter_spacing="",directional_offset="",
                 row_spacing_in="22",num_female_rows="8",num_male_rows="2",
+                total_rows="20",          # total rows on the planter (may > num_female + num_male if unit repeats)
                 row_layout="centered",   # "outer" | "centered" | "custom"
                 custom_row_mask="",       # only used when row_layout == "custom"
                 use_bays=True,            # False = blanket-planted crop, no female-bay constraint
@@ -913,30 +914,47 @@ class BeetentApp(ctk.CTk):
                         variable=self.use_bays_var,
                         command=self._on_use_bays_toggle).pack(anchor="w", pady=(2,4))
 
-        bay_rows=[
-            ("row_spacing_in",   "Row Spacing (inches)"),
-            ("num_female_rows",  "Female Rows"),
-            ("num_male_rows",    "Male Rows"),
+        # Always-visible inputs: row spacing + total planter rows. These define
+        # the planter pass width (rows × spacing) regardless of crop type.
+        common_rows=[
+            ("row_spacing_in", "Row Spacing (inches)"),
+            ("total_rows",     "Total Rows on Planter"),
         ]
-        for key,label in bay_rows:
+        for key,label in common_rows:
             ctk.CTkLabel(bc,text=label,anchor="w",font=ctk.CTkFont(family=FONT_LABEL,size=11)).pack(fill="x")
             v=tk.StringVar(); ctk.CTkEntry(bc,textvariable=v).pack(fill="x",pady=(0,4))
             self.fv[key]=v
-        # Total planter row count = num_female_rows + num_male_rows. Planter
-        # width is just rows × row_spacing, so we don't store width separately.
-        self.planter_rows_lbl=ctk.CTkLabel(bc,text="Planter rows: —",anchor="w",text_color=UI_ACCENT)
-        self.planter_rows_lbl.pack(fill="x")
-        self.female_bay_lbl=ctk.CTkLabel(bc,text="Female bay width: —",anchor="w",text_color=UI_ACCENT)
+        self.planter_pass_lbl=ctk.CTkLabel(bc,text="Planter pass: —",anchor="w",text_color=UI_ACCENT)
+        self.planter_pass_lbl.pack(fill="x")
+
+        # Bay-only widgets: female/male row counts (per repeat unit), bay
+        # widths, row layout dropdown, mask preview, custom mask entry. All
+        # wrapped in one frame so _on_use_bays_toggle can hide them as a group
+        # when "Crop uses planting bays" is unchecked.
+        self._bay_only_frame=ctk.CTkFrame(bc,fg_color="transparent")
+        self._bay_only_frame.pack(fill="x")
+        bay_only_rows=[
+            ("num_female_rows",  "Female Rows (per repeat unit)"),
+            ("num_male_rows",    "Male Rows (per repeat unit)"),
+        ]
+        for key,label in bay_only_rows:
+            ctk.CTkLabel(self._bay_only_frame,text=label,anchor="w",
+                         font=ctk.CTkFont(family=FONT_LABEL,size=11)).pack(fill="x")
+            v=tk.StringVar(); ctk.CTkEntry(self._bay_only_frame,textvariable=v).pack(fill="x",pady=(0,4))
+            self.fv[key]=v
+        self.repeats_lbl=ctk.CTkLabel(self._bay_only_frame,text="Repeats: —",
+                                       anchor="w",text_color=UI_ACCENT)
+        self.repeats_lbl.pack(fill="x")
+        self.female_bay_lbl=ctk.CTkLabel(self._bay_only_frame,text="Female bay width: —",
+                                          anchor="w",text_color=UI_ACCENT)
         self.female_bay_lbl.pack(fill="x")
-        self.male_bay_lbl=ctk.CTkLabel(bc,text="Male bay width: —",anchor="w",text_color=UI_ACCENT)
+        self.male_bay_lbl=ctk.CTkLabel(self._bay_only_frame,text="Male bay width: —",
+                                        anchor="w",text_color=UI_ACCENT)
         self.male_bay_lbl.pack(fill="x")
 
-        # Row layout: how male rows are arranged on the planter. Determines
-        # the row mask (M/F per row) used to compute where male/female bays
-        # land between adjacent passes.
-        ctk.CTkLabel(bc,text="Row layout",anchor="w",
+        ctk.CTkLabel(self._bay_only_frame,text="Row layout",anchor="w",
                      font=ctk.CTkFont(family=FONT_LABEL,size=11)).pack(fill="x",pady=(8,0))
-        ctk.CTkLabel(bc,
+        ctk.CTkLabel(self._bay_only_frame,
             text="Outer = male rows split across both ends (joins next pass to form a male bay).\n"
                  "Centered = male rows as a single block in the middle.\n"
                  "Custom = type your own mask (M = male, F = female).",
@@ -944,16 +962,15 @@ class BeetentApp(ctk.CTk):
         self.row_layout_var=tk.StringVar(value="Centered male")
         self._row_layout_labels={"Outer male":"outer","Centered male":"centered","Custom":"custom"}
         self._row_layout_inverse={v:k for k,v in self._row_layout_labels.items()}
-        ctk.CTkComboBox(bc,variable=self.row_layout_var,
+        ctk.CTkComboBox(self._bay_only_frame,variable=self.row_layout_var,
                         values=list(self._row_layout_labels.keys()),
                         command=lambda v: self._on_row_layout_change()
                         ).pack(fill="x",pady=(2,4))
-        # Custom mask entry — visible only when "Custom" is selected.
         self.custom_mask_var=tk.StringVar(value="")
-        self.custom_mask_entry=ctk.CTkEntry(bc,textvariable=self.custom_mask_var,
+        self.custom_mask_entry=ctk.CTkEntry(self._bay_only_frame,textvariable=self.custom_mask_var,
                                              placeholder_text="e.g. MMFFFFFFFFFFFFFFFFMM")
-        # Pack/unpack depending on dropdown; resolved mask label always shown.
-        self.row_mask_lbl=ctk.CTkLabel(bc,text="Mask: —",anchor="w",text_color=UI_ACCENT,
+        self.row_mask_lbl=ctk.CTkLabel(self._bay_only_frame,text="Mask: —",anchor="w",
+                                        text_color=UI_ACCENT,
                                         font=ctk.CTkFont(family=FONT_BODY,size=10))
         self.row_mask_lbl.pack(fill="x",pady=(2,4))
 
@@ -1035,7 +1052,7 @@ class BeetentApp(ctk.CTk):
             v.trace_add("write", self._on_form_change)
         self.fv["track_exclusion_ft"].trace_add("write", self._on_track_excl_change)
         # Auto-recalc bays whenever a bay-calculator field changes (debounced).
-        for k in ("row_spacing_in","num_female_rows","num_male_rows"):
+        for k in ("row_spacing_in","total_rows","num_female_rows","num_male_rows"):
             if k in self.fv:
                 self.fv[k].trace_add("write", self._on_bay_change)
         # Custom-mask writes feed into the bay redraw too (debounced via
@@ -1112,7 +1129,7 @@ class BeetentApp(ctk.CTk):
         presets=self._load_bay_presets()
         for p in presets:
             if p["name"]==name:
-                for k in ("row_spacing_in","num_female_rows","num_male_rows"):
+                for k in ("row_spacing_in","total_rows","num_female_rows","num_male_rows"):
                     if k in p and k in self.fv: self.fv[k].set(str(p[k]))
                 # Row layout & custom mask are new — older presets that lack
                 # them default to "centered" (the historical implicit shape).
@@ -1127,6 +1144,7 @@ class BeetentApp(ctk.CTk):
         state. One spot so save-new and update stay in sync."""
         return {"name":name,
                 "row_spacing_in":self.fv["row_spacing_in"].get(),
+                "total_rows":self.fv["total_rows"].get(),
                 "num_female_rows":self.fv["num_female_rows"].get(),
                 "num_male_rows":self.fv["num_male_rows"].get(),
                 "row_layout":self._row_layout_labels.get(self.row_layout_var.get(),"centered"),
@@ -1807,8 +1825,10 @@ class BeetentApp(ctk.CTk):
         self.custom_mask_var.set(str(f.get("custom_row_mask","")))
         self.use_imported_passes_var.set(bool(f.get("use_imported_passes",True)))
         # Pre-existing fields default to bay mode (canola). New non-canola
-        # fields will save the unchecked state.
+        # fields will save the unchecked state. Also re-sync the frame
+        # visibility so the bay-only widgets show/hide with the load.
         self.use_bays_var.set(bool(f.get("use_bays",True)))
+        self._on_use_bays_toggle()
         self._on_row_layout_change()
         # Sync the tray-distribution dropdown
         dist_key = f.get("tray_distribution") or "even"
@@ -3141,40 +3161,60 @@ class BeetentApp(ctk.CTk):
             if txt!="Female bay width: —": self._calc_bays()
 
     # ── Bay layout overlay ─────────────────────────────────────────────────────
-    def _resolve_row_mask(self, nf, nm, layout, custom):
-        """Build the M/F-per-row mask string from the row counts + layout.
+    def _resolve_row_mask(self, nf, nm, layout, custom, total_rows=None):
+        """Build the M/F-per-row mask string for the WHOLE planter.
+
+        nf, nm are the female/male counts for one REPEAT UNIT. When
+        total_rows > (nf+nm) the unit pattern repeats to fill the planter
+        (e.g. 8F+2M centered = 'FFFFMMFFFF' (10 rows); on a 20-row planter
+        the resolved mask is 'FFFFMMFFFFFFFFMMFFFF' = the unit × 2).
 
         layout:
-          "outer"    → male rows split across both ends (half at each end);
-                       odd male counts put the extra at the trailing end.
-          "centered" → male rows as one block in the middle, female rows
-                       padded equally to each side.
-          "custom"   → user-supplied string of M/F chars (case-insensitive).
-                       If invalid or wrong length, falls back to "centered"
-                       so something sensible still renders.
+          "outer"    → male rows split across both ends of the UNIT.
+          "centered" → male rows as one block in the middle of the UNIT.
+          "custom"   → user-supplied string of length total_rows (NOT
+                       repeated — the user owns the whole pattern).
+                       Invalid input falls back to centered.
 
-        Returns a string like "MMFFFFFFFFFFFFFFFFMM" of length nf+nm."""
-        total = max(0, nf + nm)
-        if total == 0: return ""
+        Returns a string of length total_rows (or nf+nm if total_rows is
+        None/zero)."""
+        unit = max(0, nf + nm)
+        if unit == 0: return ""
+        target = int(total_rows) if total_rows and int(total_rows) > 0 else unit
         if layout == "custom":
             s = "".join(c for c in (custom or "").upper() if c in "MF")
-            if len(s) == total and s.count("M") == nm and s.count("F") == nf:
+            if len(s) == target:
                 return s
-            # Fall through to centered as a safety net.
-            layout = "centered"
+            layout = "centered"   # safety net
         if layout == "outer":
             left = nm // 2
             right = nm - left
-            return "M" * left + "F" * nf + "M" * right
-        # centered (default)
-        left_f = nf // 2
-        right_f = nf - left_f
-        return "F" * left_f + "M" * nm + "F" * right_f
+            unit_mask = "M" * left + "F" * nf + "M" * right
+        else:  # centered
+            left_f = nf // 2
+            right_f = nf - left_f
+            unit_mask = "F" * left_f + "M" * nm + "F" * right_f
+        # Repeat the unit to fill target rows. If target isn't an exact
+        # multiple, repeat enough times then truncate so the mask length
+        # always matches the planter exactly.
+        if target == unit:
+            return unit_mask
+        copies = (target + unit - 1) // unit   # ceil divide
+        return (unit_mask * copies)[:target]
 
     def _on_use_bays_toggle(self):
-        """Crop-uses-bays checkbox flipped. Refreshes the bay overlay (it
-        only makes sense in bay mode) and queues a shelter recompute so
-        the new placement strategy takes effect immediately."""
+        """Crop-uses-bays checkbox flipped. Hides the female/male/layout
+        widgets in blanket-planted mode (they don't apply), refreshes the
+        bay overlay (no-op in blanket mode), and queues a shelter recompute
+        so the new placement strategy takes effect immediately."""
+        if self.use_bays_var.get():
+            # Pack BEFORE the planter-pass-source row so the bay-only block
+            # stays in its visual position.
+            try: self._bay_only_frame.pack(fill="x")
+            except Exception: pass
+        else:
+            try: self._bay_only_frame.pack_forget()
+            except Exception: pass
         if self.show_bays.get():
             self._redraw_bays()
         self._on_form_change()   # debounced shelter recompute
@@ -3194,33 +3234,51 @@ class BeetentApp(ctk.CTk):
     def _calc_bays(self):
         try:
             rs=float(self.fv["row_spacing_in"].get() or 22)
-            nf=int(self.fv["num_female_rows"].get() or 8)
-            nm=int(self.fv["num_male_rows"].get() or 2)
+            total_rows=int(self.fv["total_rows"].get() or 20)
         except (ValueError,TypeError):
-            self._status("Enter numeric values for row spacing and row counts."); return
-        f_in=(nf+1)*rs; m_in=(nm+1)*rs
-        f_ft=f_in/12; m_ft=m_in/12; f_m=f_ft*0.3048; m_m=m_ft*0.3048
-        total_rows = nf + nm
+            self._status("Enter numeric values for row spacing and total rows."); return
+        # Planter pass width — always shown, even in blanket-planted mode.
         planter_in = total_rows * rs
         planter_ft = planter_in / 12
         planter_m  = planter_ft * 0.3048
-        layout = self._row_layout_labels.get(self.row_layout_var.get(),"centered")
-        mask = self._resolve_row_mask(nf, nm, layout, self.custom_mask_var.get())
         use_m=self.unit_var.get()=="Metres"
-        # Show planter rows + total width as a derived line (replaces the old
-        # standalone "Planter Width (ft)" input — width = rows × row_spacing).
         if use_m:
-            self.planter_rows_lbl.configure(
-                text=f'Planter rows: {total_rows}  ({planter_in:.1f}" = {planter_m:.3f} m)')
+            self.planter_pass_lbl.configure(
+                text=f'Planter pass: {total_rows} rows  ({planter_in:.1f}" = {planter_m:.3f} m)')
+        else:
+            self.planter_pass_lbl.configure(
+                text=f'Planter pass: {total_rows} rows  ({planter_in:.1f}" = {planter_ft:.3f} ft)')
+
+        # The rest only matters in bay mode — but we still resolve mask /
+        # update the labels so the bay-only frame reads correctly when the
+        # user toggles bays back on.
+        try:
+            nf=int(self.fv["num_female_rows"].get() or 8)
+            nm=int(self.fv["num_male_rows"].get() or 2)
+        except (ValueError,TypeError):
+            nf, nm = 8, 2
+        unit = max(1, nf + nm)
+        repeats = total_rows // unit if unit > 0 else 0
+        leftover = total_rows - repeats * unit
+        f_in=(nf+1)*rs; m_in=(nm+1)*rs
+        f_ft=f_in/12; m_ft=m_in/12; f_m=f_ft*0.3048; m_m=m_ft*0.3048
+        layout = self._row_layout_labels.get(self.row_layout_var.get(),"centered")
+        mask = self._resolve_row_mask(nf, nm, layout, self.custom_mask_var.get(),
+                                       total_rows=total_rows)
+        # Repeat count + warning if total_rows isn't a clean multiple of unit.
+        if leftover == 0:
+            repeats_txt = f"Repeats: {repeats}  ({unit}-row unit × {repeats} = {total_rows})"
+        else:
+            repeats_txt = f"Repeats: {repeats} + {leftover} leftover rows (unit size {unit})"
+        self.repeats_lbl.configure(text=repeats_txt)
+        if use_m:
             self.female_bay_lbl.configure(text=f'Female bay: {f_in:.1f}" = {f_m:.3f} m')
             self.male_bay_lbl.configure(text=f'Male bay:   {m_in:.1f}" = {m_m:.3f} m')
         else:
-            self.planter_rows_lbl.configure(
-                text=f'Planter rows: {total_rows}  ({planter_in:.1f}" = {planter_ft:.3f} ft)')
             self.female_bay_lbl.configure(text=f'Female bay: {f_in:.1f}" = {f_ft:.3f} ft')
             self.male_bay_lbl.configure(text=f'Male bay:   {m_in:.1f}" = {m_ft:.3f} ft')
         self.row_mask_lbl.configure(text=f"Mask: {mask or '—'}")
-        self._status(f"Bay layout: female {f_in:.0f}\" ({f_ft:.2f} ft), male {m_in:.0f}\" ({m_ft:.2f} ft); rows {total_rows}")
+        self._status(f"Bay layout: female {f_in:.0f}\" ({f_ft:.2f} ft), male {m_in:.0f}\" ({m_ft:.2f} ft); planter {total_rows} rows")
         if self.show_bays.get(): self._redraw_bays()
         if self.show_shelters.get(): self._redraw_shelters()
 

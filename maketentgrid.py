@@ -863,24 +863,43 @@ def parse_jd_seeding_shapefile(shp_path):
     return passes
 
 
-def resolve_row_mask(nf, nm, layout, custom):
-    """Build the M/F-per-row mask string for the planter.
+def resolve_row_mask(nf, nm, layout, custom, total_rows=None):
+    """Build the M/F-per-row mask string for the WHOLE planter.
+
+    nf/nm describe one REPEAT UNIT. When total_rows > nf+nm the unit
+    pattern repeats to fill the planter (e.g. 8F+2M centered = 'FFFFMMFFFF'
+    repeated twice = 'FFFFMMFFFFFFFFMMFFFF' on a 20-row planter).
+
+    layout: "outer" | "centered" | "custom".
+    For custom, the user-supplied string is used as-is and must already be
+    length total_rows; invalid input falls back to centered.
+
+    Returns a string of length total_rows (or nf+nm if total_rows missing).
     Mirrors the GUI helper of the same name in beetent_app.py so
     get_tent_positions can resolve it without touching the form."""
-    total = max(0, int(nf) + int(nm))
-    if total == 0: return ""
+    nf = int(nf); nm = int(nm)
+    unit = max(0, nf + nm)
+    if unit == 0: return ""
+    try: target = int(total_rows) if total_rows else unit
+    except (ValueError, TypeError): target = unit
+    if target <= 0: target = unit
     if layout == 'custom':
         s = "".join(c for c in (custom or "").upper() if c in "MF")
-        if len(s) == total and s.count("M") == int(nm) and s.count("F") == int(nf):
+        if len(s) == target:
             return s
-        layout = 'centered'   # safety net
+        layout = 'centered'
     if layout == 'outer':
-        left = int(nm) // 2
-        right = int(nm) - left
-        return "M" * left + "F" * int(nf) + "M" * right
-    left_f = int(nf) // 2
-    right_f = int(nf) - left_f
-    return "F" * left_f + "M" * int(nm) + "F" * right_f
+        left = nm // 2
+        right = nm - left
+        unit_mask = "M" * left + "F" * nf + "M" * right
+    else:  # centered
+        left_f = nf // 2
+        right_f = nf - left_f
+        unit_mask = "F" * left_f + "M" * nm + "F" * right_f
+    if target == unit:
+        return unit_mask
+    copies = (target + unit - 1) // unit
+    return (unit_mask * copies)[:target]
 
 
 def _haversine_m(lat1, lon1, lat2, lon2):
@@ -1187,7 +1206,12 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
             custom_mask  = str(field_dict.get('custom_row_mask') or '').strip()
             nf_i_pf = int(nf_raw) if nf_raw else 8
             nm_i_pf = int(nm_raw) if nm_raw else 2
-            mask = resolve_row_mask(nf_i_pf, nm_i_pf, row_layout_v, custom_mask)
+            # Total planter rows — defaults to nf+nm if not set (legacy fields).
+            tr_raw = str(field_dict.get('total_rows') or '').strip()
+            try: total_rows_pf = int(tr_raw) if tr_raw else (nf_i_pf + nm_i_pf)
+            except (ValueError, TypeError): total_rows_pf = nf_i_pf + nm_i_pf
+            mask = resolve_row_mask(nf_i_pf, nm_i_pf, row_layout_v, custom_mask,
+                                     total_rows=total_rows_pf)
             centerlines = _shelter_row_centerlines(planter_passes, row_layout_v, mask)
 
             # Convert each centerline to ENU (relative to pivot) and prebuild
