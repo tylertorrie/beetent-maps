@@ -410,6 +410,7 @@ def blank_field(company="",year=""):
                 PP_Latitude="",PP_Longitude="",lld="",
                 Spray_angle="0",Sprayer_width="133",
                 shelter_mode="total",num_structures="",shelters_per_acre="",
+                acres_per_shelter="",
                 spacing="",shelter_spacing="",directional_offset="",
                 row_spacing_in="22",num_female_rows="8",num_male_rows="2",
                 row_layout="centered",   # "outer" | "centered" | "custom"
@@ -841,7 +842,7 @@ class BeetentApp(ctk.CTk):
         # ── Shelters: choose how the exact count is specified ──
         # Backing storage vars (round-trip via _form_from_field/_field_from_form);
         # only the one matching the chosen mode is shown in the entry below.
-        for k in ("num_structures","spacing","shelters_per_acre"):
+        for k in ("num_structures","spacing","shelters_per_acre","acres_per_shelter"):
             self.fv[k]=tk.StringVar()
         # Track exclusion lives in the Pivot menu now, but keep its backing var
         # (used by _redraw_tracks / get_tent_positions) and its write-trace.
@@ -849,16 +850,24 @@ class BeetentApp(ctk.CTk):
         self._shelter_mode_labels={
             "Total shelters":           "total",
             "Shelters per acre":        "per_acre",
+            "Acres per shelter":        "acres_per_shelter",
             "Spacing between shelters": "spacing",
+            "1 tray per shelter":       "trays_1",
+            "2 trays per shelter":      "trays_2",
         }
         self._shelter_mode_inverse={v:k for k,v in self._shelter_mode_labels.items()}
-        self._shelter_mode_key={"total":"num_structures","per_acre":"shelters_per_acre","spacing":"spacing"}
+        # Only modes with user-editable values have an fv key. The two trays
+        # modes are auto-derived from bee allocation (gals/acre × acres ÷
+        # gals/tray) — the entry just displays the computed count.
+        self._shelter_mode_key={"total":"num_structures","per_acre":"shelters_per_acre",
+                                 "acres_per_shelter":"acres_per_shelter","spacing":"spacing"}
         ctk.CTkLabel(fs,text="Shelters",anchor="w",font=ctk.CTkFont(family=FONT_LABEL,size=11)).pack(fill="x")
         self.shelter_mode_var=tk.StringVar(value="Total shelters")
         ctk.CTkComboBox(fs,variable=self.shelter_mode_var,values=list(self._shelter_mode_labels.keys()),
                         command=self._on_shelter_mode_change).pack(fill="x",pady=(0,2))
         self.shelter_value_var=tk.StringVar()
-        ctk.CTkEntry(fs,textvariable=self.shelter_value_var).pack(fill="x",pady=(0,2))
+        self._shelter_entry=ctk.CTkEntry(fs,textvariable=self.shelter_value_var)
+        self._shelter_entry.pack(fill="x",pady=(0,2))
         self.shelter_hint_lbl=ctk.CTkLabel(fs,text="",anchor="w",text_color=UI_MUTED,font=ctk.CTkFont(size=10))
         self.shelter_hint_lbl.pack(fill="x",pady=(0,5))
         self.shelter_value_var.trace_add("write", self._on_shelter_value_change)
@@ -1504,18 +1513,57 @@ class BeetentApp(ctk.CTk):
     def _current_tray_strategy(self):
         return self.current_field.get("tray_distribution") or "even"
 
-    # ── Shelter count mode (per acre / total / spacing) ───────────────────────
+    # ── Shelter count mode (per acre / total / spacing / trays / acres per) ───
     def _shelter_hint(self, mode):
-        if mode=="per_acre": return "Shelters per acre × Acres = exact count placed."
-        if mode=="spacing":  return "Distance between shelters. Fills the field at that spacing."
+        if mode=="per_acre":          return "Shelters per acre × Acres = exact count placed."
+        if mode=="acres_per_shelter": return "e.g. 2 = one shelter per 2 acres (Acres ÷ value)."
+        if mode=="spacing":           return "Distance between shelters. Fills the field at that spacing."
+        if mode=="trays_1":           return "Auto: one tray per shelter. Count = total trays needed."
+        if mode=="trays_2":           return "Auto: two trays per shelter. Count = total trays ÷ 2."
         return "Exact number of shelters to place (e.g. 135)."
+
+    def _auto_shelter_count(self, mode):
+        """Compute the shelter count for the auto modes (trays_1 / trays_2)
+        from the bee allocation inputs. Returns int or None if inputs are
+        incomplete. acres_per_shelter is NOT auto — it has its own entry."""
+        try:
+            gpa = float(self.fv.get("gals_per_acre", tk.StringVar()).get())
+            gpt = float(self.fv.get("gals_per_tray", tk.StringVar()).get())
+            ac  = float(self.fv.get("acres", tk.StringVar()).get())
+        except (ValueError, AttributeError):
+            return None
+        if gpa <= 0 or gpt <= 0 or ac <= 0: return None
+        total_trays = math.ceil(gpa * ac / gpt)
+        divisor = 2 if mode == "trays_2" else 1
+        return max(1, math.ceil(total_trays / divisor))
+
+    def _refresh_shelter_value_display(self):
+        """For the auto modes, push the computed count into the read-only
+        entry so the user sees how many shelters they're getting. No-op for
+        the editable modes."""
+        mode = self._shelter_mode_labels.get(self.shelter_mode_var.get(),"total")
+        if mode not in ("trays_1","trays_2"): return
+        n = self._auto_shelter_count(mode)
+        self._loading_shelter_value=True
+        self.shelter_value_var.set(str(n) if n is not None else "—")
+        self._loading_shelter_value=False
 
     def _on_shelter_mode_change(self, _=None):
         mode=self._shelter_mode_labels.get(self.shelter_mode_var.get(),"total")
         self.current_field["shelter_mode"]=mode
-        key=self._shelter_mode_key[mode]
         self._loading_shelter_value=True
-        self.shelter_value_var.set(self.fv[key].get())
+        if mode in ("trays_1","trays_2"):
+            # Auto mode: entry shows computed count, disabled so the user
+            # doesn't try to edit it. Update display from current bee inputs.
+            n = self._auto_shelter_count(mode)
+            self.shelter_value_var.set(str(n) if n is not None else "—")
+            try: self._shelter_entry.configure(state="disabled")
+            except Exception: pass
+        else:
+            try: self._shelter_entry.configure(state="normal")
+            except Exception: pass
+            key=self._shelter_mode_key[mode]
+            self.shelter_value_var.set(self.fv[key].get())
         self._loading_shelter_value=False
         self.shelter_hint_lbl.configure(text=self._shelter_hint(mode))
         if self.show_shelters.get(): self._redraw_shelters()
@@ -1523,6 +1571,7 @@ class BeetentApp(ctk.CTk):
     def _on_shelter_value_change(self, *_):
         if getattr(self,"_loading_shelter_value",False): return
         mode=self._shelter_mode_labels.get(self.shelter_mode_var.get(),"total")
+        if mode in ("trays_1","trays_2"): return  # entry is read-only
         key=self._shelter_mode_key[mode]
         self.fv[key].set(self.shelter_value_var.get())   # fv trace → _on_form_change → redraw
 
@@ -1534,6 +1583,11 @@ class BeetentApp(ctk.CTk):
         the instant they type — no need to draw shelters first. Per-shelter
         and the "math gives fewer than N" warning still need the actual
         shelter count, so those stay '—' until shelters are computed."""
+        # Trays-based shelter modes derive their count from these same
+        # numbers; refresh the displayed count so it stays in sync as the
+        # user edits gpa / gpt / acres.
+        try: self._refresh_shelter_value_display()
+        except Exception: pass
         # Pull raw form numbers. Missing/invalid → leave as None so the totals
         # collapse to "—" rather than showing a misleading zero.
         def _num(key):

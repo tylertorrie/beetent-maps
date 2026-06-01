@@ -1064,6 +1064,30 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                     num_tents = max(1, int(round(spa * ac)))
             except (ValueError, TypeError):
                 num_tents = None
+        elif mode == 'acres_per_shelter':
+            # User specifies acres each shelter should cover. e.g. 2 → one
+            # shelter per 2 acres → 0.5 shelters/acre.
+            try:
+                aps = float(field_dict.get('acres_per_shelter') or 0)
+                ac  = float(field_dict.get('acres') or 0)
+                if aps > 0 and ac > 0:
+                    num_tents = max(1, int(round(ac / aps)))
+            except (ValueError, TypeError):
+                num_tents = None
+        elif mode in ('trays_1', 'trays_2'):
+            # Auto: derived from bee allocation. Total trays = ceil(gpa × acres
+            # ÷ gpt). 1 tray per shelter → num = total_trays; 2 per shelter →
+            # num = ceil(total_trays / 2).
+            try:
+                gpa = float(field_dict.get('gals_per_acre') or 0)
+                gpt = float(field_dict.get('gals_per_tray') or 0)
+                ac  = float(field_dict.get('acres') or 0)
+                if gpa > 0 and gpt > 0 and ac > 0:
+                    total_trays = int(math.ceil(gpa * ac / gpt))
+                    divisor = 2 if mode == 'trays_2' else 1
+                    num_tents = max(1, int(math.ceil(total_trays / divisor)))
+            except (ValueError, TypeError):
+                num_tents = None
         elif mode == 'total':
             num_tents = _int(field_dict.get('num_structures') or field_dict.get('# of Structures') or '')
         else:
