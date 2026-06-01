@@ -818,16 +818,6 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
         # anywhere inside the boundary.
         outside_pass = str(field_dict.get('outside_sprayer_pass') or 'No').strip().lower() == 'yes'
 
-        # Boundary-edge "wing" shelters: on the shorter stagger class, drop a
-        # shelter just past each end of the row, outside the boundary. Smooths
-        # the visual perimeter when staggered rows end at different N-S coords.
-        # Counts toward the requested total. Defaults ON when the flag is absent.
-        bes_raw = field_dict.get('boundary_edge_shelters', True)
-        if isinstance(bes_raw, str):
-            wings_enabled = bes_raw.strip().lower() in ('1','true','yes','y','on')
-        else:
-            wings_enabled = bool(bes_raw)
-
         if boundary_polygon:
             boundary_enu = latlon_list_to_enu(boundary_polygon, pivotpoint[0], pivotpoint[1])
             radius = max(math.sqrt(e*e + n*n) for e, n in boundary_enu) * 1.05
@@ -988,10 +978,15 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
             # land within rounding error of the track boundary are consistently excluded.
             excl_m_safe = excl_m + 0.01
 
-            # Boundary rule: a shelter is allowed if it is either right against the
-            # boundary (within BND_EDGE_DIST) or well inside (>= sprayer_width away).
-            # The annulus in between is the outside-sprayer-pass kill zone.
-            BND_EDGE_DIST = 3.0
+            # Outside-sprayer-pass rule: when ON, shelters can sit anywhere in
+            # the outside pass (the sprayer-width-wide band against the
+            # boundary) EXCEPT the center 60 ft — that's the sprayer's wheel /
+            # boom path. So the kill zone is a 60-ft band centred at
+            # sprayer_width/2 from the boundary. Shelters near the very edge
+            # AND shelters near the inner pass line are both OK.
+            #   kill if  | d_b - sprayer_width/2 | <= 30 ft  (≈ 9.144 m)
+            PASS_KILL_HALF_M = 30.0 * 0.3048
+            pass_center = sprayer_width / 2.0
             # Slide-along-bay budget for rescuing shelters that land in a forbidden
             # zone (pivot-track exclusion or sprayer kill zone).
             SNAP_MAX_M = 15.0
@@ -1000,13 +995,14 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
             def _valid(east, north):
                 d_sq = east*east + north*north
                 if d_sq < inner_r2: return False
-                # Boundary kill-zone only applies when an outside sprayer pass is run.
+                # Kill zone only applies when an outside sprayer pass is run.
                 if outside_pass:
                     if boundary_enu:
                         d_b = _min_dist_to_bnd(east, north)
                     else:
                         d_b = radius - math.sqrt(d_sq)
-                    if BND_EDGE_DIST < d_b < sprayer_width: return False
+                    if abs(d_b - pass_center) <= PASS_KILL_HALF_M:
+                        return False
                 if pivot_tracks:
                     d = math.sqrt(d_sq)
                     if any(abs(d - tr) < excl_m_safe for tr in pivot_tracks): return False
@@ -1014,9 +1010,22 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                 return True
 
             def _inside(east, north):
-                """Is the point inside the field boundary (polygon or circle)?"""
+                """Is the point inside the field boundary (polygon or circle)?
+
+                For polygon fields we also verify the position survives an
+                ENU→latlon→ENU round-trip without crossing the boundary.
+                That keeps placement consistent with the final output filter:
+                the binary-search count and the final-list filter agree on
+                which positions are placeable, so the user always gets the
+                requested num_tents (no silent loss to floating-point drift)."""
                 if boundary_enu:
-                    return _point_in_polygon(east, north, boundary_enu)
+                    if not _point_in_polygon(east, north, boundary_enu):
+                        return False
+                    lon, lat = utmish.to_lonlat(east + easting, north + northing,
+                                                pivotpoint[0])
+                    re_e, re_n = utmish.from_lonlat(lon, lat, pivotpoint[0])
+                    return _point_in_polygon(re_e - easting, re_n - northing,
+                                              boundary_enu)
                 return east*east + north*north <= radius_sqr
 
             def _snap_along_pre_n(pre_e, pre_n_0):
@@ -1081,110 +1090,29 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                 _seen_rows.add(key)
                 row_list.append((pre_e, k))
 
-            # Wing-shelter geometry constants. A wing sits one ns_spacing past
-            # the row's last in-boundary cell in the pre-rotation N axis, but
-            # must end up outside the boundary AND within sprayer_width of it
-            # (so we don't drop a shelter in open space when the row ends well
-            # inside the field).
-            WING_MAX_OUTSIDE_M = sprayer_width
-
-            def _wing_ok(east, north):
-                """Valid spot for a wing shelter: outside the boundary, within
-                a sprayer-width of it, and clear of tracks / corner zones."""
-                if _inside(east, north): return False
-                if boundary_enu:
-                    if _min_dist_to_bnd(east, north) > WING_MAX_OUTSIDE_M:
-                        return False
-                else:
-                    # Circular field: shelter must be just past the outer edge.
-                    d = math.sqrt(east*east + north*north)
-                    if d < radius or d > radius + WING_MAX_OUTSIDE_M:
-                        return False
-                if pivot_tracks:
-                    d = math.sqrt(east*east + north*north)
-                    if any(abs(d - tr) < excl_m_safe for tr in pivot_tracks):
-                        return False
-                if corner_excl and _in_corner_excl(east, north):
-                    return False
-                return True
-
-            def _row_endpoints(pre_e, n_sp, n_stagger, c_max):
-                """Find the row's first/last placeable pre_n values along the
-                bay axis. Returns (min_pre_n, max_pre_n) or None if empty."""
-                first = None; last = None
-                for c in range(-c_max, c_max + 1):
-                    pre_n = c * n_sp + directional_offset + n_stagger
-                    east  = pre_e * cos_r - pre_n * sin_r
-                    north = pre_n * cos_r + pre_e * sin_r
-                    if not _inside(east, north): continue
-                    if not (_valid(east, north) or _snappable_coarse(pre_e, pre_n)):
-                        continue
-                    if first is None: first = pre_n
-                    last = pre_n
-                return None if first is None else (first, last)
-
-            def _wing_candidates(pre_e, n_sp, n_stagger, c_max):
-                """Yield wing positions (east, north) for one row, one per end
-                where _wing_ok succeeds. Steps one n_sp past the row's first/
-                last in-boundary cell along the pre-N axis."""
-                ends = _row_endpoints(pre_e, n_sp, n_stagger, c_max)
-                if ends is None: return
-                first_pre_n, last_pre_n = ends
-                for pre_n in (first_pre_n - n_sp, last_pre_n + n_sp):
-                    east  = pre_e * cos_r - pre_n * sin_r
-                    north = pre_n * cos_r + pre_e * sin_r
-                    if _wing_ok(east, north):
-                        yield (east, north)
-
-            def _shorter_class(n_sp):
-                """Of the two stagger classes (idx%2 == 0, == 1), return the one
-                whose mean in-row endpoint span is shorter at this spacing.
-                That's the class whose perimeter dips inward — the class that
-                needs wings to even things out. Returns None if either class is
-                empty (e.g. no rows of that parity)."""
-                spans = {0: [], 1: []}
-                c_max = int(radius / n_sp) + 2
-                for idx, (pre_e, _k) in enumerate(row_list):
-                    parity = idx % 2
-                    n_stagger = (n_sp / 2) if parity else 0.0
-                    ends = _row_endpoints(pre_e, n_sp, n_stagger, c_max)
-                    if ends is None: continue
-                    spans[parity].append(ends[1] - ends[0])
-                if not spans[0] or not spans[1]:
-                    return 0 if spans[0] else (1 if spans[1] else None)
-                mean0 = sum(spans[0]) / len(spans[0])
-                mean1 = sum(spans[1]) / len(spans[1])
-                return 0 if mean0 < mean1 else 1
-
             def _count_at_least(n_sp, target):
                 # True if at least `target` PLACEABLE cells exist at this spacing
-                # (valid as-is, or snappable out of a kill/track zone), PLUS any
-                # wings the shorter stagger class will contribute when wings are
-                # enabled. Early-exits as soon as the target is reached.
-                # Counting placeable cells makes the chosen spacing yield the
-                # requested shelter count regardless of the outside-sprayer-pass
-                # toggle — that toggle changes which cells are valid, not how many.
-                # Stagger keys off the row's INDEX in row_list (its visual order),
-                # not k — k can jump several bays per pass when the sprayer is
-                # wider than a bay, so k%2 wouldn't alternate consistently.
+                # (valid as-is, or snappable out of a kill/track zone). Early-
+                # exits as soon as the target is reached, so dense spacings
+                # stay cheap. Counting placeable cells makes the chosen spacing
+                # yield the requested shelter count regardless of the outside-
+                # sprayer-pass toggle — that toggle changes which cells are
+                # valid, not how many.
+                # Stagger keys off the row's INDEX in row_list (its visual
+                # order), not k — k can jump several bays per pass when the
+                # sprayer is wider than a bay, so k%2 wouldn't alternate
+                # consistently.
                 if n_sp <= 0: return False
                 c_max = int(radius / n_sp) + 2
-                # Decide which parity gets wings at this spacing (or None).
-                wing_parity = _shorter_class(n_sp) if wings_enabled else None
                 total = 0
                 for idx, (pre_e, _k) in enumerate(row_list):
-                    parity = idx % 2
-                    n_stagger = (n_sp / 2) if parity else 0.0
+                    n_stagger = (n_sp / 2) if (idx % 2) else 0.0
                     for c in range(-c_max, c_max + 1):
                         pre_n = c * n_sp + directional_offset + n_stagger
                         east  = pre_e * cos_r - pre_n * sin_r
                         north = pre_n * cos_r + pre_e * sin_r
                         if not _inside(east, north): continue
                         if _valid(east, north) or _snappable_coarse(pre_e, pre_n):
-                            total += 1
-                            if total >= target: return True
-                    if wing_parity is not None and parity == wing_parity:
-                        for _w in _wing_candidates(pre_e, n_sp, n_stagger, c_max):
                             total += 1
                             if total >= target: return True
                 return False
@@ -1206,12 +1134,8 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
             # grouping both key off the row's visual index, not k.
             raw = []
             c_max = int(radius / ns_spacing) + 2
-            # Choose the wing parity ONCE at the final spacing so the in-grid
-            # build and the wing emission agree on which rows get wings.
-            wing_parity = _shorter_class(ns_spacing) if wings_enabled else None
             for idx, (pre_e, _k) in enumerate(row_list):
-                parity = idx % 2
-                n_stagger = (ns_spacing / 2) if parity else 0.0
+                n_stagger = (ns_spacing / 2) if (idx % 2) else 0.0
                 for c in range(-c_max, c_max + 1):
                     pre_n = c * ns_spacing + directional_offset + n_stagger
                     east  = pre_e * cos_r - pre_n * sin_r
@@ -1225,10 +1149,6 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                             new_e = pre_e * cos_r - snapped * sin_r
                             new_n = snapped * cos_r + pre_e * sin_r
                             raw.append((new_e, new_n, idx))
-                # Append wings for this row (if it's a wing-parity row).
-                if wing_parity is not None and parity == wing_parity:
-                    for we, wn in _wing_candidates(pre_e, ns_spacing, n_stagger, c_max):
-                        raw.append((we, wn, idx))
 
             if not raw:
                 return ([], []) if return_rows else []
@@ -1264,10 +1184,25 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                 ordered = ordered[:num_tents]
                 ordered_rows = ordered_rows[:num_tents]
 
+            # Convert to lat/lon, then drop any shelter that — after the
+            # ENU→latlon→ENU round-trip — no longer lands strictly inside the
+            # boundary. Internal placement uses _inside on the algorithm's
+            # (east, north) coordinates, but tiny floating-point drift in the
+            # round-trip can push a sub-mm-edge shelter to the visible-outside
+            # side. This filter guarantees no shelter ever renders outside the
+            # boundary line on the map.
             result = []
-            for e, n in ordered:
+            kept_rows = []
+            for (e, n), row_idx in zip(ordered, ordered_rows):
                 lon, lat = utmish.to_lonlat(e + easting, n + northing, pivotpoint[0])
+                if boundary_enu:
+                    re_e, re_n = utmish.from_lonlat(lon, lat, pivotpoint[0])
+                    re_e -= easting; re_n -= northing
+                    if not _point_in_polygon(re_e, re_n, boundary_enu):
+                        continue
                 result.append((lat, lon))
+                kept_rows.append(row_idx)
+            ordered_rows = kept_rows
             if return_rows:
                 return result, ordered_rows
             return result

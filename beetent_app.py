@@ -414,7 +414,6 @@ def blank_field(company="",year=""):
                 row_spacing_in="22",num_female_rows="8",num_male_rows="2",planter_width_ft="",
                 outside_sprayer_pass="No",track_exclusion_ft="10",
                 shelter_buffer_m="1.524",
-                boundary_edge_shelters=True,
                 gals_per_acre="3",acres="",gals_per_tray="2",tray_distribution="even",
                 boundary_polygon=None,pivot_tracks=[],corner_arms=[],
                 shelter_overrides={})
@@ -862,20 +861,8 @@ class BeetentApp(ctk.CTk):
                      anchor="w",text_color=UI_MUTED,font=ctk.CTkFont(size=10)).pack(fill="x")
         self.outside_pass_var=tk.StringVar(value="No")
         ctk.CTkSegmentedButton(fs,values=["Yes","No"],variable=self.outside_pass_var,
-                               command=lambda v: self._on_form_change()).pack(fill="x",pady=(2,8))
-
-        # Boundary-edge shelters — on the SHORTER stagger class, add one shelter
-        # past each end of the row just outside the field boundary, so the
-        # perimeter reads as a clean wrap instead of zig-zagging where alternating
-        # rows end at slightly different N-S coordinates. Counts toward the
-        # requested total.
-        ctk.CTkLabel(fs,text="Boundary edge shelters",anchor="w",
-                     font=ctk.CTkFont(family=FONT_LABEL,size=11)).pack(fill="x")
-        ctk.CTkLabel(fs,text="Adds a wing shelter past each end of every other row",
-                     anchor="w",text_color=UI_MUTED,font=ctk.CTkFont(size=10)).pack(fill="x")
-        self.boundary_edge_var=tk.BooleanVar(value=True)
-        ctk.CTkCheckBox(fs,text="Enable wing shelters",variable=self.boundary_edge_var,
-                        command=self._on_form_change).pack(anchor="w",pady=(2,8))
+                               command=lambda v: self._on_outside_pass_toggle()
+                               ).pack(fill="x",pady=(2,8))
 
         self.fv["Spray_angle"].set("0"); self.fv["Sprayer_width"].set("133")
 
@@ -997,6 +984,14 @@ class BeetentApp(ctk.CTk):
         if self._shelter_refresh_id:
             self.after_cancel(self._shelter_refresh_id)
         self._shelter_refresh_id = self.after(600, self._redraw_shelters)
+
+    def _on_outside_pass_toggle(self):
+        """Outside-sprayer-pass toggle changed. Beyond the usual form-change
+        side effects (shelter recompute), redraw the sprayer passes so the
+        red outer-pass inset line appears/disappears with the toggle."""
+        self._on_form_change()
+        if self.show_passes.get():
+            self._redraw_passes()
 
     def _on_track_excl_change(self, *_):
         if getattr(self, "_track_excl_refresh_id", None):
@@ -1629,8 +1624,6 @@ class BeetentApp(ctk.CTk):
             val=f.get(k)
             v.set(str(bf.get(k,"")) if val is None else str(val))
         self.outside_pass_var.set(f.get("outside_sprayer_pass","No"))
-        # Default ON for fields that predate the boundary_edge_shelters flag.
-        self.boundary_edge_var.set(bool(f.get("boundary_edge_shelters",True)))
         # Sync the tray-distribution dropdown
         dist_key = f.get("tray_distribution") or "even"
         self.tray_dist_var.set(self._tray_dist_inverse.get(dist_key, "Spread evenly"))
@@ -1659,7 +1652,6 @@ class BeetentApp(ctk.CTk):
         f=self.current_field
         for k,v in self.fv.items(): f[k]=v.get().strip()
         f["outside_sprayer_pass"]=self.outside_pass_var.get()
-        f["boundary_edge_shelters"]=bool(self.boundary_edge_var.get())
         f["tray_distribution"]=self._tray_dist_labels.get(self.tray_dist_var.get(),"even")
         f["shelter_mode"]=self._shelter_mode_labels.get(self.shelter_mode_var.get(),"total")
         # Use the dropdown company/year when specific; otherwise keep the loaded
@@ -2777,14 +2769,18 @@ class BeetentApp(ctk.CTk):
 
         if not self.show_passes.get(): return
 
-        # Outer sprayer limit — one sprayer-width inside the boundary
-        inset=inset_polygon_enu(poly_enu,width_m)
-        if len(inset)>=3:
-            lpts=[enu_to_latlon(e,n,plat,plon) for e,n in inset]
-            try:
-                self.outer_sprayer_poly=self.map_widget.set_polygon(
-                    lpts,fill_color=None,outline_color="#FF3333",border_width=1)
-            except Exception: pass
+        # Outer sprayer limit (one sprayer-width inset from boundary) — only
+        # drawn when the user is actually running an outside pass; with the
+        # toggle off there is no outside pass, so no inner-limit line either.
+        outside_pass_on = (self.outside_pass_var.get() or "No").strip().lower() == "yes"
+        if outside_pass_on:
+            inset=inset_polygon_enu(poly_enu,width_m)
+            if len(inset)>=3:
+                lpts=[enu_to_latlon(e,n,plat,plon) for e,n in inset]
+                try:
+                    self.outer_sprayer_poly=self.map_widget.set_polygon(
+                        lpts,fill_color=None,outline_color="#FF3333",border_width=1)
+                except Exception: pass
 
         rot=math.radians((0-angle+180)%360-180)
         cos_r,sin_r=math.cos(rot),math.sin(rot)
