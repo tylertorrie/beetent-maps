@@ -6,7 +6,7 @@
   "PP_Longitude": "-111.8062187",
   "Spray_angle": "303",
   "Sprayer_width": "133",
-  "num_structures": "130",
+  "num_structures": "33",
   "spacing": "",
   "shelter_spacing": "",
   "directional_offset": "",
@@ -101,11 +101,11 @@
   ],
   "corner_arms": [],
   "shelter_overrides": {},
-  "gals_per_acre": "3",
+  "gals_per_acre": "2.25",
   "acres": "66.37",
   "gals_per_tray": "2",
   "tray_distribution": "even",
-  "shelter_mode": "per_acre",
+  "shelter_mode": "total",
   "shelters_per_acre": "1",
   "planter_passes": [
     [
