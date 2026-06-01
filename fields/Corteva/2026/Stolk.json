@@ -2,8 +2,8 @@
   "Name": "Stolk",
   "company": "Corteva",
   "year": "2026",
-  "PP_Latitude": "49.8988120",
-  "PP_Longitude": "-111.9322300",
+  "PP_Latitude": "49.8988154",
+  "PP_Longitude": "-111.9322262",
   "Spray_angle": "0",
   "Sprayer_width": "133",
   "num_structures": "130",
@@ -163,15 +163,13 @@
     ]
   ],
   "pivot_tracks": [
-    60.96,
-    119.74,
-    172.82,
-    226.3,
-    278.97,
-    331.71,
-    384.98,
-    53.93,
-    54.74
+    54.56,
+    109.12,
+    163.68,
+    219.33,
+    275.63,
+    331.75,
+    387.74
   ],
   "corner_arms": [],
   "shelter_overrides": {},
@@ -181,5 +179,6 @@
   "tray_distribution": "even",
   "shelter_mode": "per_acre",
   "shelters_per_acre": "1",
-  "boundary_edge_shelters": true
+  "boundary_edge_shelters": true,
+  "lld": "NW-12-11-15-W4"
 }
