@@ -483,6 +483,11 @@ class BeetentApp(ctk.CTk):
         self.show_pivot       = tk.BooleanVar(value=True)   # pivot marker + tracks together
         self.show_tracks      = tk.BooleanVar(value=True)
         self.show_lld_box     = tk.BooleanVar(value=True)   # yellow LLD search highlight
+        # Corner tracks (a.k.a. corner arms) — polygon paths and circles drawn
+        # at absolute lat/lon (don't follow the pivot when it's moved). Used
+        # for swing-arm pivot tracks, shelter belts, etc. that should exclude
+        # shelters within the same width as a pivot track (track_exclusion_ft).
+        self.show_corner_arms = tk.BooleanVar(value=False)
         self.shelter_markers    = []
         self.shelter_circle_polys = []
         self.shelter_positions  = []
@@ -692,6 +697,17 @@ class BeetentApp(ctk.CTk):
             ("Delete",       self._clear_boundary),
         ], color="#5a3a8a")
         self._bnd_btn.pack(side="left", padx=(0,4))
+
+        # Corner tracks: extra exclusion zones (paths or circles) anchored to
+        # absolute lat/lon, so they stay put when the pivot is moved. Each one
+        # uses the same exclusion width as a pivot track (Set Track Exclusion).
+        self._corner_btn = self._make_menu_btn(bb, "🎯 Corner Tracks", [
+            ("Toggle on/off", self._toggle_corner_arms),
+            ("Add Path",      self._mode_add_corner_path),
+            ("Add Circle",    self._mode_add_corner_circle),
+            ("Delete",        self._mode_delete_corner_ui),
+        ], color="#7a4a2a")
+        self._corner_btn.pack(side="left", padx=(0,4))
 
         self._sp_btn = self._make_menu_btn(bb, "🌊 Sprayer", [
             ("Toggle on/off", self._toggle_passes),
@@ -1554,6 +1570,7 @@ class BeetentApp(ctk.CTk):
         self.show_bays.set(False)
         self.show_shelters.set(False)
         self.shelter_circle_var.set(False)
+        self.show_corner_arms.set(False)
         self._form_from_field()
         self._redraw_all()
         self._zoom_to_field()
@@ -1976,7 +1993,10 @@ class BeetentApp(ctk.CTk):
                 self._clear_corner_arm_temp()
                 self.click_mode=None; self._hide_context_btn()
                 self.corner_arm_circle_center=None
-                self._status(f"Corner circle added: r={r_m:.1f} m ({r_m/0.3048:.1f} ft)")
+                self._status(f"Corner circle added: r={r_m:.1f} m ({r_m/0.3048:.1f} ft) — "
+                             "fixed to lat/lon, won't move when pivot does.")
+                # Auto-enable visibility so the new circle is shown right away.
+                self.show_corner_arms.set(True)
                 self._redraw_corner_arms()
                 if self.show_shelters.get(): self._redraw_shelters()
 
@@ -2379,8 +2399,11 @@ class BeetentApp(ctk.CTk):
         self._clear_corner_arm_temp()
         self.click_mode=None; self._hide_context_btn()
         n=len(arms)
-        self._status(f"Corner path #{n} saved ({len(self.corner_arm_pts)} pts).")
+        self._status(f"Corner path #{n} saved ({len(self.corner_arm_pts)} pts) — "
+                     "fixed to lat/lon, won't move when pivot does.")
         self.corner_arm_pts=[]
+        # Make the newly-added path visible without requiring a manual toggle.
+        self.show_corner_arms.set(True)
         self._redraw_corner_arms()
         if self.show_shelters.get(): self._redraw_shelters()
 
@@ -2428,12 +2451,25 @@ class BeetentApp(ctk.CTk):
         ctk.CTkButton(win,text="Delete Selected",fg_color="#6b1a1a",command=do_delete).pack(pady=(4,2))
         ctk.CTkButton(win,text="Cancel",command=win.destroy).pack()
 
+    def _toggle_corner_arms(self):
+        """Show/hide corner tracks. Mirrors _toggle_tracks / _toggle_passes."""
+        self._close_all_popups()
+        self.show_corner_arms.set(not self.show_corner_arms.get())
+        self._redraw_corner_arms()
+        # Shelters depend on corner-arm exclusion zones; refresh them too.
+        if self.show_shelters.get(): self._redraw_shelters()
+        self._status("Corner tracks " +
+                     ("shown." if self.show_corner_arms.get() else "hidden."))
+
     def _redraw_corner_arms(self):
         for o in self.corner_arm_overlays:
             if not getattr(o,"_is_preview",False):
                 try: o.delete()
                 except Exception: pass
         self.corner_arm_overlays=[o for o in self.corner_arm_overlays if getattr(o,"_is_preview",False)]
+        # Respect the visibility toggle. We still tore down old overlays above
+        # so toggling off actually clears them; toggling back on rebuilds.
+        if not self.show_corner_arms.get(): return
         arms=self.current_field.get("corner_arms") or []
         colors=["#CC44FF","#44CCFF","#FF44AA","#44FFCC","#FF9944","#44AAFF"]
         for i,arm in enumerate(arms):
