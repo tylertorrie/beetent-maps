@@ -783,6 +783,86 @@ def calculate_spacing(radius, width, factor=1, num_tents = None):
         # otherwise 1 per acre
         return total / (math.pi * radius * radius / 4046.87 + 1) * factor
 
+def parse_jd_seeding_shapefile(shp_path):
+    """Parse a John Deere Operations Center "Seeding" shapefile set into a list
+    of planter passes. Each pass is one boustrophedon stretch — a polyline of
+    tractor-center (lat, lon) points in chronological order.
+
+    Expected attributes on each record (case-sensitive): IsoTime, Heading,
+    optionally SECTIONID. Multiple records typically share an IsoTime (one
+    per active section); we average their points to get the tractor center.
+
+    Pass split rule: consecutive ground samples whose heading differs by more
+    than ~90° are treated as a new pass (handles end-of-row turnaround).
+
+    Returns: [[(lat, lon), ...], ...]   — one polyline per pass, or [] on error.
+    """
+    base = str(shp_path)
+    if base.lower().endswith('.shp'):
+        base = base[:-4]
+    try:
+        r = shapefile.Reader(base)
+    except Exception:
+        return []
+    fields = [f[0] for f in r.fields[1:]]
+    try:
+        iso_i = fields.index('IsoTime')
+    except ValueError:
+        return []
+    try:
+        hdg_i = fields.index('Heading')
+    except ValueError:
+        hdg_i = None
+
+    # Group section points by IsoTime → tractor center per ground sample.
+    samples = {}   # iso -> {'pts': [(lat, lon), ...], 'hdg': float|None}
+    for i, rec in enumerate(r.iterRecords()):
+        try:
+            shp = r.shape(i)
+        except Exception:
+            continue
+        if not shp.points:
+            continue
+        lon, lat = shp.points[0]
+        iso = rec[iso_i]
+        hdg = rec[hdg_i] if hdg_i is not None else None
+        d = samples.setdefault(iso, {'pts': [], 'hdg': hdg})
+        d['pts'].append((lat, lon))
+
+    if not samples:
+        return []
+
+    # Sort by IsoTime (ISO-8601 sorts correctly as a string).
+    centers = []
+    for iso in sorted(samples.keys()):
+        d = samples[iso]
+        n = len(d['pts'])
+        if n == 0: continue
+        lat = sum(p[0] for p in d['pts']) / n
+        lon = sum(p[1] for p in d['pts']) / n
+        centers.append((lat, lon, d['hdg']))
+
+    # Split into passes on a ≥90° heading change between consecutive samples.
+    # Tracks the END-OF-ROW TURNAROUND that flips the planter direction.
+    passes = []
+    cur = []
+    last_hdg = None
+    for lat, lon, hdg in centers:
+        if last_hdg is not None and hdg is not None:
+            # Absolute heading delta, normalised to [0, 180].
+            delta = abs(((hdg - last_hdg + 180) % 360) - 180)
+            if delta > 90:
+                if len(cur) >= 2:
+                    passes.append(cur)
+                cur = []
+        cur.append((lat, lon))
+        if hdg is not None:
+            last_hdg = hdg
+    if len(cur) >= 2:
+        passes.append(cur)
+    return passes
+
+
 def get_tent_positions(field_dict, use_metric=True, return_rows=False):
     """
     Compute shelter positions from a field dict, return [(lat, lon), ...] in NW-snake

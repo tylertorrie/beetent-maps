@@ -411,9 +411,13 @@ def blank_field(company="",year=""):
                 Spray_angle="0",Sprayer_width="133",
                 shelter_mode="total",num_structures="",shelters_per_acre="",
                 spacing="",shelter_spacing="",directional_offset="",
-                row_spacing_in="22",num_female_rows="8",num_male_rows="2",planter_width_ft="",
+                row_spacing_in="22",num_female_rows="8",num_male_rows="2",
+                row_layout="centered",   # "outer" | "centered" | "custom"
+                custom_row_mask="",       # only used when row_layout == "custom"
                 outside_sprayer_pass="No",track_exclusion_ft="10",
                 shelter_buffer_m="1.524",
+                planter_passes=None,           # [[(lat,lon), ...], ...]  imported from JD
+                use_imported_passes=True,      # when False or no data, use synthetic grid
                 gals_per_acre="3",acres="",gals_per_tray="2",tray_distribution="even",
                 boundary_polygon=None,pivot_tracks=[],corner_arms=[],
                 shelter_overrides={})
@@ -482,6 +486,11 @@ class BeetentApp(ctk.CTk):
         self.show_pivot       = tk.BooleanVar(value=True)   # pivot marker + tracks together
         self.show_tracks      = tk.BooleanVar(value=True)
         self.show_lld_box     = tk.BooleanVar(value=True)   # yellow LLD search highlight
+        # Imported planter paths (JD Operations Center Seeding shapefiles).
+        # Drawn as faint blue polylines so the user can see where the planter
+        # actually went vs. the synthetic grid the bay calculator computes.
+        self.show_planter_passes = tk.BooleanVar(value=False)
+        self.planter_path_overlays = []
         # Corner tracks (a.k.a. corner arms) — polygon paths and circles drawn
         # at absolute lat/lon (don't follow the pivot when it's moved). Used
         # for swing-arm pivot tracks, shelter belts, etc. that should exclude
@@ -709,9 +718,15 @@ class BeetentApp(ctk.CTk):
         ], color="#2a5a4a")
         self._sp_btn.pack(side="left", padx=(0,4))
 
+        # Planter menu: synthetic bay overlay (from bay-calculator inputs) PLUS
+        # imported planter passes from a John Deere Operations Center Seeding
+        # shapefile (the actual path the planter took on this field).
         self._pl_btn = self._make_menu_btn(bb, "🌾 Planter", [
-            ("Toggle on/off", self._toggle_bays),
-            ("Edit",          self._mode_edit_bays),
+            ("Toggle Bays on/off",     self._toggle_bays),
+            ("Edit",                   self._mode_edit_bays),
+            ("Import Planter Data (.shp)", self._import_planter_data),
+            ("Toggle Paths on/off",    self._toggle_planter_passes),
+            ("Clear Planter Data",     self._clear_planter_passes),
         ], color="#3a5a1a")
         self._pl_btn.pack(side="left", padx=(0,4))
 
@@ -879,7 +894,6 @@ class BeetentApp(ctk.CTk):
 
         bay_rows=[
             ("row_spacing_in",   "Row Spacing (inches)"),
-            ("planter_width_ft", "Planter Width (ft)"),
             ("num_female_rows",  "Female Rows"),
             ("num_male_rows",    "Male Rows"),
         ]
@@ -887,10 +901,51 @@ class BeetentApp(ctk.CTk):
             ctk.CTkLabel(bc,text=label,anchor="w",font=ctk.CTkFont(family=FONT_LABEL,size=11)).pack(fill="x")
             v=tk.StringVar(); ctk.CTkEntry(bc,textvariable=v).pack(fill="x",pady=(0,4))
             self.fv[key]=v
+        # Total planter row count = num_female_rows + num_male_rows. Planter
+        # width is just rows × row_spacing, so we don't store width separately.
+        self.planter_rows_lbl=ctk.CTkLabel(bc,text="Planter rows: —",anchor="w",text_color=UI_ACCENT)
+        self.planter_rows_lbl.pack(fill="x")
         self.female_bay_lbl=ctk.CTkLabel(bc,text="Female bay width: —",anchor="w",text_color=UI_ACCENT)
         self.female_bay_lbl.pack(fill="x")
         self.male_bay_lbl=ctk.CTkLabel(bc,text="Male bay width: —",anchor="w",text_color=UI_ACCENT)
         self.male_bay_lbl.pack(fill="x")
+
+        # Row layout: how male rows are arranged on the planter. Determines
+        # the row mask (M/F per row) used to compute where male/female bays
+        # land between adjacent passes.
+        ctk.CTkLabel(bc,text="Row layout",anchor="w",
+                     font=ctk.CTkFont(family=FONT_LABEL,size=11)).pack(fill="x",pady=(8,0))
+        ctk.CTkLabel(bc,
+            text="Outer = male rows split across both ends (joins next pass to form a male bay).\n"
+                 "Centered = male rows as a single block in the middle.\n"
+                 "Custom = type your own mask (M = male, F = female).",
+            anchor="w",text_color=UI_MUTED,font=ctk.CTkFont(size=10),justify="left").pack(fill="x")
+        self.row_layout_var=tk.StringVar(value="Centered male")
+        self._row_layout_labels={"Outer male":"outer","Centered male":"centered","Custom":"custom"}
+        self._row_layout_inverse={v:k for k,v in self._row_layout_labels.items()}
+        ctk.CTkComboBox(bc,variable=self.row_layout_var,
+                        values=list(self._row_layout_labels.keys()),
+                        command=lambda v: self._on_row_layout_change()
+                        ).pack(fill="x",pady=(2,4))
+        # Custom mask entry — visible only when "Custom" is selected.
+        self.custom_mask_var=tk.StringVar(value="")
+        self.custom_mask_entry=ctk.CTkEntry(bc,textvariable=self.custom_mask_var,
+                                             placeholder_text="e.g. MMFFFFFFFFFFFFFFFFMM")
+        # Pack/unpack depending on dropdown; resolved mask label always shown.
+        self.row_mask_lbl=ctk.CTkLabel(bc,text="Mask: —",anchor="w",text_color=UI_ACCENT,
+                                        font=ctk.CTkFont(family=FONT_BODY,size=10))
+        self.row_mask_lbl.pack(fill="x",pady=(2,4))
+
+        # Per-field switch: use the uploaded JD planter passes (if any) as the
+        # ground truth for shelter placement, OR fall back to the synthetic
+        # math grid computed from the bay calculator. Default ON — if you
+        # have real data you almost always want to use it.
+        self.use_imported_passes_var=tk.BooleanVar(value=True)
+        ctk.CTkLabel(bc,text="Planter pass source",anchor="w",
+                     font=ctk.CTkFont(family=FONT_LABEL,size=11)).pack(fill="x",pady=(8,0))
+        ctk.CTkCheckBox(bc,text="Use uploaded planter data (if any)",
+                        variable=self.use_imported_passes_var,
+                        command=self._on_form_change).pack(anchor="w",pady=(2,4))
         # No "Recalculate Bays" button — the bay widths and map redraw
         # automatically whenever any bay-calculator field changes.
 
@@ -959,9 +1014,12 @@ class BeetentApp(ctk.CTk):
             v.trace_add("write", self._on_form_change)
         self.fv["track_exclusion_ft"].trace_add("write", self._on_track_excl_change)
         # Auto-recalc bays whenever a bay-calculator field changes (debounced).
-        for k in ("row_spacing_in","planter_width_ft","num_female_rows","num_male_rows"):
+        for k in ("row_spacing_in","num_female_rows","num_male_rows"):
             if k in self.fv:
                 self.fv[k].trace_add("write", self._on_bay_change)
+        # Custom-mask writes feed into the bay redraw too (debounced via
+        # _on_bay_change → _calc_bays → resolve mask label + redraw shelters).
+        self.custom_mask_var.trace_add("write", self._on_bay_change)
 
     def _on_bay_change(self, *_):
         rid=getattr(self, "_bay_refresh_id", None)
@@ -1033,19 +1091,31 @@ class BeetentApp(ctk.CTk):
         presets=self._load_bay_presets()
         for p in presets:
             if p["name"]==name:
-                for k in ("row_spacing_in","planter_width_ft","num_female_rows","num_male_rows"):
+                for k in ("row_spacing_in","num_female_rows","num_male_rows"):
                     if k in p and k in self.fv: self.fv[k].set(str(p[k]))
+                # Row layout & custom mask are new — older presets that lack
+                # them default to "centered" (the historical implicit shape).
+                rl = p.get("row_layout","centered")
+                self.row_layout_var.set(self._row_layout_inverse.get(rl,"Centered male"))
+                self.custom_mask_var.set(str(p.get("custom_row_mask","")))
+                self._on_row_layout_change()
                 break
+
+    def _bay_preset_entry(self, name):
+        """Build the dict written to bay_presets.json for the current bay-calc
+        state. One spot so save-new and update stay in sync."""
+        return {"name":name,
+                "row_spacing_in":self.fv["row_spacing_in"].get(),
+                "num_female_rows":self.fv["num_female_rows"].get(),
+                "num_male_rows":self.fv["num_male_rows"].get(),
+                "row_layout":self._row_layout_labels.get(self.row_layout_var.get(),"centered"),
+                "custom_row_mask":self.custom_mask_var.get()}
 
     def _save_new_preset(self):
         name=self._ask_string("Save Preset","Preset name:")
         if not name: return
         presets=self._load_bay_presets()
-        entry={"name":name,
-               "row_spacing_in":self.fv["row_spacing_in"].get(),
-               "planter_width_ft":self.fv["planter_width_ft"].get(),
-               "num_female_rows":self.fv["num_female_rows"].get(),
-               "num_male_rows":self.fv["num_male_rows"].get()}
+        entry=self._bay_preset_entry(name)
         presets=[p for p in presets if p["name"]!=name]
         presets.append(entry)
         self._save_bay_presets(presets)
@@ -1056,11 +1126,7 @@ class BeetentApp(ctk.CTk):
         name=self.preset_var.get()
         if not name:
             self._status("Select a bay preset to update (or use + to save a new one)."); return
-        entry={"name":name,
-               "row_spacing_in":self.fv["row_spacing_in"].get(),
-               "planter_width_ft":self.fv["planter_width_ft"].get(),
-               "num_female_rows":self.fv["num_female_rows"].get(),
-               "num_male_rows":self.fv["num_male_rows"].get()}
+        entry=self._bay_preset_entry(name)
         presets=[p for p in self._load_bay_presets() if p["name"]!=name]
         presets.append(entry)
         self._save_bay_presets(presets)
@@ -1602,6 +1668,7 @@ class BeetentApp(ctk.CTk):
         self.show_shelters.set(False)
         self.shelter_circle_var.set(False)
         self.show_corner_arms.set(False)
+        self.show_planter_passes.set(False)
         self._form_from_field()
         self._redraw_all()
         self._zoom_to_field()
@@ -1660,6 +1727,12 @@ class BeetentApp(ctk.CTk):
             val=f.get(k)
             v.set(str(bf.get(k,"")) if val is None else str(val))
         self.outside_pass_var.set(f.get("outside_sprayer_pass","No"))
+        # Row layout: dropdown + custom mask + use-imported-passes toggle.
+        rl = f.get("row_layout","centered")
+        self.row_layout_var.set(self._row_layout_inverse.get(rl,"Centered male"))
+        self.custom_mask_var.set(str(f.get("custom_row_mask","")))
+        self.use_imported_passes_var.set(bool(f.get("use_imported_passes",True)))
+        self._on_row_layout_change()
         # Sync the tray-distribution dropdown
         dist_key = f.get("tray_distribution") or "even"
         self.tray_dist_var.set(self._tray_dist_inverse.get(dist_key, "Spread evenly"))
@@ -1690,6 +1763,9 @@ class BeetentApp(ctk.CTk):
         f["outside_sprayer_pass"]=self.outside_pass_var.get()
         f["tray_distribution"]=self._tray_dist_labels.get(self.tray_dist_var.get(),"even")
         f["shelter_mode"]=self._shelter_mode_labels.get(self.shelter_mode_var.get(),"total")
+        f["row_layout"]=self._row_layout_labels.get(self.row_layout_var.get(),"centered")
+        f["custom_row_mask"]=self.custom_mask_var.get().strip()
+        f["use_imported_passes"]=bool(self.use_imported_passes_var.get())
         # Use the dropdown company/year when specific; otherwise keep the loaded
         # field's own (so a field opened from an All/All list still saves home).
         co=self.company_var.get(); yr=self.year_var.get()
@@ -2625,6 +2701,72 @@ class BeetentApp(ctk.CTk):
         self._close_all_popups()
         self._status("Bay editing: adjust Row Spacing / Female Rows / Male Rows in Bay Calculator, then recalculate.")
 
+    # ── Imported planter passes (JD Operations Center Seeding shapefile) ─────
+    def _import_planter_data(self):
+        """File-picker for a JD Seeding shapefile. Parses it, stores the
+        reconstructed pass polylines on the current field, and draws them
+        as faint blue lines on the map."""
+        self._close_all_popups()
+        path = tkinter.filedialog.askopenfilename(
+            title="Import JD Planter Data (.shp)",
+            filetypes=[("Shapefile", "*.shp"), ("All files", "*.*")])
+        if not path: return
+        try:
+            from maketentgrid import parse_jd_seeding_shapefile
+            passes = parse_jd_seeding_shapefile(path)
+        except Exception as ex:
+            tkinter.messagebox.showerror("Import Error",
+                f"Couldn't parse {Path(path).name}:\n{ex}")
+            return
+        if not passes:
+            tkinter.messagebox.showwarning("Import",
+                "No passes found in that shapefile. Is it a JD Seeding export?")
+            return
+        # Store as plain JSON-safe lists so it survives save_field round-trip.
+        self.current_field["planter_passes"] = [
+            [[lat, lon] for lat, lon in p] for p in passes
+        ]
+        self.show_planter_passes.set(True)
+        self._redraw_planter_passes()
+        n_pts = sum(len(p) for p in passes)
+        self._status(f"Imported {len(passes)} passes ({n_pts:,} samples) "
+                     f"from {Path(path).name}.")
+
+    def _clear_planter_passes(self):
+        """Remove the imported planter data from this field."""
+        self._close_all_popups()
+        self.current_field["planter_passes"] = None
+        self.show_planter_passes.set(False)
+        self._redraw_planter_passes()
+        self._status("Planter data cleared.")
+
+    def _toggle_planter_passes(self):
+        """Show/hide the imported planter-pass polylines."""
+        self._close_all_popups()
+        self.show_planter_passes.set(not self.show_planter_passes.get())
+        self._redraw_planter_passes()
+        self._status("Planter paths " +
+                     ("shown." if self.show_planter_passes.get() else "hidden."))
+
+    def _redraw_planter_passes(self):
+        """Tear down old overlays and redraw if the layer is visible AND the
+        current field has imported pass data."""
+        for o in self.planter_path_overlays:
+            try: o.delete()
+            except Exception: pass
+        self.planter_path_overlays = []
+        if not self.show_planter_passes.get(): return
+        passes = self.current_field.get("planter_passes") or []
+        for poly in passes:
+            if not poly or len(poly) < 2: continue
+            try:
+                p = self.map_widget.set_path(
+                    [(lat, lon) for lat, lon in poly],
+                    color="#1E90FF", width=1)
+                self.planter_path_overlays.append(p)
+            except Exception:
+                pass
+
     # ── Shelter preview ────────────────────────────────────────────────────────
     def _toggle_shelters(self):
         self.show_shelters.set(not self.show_shelters.get())
@@ -2921,6 +3063,48 @@ class BeetentApp(ctk.CTk):
             if txt!="Female bay width: —": self._calc_bays()
 
     # ── Bay layout overlay ─────────────────────────────────────────────────────
+    def _resolve_row_mask(self, nf, nm, layout, custom):
+        """Build the M/F-per-row mask string from the row counts + layout.
+
+        layout:
+          "outer"    → male rows split across both ends (half at each end);
+                       odd male counts put the extra at the trailing end.
+          "centered" → male rows as one block in the middle, female rows
+                       padded equally to each side.
+          "custom"   → user-supplied string of M/F chars (case-insensitive).
+                       If invalid or wrong length, falls back to "centered"
+                       so something sensible still renders.
+
+        Returns a string like "MMFFFFFFFFFFFFFFFFMM" of length nf+nm."""
+        total = max(0, nf + nm)
+        if total == 0: return ""
+        if layout == "custom":
+            s = "".join(c for c in (custom or "").upper() if c in "MF")
+            if len(s) == total and s.count("M") == nm and s.count("F") == nf:
+                return s
+            # Fall through to centered as a safety net.
+            layout = "centered"
+        if layout == "outer":
+            left = nm // 2
+            right = nm - left
+            return "M" * left + "F" * nf + "M" * right
+        # centered (default)
+        left_f = nf // 2
+        right_f = nf - left_f
+        return "F" * left_f + "M" * nm + "F" * right_f
+
+    def _on_row_layout_change(self):
+        """Dropdown changed — show/hide the custom-mask entry and refresh
+        the mask preview label."""
+        mode = self._row_layout_labels.get(self.row_layout_var.get(),"centered")
+        try:
+            if mode == "custom":
+                self.custom_mask_entry.pack(fill="x",pady=(0,2))
+            else:
+                self.custom_mask_entry.pack_forget()
+        except Exception: pass
+        self._on_bay_change()   # schedule a recalc so the preview updates
+
     def _calc_bays(self):
         try:
             rs=float(self.fv["row_spacing_in"].get() or 22)
@@ -2930,14 +3114,27 @@ class BeetentApp(ctk.CTk):
             self._status("Enter numeric values for row spacing and row counts."); return
         f_in=(nf+1)*rs; m_in=(nm+1)*rs
         f_ft=f_in/12; m_ft=m_in/12; f_m=f_ft*0.3048; m_m=m_ft*0.3048
+        total_rows = nf + nm
+        planter_in = total_rows * rs
+        planter_ft = planter_in / 12
+        planter_m  = planter_ft * 0.3048
+        layout = self._row_layout_labels.get(self.row_layout_var.get(),"centered")
+        mask = self._resolve_row_mask(nf, nm, layout, self.custom_mask_var.get())
         use_m=self.unit_var.get()=="Metres"
+        # Show planter rows + total width as a derived line (replaces the old
+        # standalone "Planter Width (ft)" input — width = rows × row_spacing).
         if use_m:
+            self.planter_rows_lbl.configure(
+                text=f'Planter rows: {total_rows}  ({planter_in:.1f}" = {planter_m:.3f} m)')
             self.female_bay_lbl.configure(text=f'Female bay: {f_in:.1f}" = {f_m:.3f} m')
             self.male_bay_lbl.configure(text=f'Male bay:   {m_in:.1f}" = {m_m:.3f} m')
         else:
+            self.planter_rows_lbl.configure(
+                text=f'Planter rows: {total_rows}  ({planter_in:.1f}" = {planter_ft:.3f} ft)')
             self.female_bay_lbl.configure(text=f'Female bay: {f_in:.1f}" = {f_ft:.3f} ft')
             self.male_bay_lbl.configure(text=f'Male bay:   {m_in:.1f}" = {m_ft:.3f} ft')
-        self._status(f"Bay layout: female {f_in:.0f}\" ({f_ft:.2f} ft), male {m_in:.0f}\" ({m_ft:.2f} ft)")
+        self.row_mask_lbl.configure(text=f"Mask: {mask or '—'}")
+        self._status(f"Bay layout: female {f_in:.0f}\" ({f_ft:.2f} ft), male {m_in:.0f}\" ({m_ft:.2f} ft); rows {total_rows}")
         if self.show_bays.get(): self._redraw_bays()
         if self.show_shelters.get(): self._redraw_shelters()
 
@@ -3007,7 +3204,7 @@ class BeetentApp(ctk.CTk):
                 self.map_widget.set_position(plat,plon); self.map_widget.set_zoom(14)
         except (ValueError,TypeError): pass
         self._redraw_pivot()
-        self._redraw_boundary(); self._redraw_tracks(); self._redraw_passes(); self._redraw_bays(); self._redraw_corner_arms(); self._redraw_shelters()
+        self._redraw_boundary(); self._redraw_tracks(); self._redraw_passes(); self._redraw_bays(); self._redraw_corner_arms(); self._redraw_planter_passes(); self._redraw_shelters()
 
     def _clear_all_overlays(self):
         if self.pivot_marker: self.pivot_marker.delete(); self.pivot_marker=None
@@ -3021,6 +3218,10 @@ class BeetentApp(ctk.CTk):
             except Exception: pass
         self.track_circles=[]; self.track_handles=[]
         self._clear_corner_arm(0); self._clear_corner_arm(1)
+        for o in self.planter_path_overlays:
+            try: o.delete()
+            except Exception: pass
+        self.planter_path_overlays=[]
         self._clear_shelters()
 
     # ── Pivot drag handler ─────────────────────────────────────────────────────
