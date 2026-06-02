@@ -824,6 +824,7 @@ class BeetentApp(ctk.CTk):
         self.fv={}; self.hint_labels={}; self.field_labels={}
         form_rows=[
             ("Name",               "Name",                  "Field name — used as folder/file name", False),
+            ("company",            "Company",                "Type any name. New companies are created automatically on save.", False),
             ("PP_Latitude",        "Pivot Latitude",         "Decimal degrees — or click 📍 on map",  False),
             ("PP_Longitude",       "Pivot Longitude",        "Decimal degrees",                        False),
             ("lld",                "Legal Land Description", "Auto-filled to NE/NW/SE/SW when pivot is placed. Editable — type a section (32-14-22-W4), half (N-32-14-22-W4), or quarter (NE-32-14-22-W4).", False),
@@ -1796,9 +1797,14 @@ class BeetentApp(ctk.CTk):
             pass
 
     def _new_field(self):
-        if self._is_all_scope():
-            self._status("Pick a specific company and year before creating a field."); return
-        self.current_field=blank_field(self.company_var.get(),self.year_var.get())
+        # Company / year default to the dropdown selection when it's a real
+        # value; otherwise empty (the user types Company in Field Details
+        # and the year defaults to current on save).
+        co = self.company_var.get()
+        if not co or co == ALL_COMPANIES: co = ""
+        yr = self.year_var.get()
+        if not yr or yr == ALL_YEARS: yr = str(datetime.date.today().year)
+        self.current_field = blank_field(co, yr)
         self._form_from_field(); self._clear_all_overlays(); self._status("")
 
     def _delete_field(self):
@@ -1864,11 +1870,19 @@ class BeetentApp(ctk.CTk):
         f["custom_row_mask"]=self.custom_mask_var.get().strip()
         f["use_imported_passes"]=bool(self.use_imported_passes_var.get())
         f["use_bays"]=bool(self.use_bays_var.get())
-        # Use the dropdown company/year when specific; otherwise keep the loaded
-        # field's own (so a field opened from an All/All list still saves home).
-        co=self.company_var.get(); yr=self.year_var.get()
-        if co!=ALL_COMPANIES: f["company"]=co
-        if yr!=ALL_YEARS:     f["year"]=yr
+        # Company: prefer the form's Company entry (user can type anything,
+        # including a brand-new name that will be created on save). Fall back
+        # to the dropdown when the form field is blank.
+        form_co = (self.fv.get("company") and self.fv["company"].get().strip()) or ""
+        if form_co:
+            f["company"] = form_co
+        else:
+            dd_co = self.company_var.get()
+            if dd_co and dd_co != ALL_COMPANIES:
+                f["company"] = dd_co
+        # Year still comes from the top dropdown (current year by default).
+        yr=self.year_var.get()
+        if yr and yr!=ALL_YEARS: f["year"]=yr
         return f
 
     def _refresh_track_list(self):
@@ -3583,12 +3597,33 @@ class BeetentApp(ctk.CTk):
 
     def _save_field(self):
         f=self._field_from_form()
-        co=f.get("company"); yr=f.get("year")
-        if not co or co==ALL_COMPANIES or not yr or yr==ALL_YEARS:
-            self._status("Pick a specific company and year before saving."); return
-        if not f.get("Name"): self._status("Enter a field name."); return
-        if not f.get("boundary_polygon"): self._status("⚠ No boundary drawn — field saved but cannot generate without one.");
-        save_field(f); self._refresh_field_list(); self._status(f"Saved: {f['Name']}")
+        if not f.get("Name"):
+            self._status("Enter a field name."); return
+        co=(f.get("company") or "").strip()
+        if not co:
+            self._status("Enter a company in Field Details before saving."); return
+        # Year falls back to the current calendar year if the dropdown is
+        # on "All years" — saves the user the click in that common case.
+        yr=(f.get("year") or "").strip()
+        if not yr or yr==ALL_YEARS:
+            yr=str(datetime.date.today().year)
+            f["year"]=yr
+        if not f.get("boundary_polygon"):
+            self._status("⚠ No boundary drawn — field saved but cannot generate without one.")
+        # save_field creates the company/year folder via _field_dir, so a
+        # brand-new company name appears on disk for the first time here.
+        new_company = co not in list_companies()
+        save_field(f)
+        if new_company:
+            # Refresh the dropdown so the new company is selectable, and
+            # switch to it (with the saved year) so the field-list filter
+            # shows the field we just saved.
+            self._refresh_company_list()
+            self.company_var.set(co)
+            self._on_company_change(co)
+            self.year_var.set(yr)
+        self._refresh_field_list()
+        self._status(f"Saved: {f['Name']}" + (" (new company)" if new_company else ""))
         self._git_push(f"save field: {f['Name']}")
 
     def _load_csv(self):
