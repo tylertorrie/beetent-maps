@@ -3332,9 +3332,20 @@ class BeetentApp(ctk.CTk):
             rs=float(self.fv["row_spacing_in"].get() or 22)
             nf=int(self.fv["num_female_rows"].get() or 8)
             nm=int(self.fv["num_male_rows"].get() or 2)
+            total_rows=int(self.fv["total_rows"].get() or (nf + nm))
             bp=self.current_field.get("boundary_polygon")
         except (ValueError,TypeError): return
         if not bp or len(bp)<3: return
+
+        # When the user has imported planter passes AND the "use uploaded
+        # planter data" toggle is on, derive the male-bay bands from the
+        # actual pass polylines instead of the synthetic angle-grid below.
+        # Each pass contributes one band per M block in the resolved row mask.
+        planter_passes = self.current_field.get("planter_passes") or []
+        if planter_passes and bool(self.current_field.get("use_imported_passes", True)):
+            self._redraw_bays_from_passes(plat, plon, planter_passes,
+                                          rs, nf, nm, total_rows)
+            return
         row_m=rs*0.0254; female_m=(nf+1)*row_m; male_m=(nm+1)*row_m
         poly_enu=[latlon_to_enu(lat,lon,plat,plon) for lat,lon in bp]
         max_r=max(math.sqrt(e*e+n*n) for e,n in poly_enu)*1.1
@@ -3354,6 +3365,50 @@ class BeetentApp(ctk.CTk):
                     p=self.map_widget.set_polygon(lpts,fill_color="#001F7A",outline_color="#001F7A",border_width=0)
                     self.bay_polygons.append(p)
                 except Exception: pass
+
+    def _redraw_bays_from_passes(self, plat, plon, planter_passes,
+                                  row_spacing_in_v, nf, nm, total_rows):
+        """Bay overlay derived from imported planter passes.
+
+        For each pass and each M run in the resolved row mask, we offset the
+        pass polyline by the M run's left edge and right edge (in metres,
+        perpendicular to local heading) and draw the closed band as a male
+        bay. Bands follow the actual planter path — curves and all — so the
+        overlay matches what the user sees the planter actually did, not a
+        synthetic angle-grid approximation.
+        """
+        layout = self._row_layout_labels.get(self.row_layout_var.get(), "centered")
+        mask = self._resolve_row_mask(nf, nm, layout,
+                                       self.custom_mask_var.get(),
+                                       total_rows=total_rows)
+        if not mask: return
+        m_blocks = maketentgrid.mask_runs(mask, 'M')
+        if not m_blocks: return
+        row_spacing_m = row_spacing_in_v * 0.0254
+        # M run (s, e) covers rows s..e-1. Its left edge is at lateral
+        # offset (s - total_rows/2) × row_spacing from the pass centre,
+        # right edge at (e - total_rows/2) × row_spacing. (Both signed —
+        # negative = left of travel, positive = right.)
+        edge_pairs = [((s - total_rows / 2.0) * row_spacing_m,
+                       (e - total_rows / 2.0) * row_spacing_m)
+                      for s, e in m_blocks]
+        # Normalise polyline form: planter_passes is JSON [[lat,lon],...].
+        passes_normed = [[(float(pt[0]), float(pt[1])) for pt in p]
+                         for p in planter_passes if p and len(p) >= 2]
+        for poly_ll in passes_normed:
+            for left_m, right_m in edge_pairs:
+                # Offset the pass twice and stitch the band as a closed loop.
+                left_poly  = maketentgrid._offset_polyline_latlon(poly_ll, left_m)
+                right_poly = maketentgrid._offset_polyline_latlon(poly_ll, right_m)
+                if len(left_poly) < 2 or len(right_poly) < 2: continue
+                band = list(left_poly) + list(reversed(right_poly))
+                try:
+                    p = self.map_widget.set_polygon(
+                        band, fill_color="#001F7A",
+                        outline_color="#001F7A", border_width=0)
+                    self.bay_polygons.append(p)
+                except Exception:
+                    pass
 
     # ── Full overlay refresh ───────────────────────────────────────────────────
     def _redraw_all(self):

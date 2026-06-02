@@ -964,31 +964,124 @@ def _midpoint_polyline(a, b, n_samples=80):
     return out
 
 
-def _shelter_row_centerlines(passes, layout, mask):
-    """Compute the polylines along which shelters should be placed, given
-    the imported planter passes and the row mask.
+def mask_runs(mask, char):
+    """Return [(start, end_exclusive), ...] for contiguous runs of `char`
+    in `mask`. Works for any mask the row-layout resolver can produce."""
+    runs = []
+    start = None
+    for i, c in enumerate(mask):
+        if c == char:
+            if start is None: start = i
+        else:
+            if start is not None:
+                runs.append((start, i)); start = None
+    if start is not None:
+        runs.append((start, len(mask)))
+    return runs
 
-    - "outer" layout (mask M…M at the ends): female bays span across two
-      passes, so the bay centre is AT each pass centre. Returns the passes
-      as-is. Outermost passes are still included; if they produce shelters
-      past the boundary they'll be filtered out by the inside-polygon check.
 
-    - "centered" layout (mask F…M…F with male block in the middle): bay
-      centre is BETWEEN adjacent passes, so we emit one midpoint polyline
-      per adjacent pair (N - 1 centerlines for N passes).
+def _offset_polyline_latlon(pts, signed_offset_m):
+    """Return a polyline offset perpendicular to `pts` by `signed_offset_m`.
+    Positive offset = "right" side relative to travel direction
+    (perpendicular rotated +90°). At interior vertices uses the unit-
+    bisector of adjacent perpendiculars; at endpoints uses the single
+    segment's perpendicular. ENU is anchored at the polyline's first
+    point — small field scale, no need for a global projection."""
+    if not pts or len(pts) < 2 or signed_offset_m == 0:
+        return [tuple(p) for p in pts]
+    lat0, lon0 = pts[0]
+    cos_lat = math.cos(math.radians(lat0)) or 1e-9
+    R = 6378137.0
+    M_PER_DEG_LAT = R * math.pi / 180.0
+    M_PER_DEG_LON = M_PER_DEG_LAT * cos_lat
+    # Convert to local ENU
+    enu = [((lon - lon0) * M_PER_DEG_LON, (lat - lat0) * M_PER_DEG_LAT)
+           for lat, lon in pts]
+    n_pts = len(enu)
+    perp = []
+    for i in range(n_pts):
+        in_d = None
+        if i > 0:
+            dx = enu[i][0] - enu[i-1][0]; dy = enu[i][1] - enu[i-1][1]
+            L = math.sqrt(dx*dx + dy*dy)
+            if L > 0: in_d = (dx/L, dy/L)
+        out_d = None
+        if i < n_pts - 1:
+            dx = enu[i+1][0] - enu[i][0]; dy = enu[i+1][1] - enu[i][1]
+            L = math.sqrt(dx*dx + dy*dy)
+            if L > 0: out_d = (dx/L, dy/L)
+        # perp(d) = (-d.y, d.x) — 90° CCW = "left" when travelling forward.
+        # We use the unit-bisector of the two perpendiculars at interior
+        # vertices. Signed offset > 0 means right (perpendicular flipped).
+        if in_d and out_d:
+            px = (-in_d[1] - out_d[1]) * 0.5
+            py = ( in_d[0] + out_d[0]) * 0.5
+        elif in_d:
+            px, py = -in_d[1], in_d[0]
+        elif out_d:
+            px, py = -out_d[1], out_d[0]
+        else:
+            px, py = 0.0, 0.0
+        L = math.sqrt(px*px + py*py)
+        if L > 0: px, py = px/L, py/L
+        perp.append((px, py))
+    # `signed_offset_m > 0` should point in the perpendicular's natural
+    # direction (90° CCW from travel = "left" when going north on a S→N
+    # pass). Negate to follow the "right = positive" convention used by
+    # _row_offset_m callers (positive row offset = east when going north).
+    s = -signed_offset_m
+    out = []
+    for (e, n), (px, py) in zip(enu, perp):
+        e2 = e + s * px
+        n2 = n + s * py
+        out.append((lat0 + n2 / M_PER_DEG_LAT, lon0 + e2 / M_PER_DEG_LON))
+    return out
 
-    - "custom": pick outer-style if mask starts or ends with M, otherwise
-      centred-style.
+
+def _shelter_row_centerlines(passes, layout, mask, row_spacing_m=None,
+                              total_rows=None):
+    """One polyline per female bay per pass.
+
+    Scans the resolved mask for every contiguous F block and offsets each
+    pass polyline by that block's lateral distance from the pass centre.
+    Handles arbitrary masks (including repeating units with multiple
+    internal M strips, e.g. 2M+8F × 2 = 'FFFFMMFFFFFFFFMMFFFF'); the old
+    "outer vs centered" heuristic only worked for single-strip masks and
+    silently missed internal bays from repeats.
+
+    Joining bays (where the right F block of pass N butts against the
+    left F block of pass N+1) end up with one centerline contributed by
+    EACH pass — visually two close shelter rows in the same bay. That's
+    a strict improvement over missing them entirely; can be merged later
+    if we want exactly-centered placement in joins.
     """
     if not passes: return []
-    if layout == 'custom':
-        layout = 'outer' if (mask and (mask[0] == 'M' or mask[-1] == 'M')) else 'centered'
-    if layout == 'outer':
+    # Need mask + geometry to compute per-bay offsets. Without them, fall
+    # back to legacy behaviour (one centerline per pass — equivalent to
+    # the old "outer" mode).
+    if not mask or row_spacing_m is None or not total_rows:
         return [list(p) for p in passes]
-    # centered
-    return [_midpoint_polyline(passes[i], passes[i+1])
-            for i in range(len(passes) - 1)
-            if len(passes[i]) >= 2 and len(passes[i+1]) >= 2]
+
+    f_blocks = mask_runs(mask, 'F')
+    if not f_blocks:
+        return []   # no female rows = no shelters
+
+    # Lateral offset of each F block's centre from the planter centre line.
+    # Block (s, e) covers rows s..e-1; its centre row index is (s + e - 1)/2.
+    # Planter centre row index is (total_rows - 1)/2.
+    centre = (total_rows - 1) / 2.0
+    block_offsets_m = [((s + e - 1) / 2.0 - centre) * row_spacing_m
+                       for s, e in f_blocks]
+
+    centerlines = []
+    for p in passes:
+        if len(p) < 2: continue
+        for off_m in block_offsets_m:
+            if off_m == 0:
+                centerlines.append([tuple(pt) for pt in p])
+            else:
+                centerlines.append(_offset_polyline_latlon(p, off_m))
+    return centerlines
 
 
 def get_tent_positions(field_dict, use_metric=True, return_rows=False):
@@ -1212,7 +1305,13 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
             except (ValueError, TypeError): total_rows_pf = nf_i_pf + nm_i_pf
             mask = resolve_row_mask(nf_i_pf, nm_i_pf, row_layout_v, custom_mask,
                                      total_rows=total_rows_pf)
-            centerlines = _shelter_row_centerlines(planter_passes, row_layout_v, mask)
+            # row_spacing in metres — needed to translate mask row indices
+            # into lateral offsets for the per-bay centerlines.
+            rs_in_pf = float(rs_in_raw) if rs_in_raw else 22.0
+            row_spacing_m_pf = rs_in_pf * 0.0254
+            centerlines = _shelter_row_centerlines(
+                planter_passes, row_layout_v, mask,
+                row_spacing_m=row_spacing_m_pf, total_rows=total_rows_pf)
 
             # Convert each centerline to ENU (relative to pivot) and prebuild
             # arc-length so we can sample evenly and exclude in one pass.
