@@ -18,5 +18,10 @@
     "name": "4 Gals/acre",
     "gals_per_acre": "4",
     "gals_per_tray": "2"
+  },
+  {
+    "name": "4 Gals/Acre",
+    "gals_per_acre": "4",
+    "gals_per_tray": "2"
   }
 ]
