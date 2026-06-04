@@ -100,16 +100,40 @@
     375.27
   ],
   "corner_arms": [],
-  "shelter_overrides": {},
+  "shelter_overrides": {
+    "0": [
+      49.913320390130835,
+      -111.8058403088226
+    ],
+    "29": [
+      49.914643405019056,
+      -111.80396276251217
+    ],
+    "33": [
+      49.9144741440425,
+      -111.80464940801998
+    ],
+    "34": [
+      49.91485066254857,
+      -111.80206912294766
+    ],
+    "16": [
+      49.91499919656343,
+      -111.80396276251217
+    ]
+  },
   "gals_per_acre": "2.25",
   "acres": "66.37",
   "gals_per_tray": "2",
   "tray_distribution": "even",
-  "shelter_mode": "total",
+  "shelter_mode": "trays_2",
   "shelters_per_acre": "1",
   "planter_passes": null,
   "lld": "NE-14-11-14-W4",
   "row_layout": "centered",
   "custom_row_mask": "FFFFMMFFFFFFFFMMFFFF",
-  "use_imported_passes": true
+  "use_imported_passes": true,
+  "acres_per_shelter": "",
+  "total_rows": "20",
+  "use_bays": true
 }
