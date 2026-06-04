@@ -541,7 +541,8 @@ class BeetentApp(ctk.CTk):
                     "<Shift-Left>","<Shift-Right>","<Shift-Up>","<Shift-Down>"):
             self.bind(key, self._on_arrow_key)
         self.after(300, self._bind_drag_system)
-        self.after(1000, self._git_pull)  # pull latest on startup
+        self.after(1000, self._git_pull)            # pull latest on startup
+        self.after(300_000, self._check_for_app_update)  # then check every 5 min
 
     # ── Window icon / logo ──────────────────────────────────────────────────
     def _set_window_icon(self):
@@ -584,6 +585,12 @@ class BeetentApp(ctk.CTk):
                       ).pack(side="left",padx=(0,20),pady=8)
         self.status_lbl=ctk.CTkLabel(bar,text="",text_color=UI_MUTED,width=340,anchor="w")
         self.status_lbl.pack(side="left",padx=16)
+        # Update-ready button — hidden until a code update is pulled.
+        # _on_update_ready() packs it; clicking it restarts the process.
+        self._update_btn=ctk.CTkButton(bar,text="🔄 Restart to update",
+                                        fg_color="#1a6b3a",width=160,
+                                        command=self._restart_app)
+        # intentionally NOT packed here — shown on demand
         ctk.CTkLabel(bar,text="Units:").pack(side="right",padx=(0,4))
         self.unit_var=tk.StringVar(value="Feet")
         ctk.CTkComboBox(bar,variable=self.unit_var,values=["Feet","Metres"],
@@ -3691,22 +3698,91 @@ class BeetentApp(ctk.CTk):
 
     # ── Save / Load ────────────────────────────────────────────────────────────
     # ── Git auto-sync ──────────────────────────────────────────────────────────
+    # Code files whose change signals a restart is needed.
+    _CODE_FILES = {"beetent_app.py", "maketentgrid.py", "utmish.py"}
+
     def _git_pull(self):
-        """Pull latest changes from GitHub on startup (background thread)."""
+        """Pull latest changes from GitHub on startup (background thread).
+        If code files changed, show the restart button."""
         import subprocess
-        repo=Path(__file__).parent
+        repo = Path(__file__).parent
         def run():
             try:
-                r=subprocess.run(["git","pull","--rebase"],cwd=repo,
-                                 capture_output=True,timeout=30)
-                if b"Already up to date" not in r.stdout:
-                    self.after(0,self._refresh_field_list)
-                    self.after(0,self._refresh_preset_list)
-                    self.after(0,self._refresh_bee_preset_list)
-                    self.after(0,self._refresh_field_preset_list)
-                    self.after(0,lambda:self._status("☁ Pulled latest changes"))
-            except Exception: pass
-        threading.Thread(target=run,daemon=True).start()
+                before = subprocess.run(["git","rev-parse","HEAD"],
+                    cwd=repo, capture_output=True, timeout=5).stdout.strip()
+                subprocess.run(["git","pull","--rebase"],
+                    cwd=repo, capture_output=True, timeout=30)
+                after = subprocess.run(["git","rev-parse","HEAD"],
+                    cwd=repo, capture_output=True, timeout=5).stdout.strip()
+                if before != after:
+                    self.after(0, self._refresh_field_list)
+                    self.after(0, self._refresh_preset_list)
+                    self.after(0, self._refresh_bee_preset_list)
+                    self.after(0, self._refresh_field_preset_list)
+                    changed = subprocess.run(
+                        ["git","diff","--name-only",
+                         before.decode(), after.decode()],
+                        cwd=repo, capture_output=True, timeout=5
+                    ).stdout.decode()
+                    if any(f in changed for f in self._CODE_FILES):
+                        self.after(0, self._on_update_ready)
+                    else:
+                        self.after(0, lambda: self._status("☁ Pulled latest data"))
+            except Exception:
+                pass
+        threading.Thread(target=run, daemon=True).start()
+
+    def _check_for_app_update(self):
+        """Periodic update check (every 5 min). Fetches from GitHub; if the
+        remote is ahead, pulls and shows the restart button if code changed."""
+        import subprocess
+        repo = Path(__file__).parent
+        def run():
+            try:
+                subprocess.run(["git","fetch","github","master"],
+                    cwd=repo, capture_output=True, timeout=15)
+                local = subprocess.run(["git","rev-parse","HEAD"],
+                    cwd=repo, capture_output=True, timeout=5).stdout.strip()
+                remote = subprocess.run(["git","rev-parse","github/master"],
+                    cwd=repo, capture_output=True, timeout=5).stdout.strip()
+                if local != remote:
+                    subprocess.run(["git","pull","--rebase"],
+                        cwd=repo, capture_output=True, timeout=30)
+                    after = subprocess.run(["git","rev-parse","HEAD"],
+                        cwd=repo, capture_output=True, timeout=5).stdout.strip()
+                    if after != local:
+                        self.after(0, self._refresh_field_list)
+                        self.after(0, self._refresh_preset_list)
+                        changed = subprocess.run(
+                            ["git","diff","--name-only",
+                             local.decode(), after.decode()],
+                            cwd=repo, capture_output=True, timeout=5
+                        ).stdout.decode()
+                        if any(f in changed for f in self._CODE_FILES):
+                            self.after(0, self._on_update_ready)
+                        else:
+                            self.after(0, lambda: self._status("☁ Pulled latest data"))
+            except Exception:
+                pass
+            # Schedule the next check regardless of success/failure.
+            self.after(300_000, self._check_for_app_update)
+        threading.Thread(target=run, daemon=True).start()
+
+    def _on_update_ready(self):
+        """Show the restart button in the toolbar."""
+        try:
+            self._update_btn.pack(side="right", padx=(0,8), pady=6)
+        except Exception:
+            pass
+        self._status("☁ App update downloaded — click 🔄 Restart to apply.")
+
+    def _restart_app(self):
+        """Restart the process in-place to apply a pulled update."""
+        try:
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+        except Exception:
+            tkinter.messagebox.showinfo("Restart Required",
+                "Please close and reopen the app to apply the update.")
 
     def _git_push(self,message="auto-sync"):
         """Commit fields/ changes and push to GitHub (background thread)."""
