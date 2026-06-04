@@ -863,6 +863,70 @@ def parse_jd_seeding_shapefile(shp_path):
     return passes
 
 
+def parse_sprayer_shapefile(shp_path):
+    """Parse a sprayer-pass file into a list of GPS polylines.
+
+    Accepts:
+      • JD Operations Center seeding shapefile  (.shp + sidecar files)
+      • Generic polyline shapefile  (.shp)  — any attribute schema
+      • GeoJSON  (.geojson or .json)  — LineString / MultiLineString features
+
+    Returns [[(lat, lon), ...], ...]  — one polyline per pass, or [] on error.
+    """
+    path = str(shp_path)
+
+    # ── GeoJSON ──────────────────────────────────────────────────────────────
+    if path.lower().endswith(('.geojson', '.json')):
+        try:
+            import json as _json
+            with open(path, encoding='utf-8') as fh:
+                gj = _json.load(fh)
+            passes = []
+            features = gj.get('features', []) if isinstance(gj, dict) else []
+            for feat in features:
+                geom = feat.get('geometry') or {}
+                gtype = geom.get('type', '')
+                coords = geom.get('coordinates', [])
+                lines = [coords] if gtype == 'LineString' else (
+                         coords if gtype == 'MultiLineString' else [])
+                for line in lines:
+                    pts = [(float(c[1]), float(c[0])) for c in line if len(c) >= 2]
+                    if len(pts) >= 2:
+                        passes.append(pts)
+            return passes
+        except Exception:
+            return []
+
+    # ── Shapefile — try JD seeding format first (handles heading-based splits)
+    seeding = parse_jd_seeding_shapefile(shp_path)
+    if seeding:
+        return seeding
+
+    # ── Generic polyline shapefile fallback ───────────────────────────────────
+    base = path[:-4] if path.lower().endswith('.shp') else path
+    try:
+        r = shapefile.Reader(base)
+    except Exception:
+        return []
+    passes = []
+    for i in range(len(r.shapes())):
+        try:
+            shp = r.shape(i)
+        except Exception:
+            continue
+        if not shp.points:
+            continue
+        # Handle multi-part shapes (shp.parts is a list of start indices).
+        parts = list(shp.parts) if shp.parts else [0]
+        parts.append(len(shp.points))
+        for j in range(len(parts) - 1):
+            segment = shp.points[parts[j]:parts[j + 1]]
+            pts = [(float(pt[1]), float(pt[0])) for pt in segment if len(pt) >= 2]
+            if len(pts) >= 2:
+                passes.append(pts)
+    return passes
+
+
 def resolve_row_mask(nf, nm, layout, custom, total_rows=None):
     """Build the M/F-per-row mask string for the WHOLE planter.
 

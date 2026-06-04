@@ -421,6 +421,7 @@ def blank_field(company="",year=""):
                 shelter_buffer_m="1.524",
                 planter_passes=None,           # [[(lat,lon), ...], ...]  imported from JD
                 use_imported_passes=True,      # when False or no data, use synthetic grid
+                sprayer_passes=None,           # [[(lat,lon), ...], ...]  uploaded GPS sprayer tracks
                 gals_per_acre="3",acres="",gals_per_tray="2",tray_distribution="even",
                 boundary_polygon=None,pivot_tracks=[],corner_arms=[],
                 shelter_overrides={})
@@ -494,6 +495,9 @@ class BeetentApp(ctk.CTk):
         # actually went vs. the synthetic grid the bay calculator computes.
         self.show_planter_passes = tk.BooleanVar(value=False)
         self.planter_path_overlays = []
+        # Uploaded GPS sprayer tracks — distinct from the synthetic angle-grid lines.
+        self.show_sprayer_passes = tk.BooleanVar(value=False)
+        self.sprayer_path_overlays = []
         # Corner tracks (a.k.a. corner arms) — polygon paths and circles drawn
         # at absolute lat/lon (don't follow the pivot when it's moved). Used
         # for swing-arm pivot tracks, shelter belts, etc. that should exclude
@@ -715,9 +719,11 @@ class BeetentApp(ctk.CTk):
         self._bnd_btn.pack(side="left", padx=(0,4))
 
         self._sp_btn = self._make_menu_btn(bb, "🌊 Sprayer", [
-            ("Toggle on/off", self._toggle_passes),
-            ("Edit",          self._mode_edit_passes),
-            ("Add File",      self._import_jd_passes),
+            ("Toggle on/off",                   self._toggle_passes),
+            ("Edit",                            self._mode_edit_passes),
+            ("Import Sprayer Data (.shp/.geojson)", self._import_sprayer_data),
+            ("Toggle Uploaded Paths on/off",    self._toggle_sprayer_passes),
+            ("Clear Uploaded Paths",            self._clear_sprayer_data),
         ], color="#2a5a4a")
         self._sp_btn.pack(side="left", padx=(0,4))
 
@@ -1762,6 +1768,7 @@ class BeetentApp(ctk.CTk):
         self.shelter_circle_var.set(False)
         self.show_corner_arms.set(False)
         self.show_planter_passes.set(False)
+        self.show_sprayer_passes.set(False)
         self._form_from_field()
         self._redraw_all()
         self._zoom_to_field()
@@ -2879,6 +2886,75 @@ class BeetentApp(ctk.CTk):
             except Exception:
                 pass
 
+    # ── Uploaded sprayer passes ────────────────────────────────────────────────
+    def _import_sprayer_data(self):
+        """File-picker for a sprayer GPS file (.shp or .geojson).
+        Parses passes, stores them on the current field, and draws them as
+        orange polylines. Off by default — turns on automatically after import."""
+        self._close_all_popups()
+        path = tkinter.filedialog.askopenfilename(
+            title="Import Sprayer Data",
+            filetypes=[("Shapefile / GeoJSON", "*.shp *.geojson *.json"),
+                       ("All files", "*.*")])
+        if not path: return
+        try:
+            from maketentgrid import parse_sprayer_shapefile
+            passes = parse_sprayer_shapefile(path)
+        except Exception as ex:
+            tkinter.messagebox.showerror("Import Error",
+                f"Couldn't parse {Path(path).name}:\n{ex}")
+            return
+        if not passes:
+            tkinter.messagebox.showwarning("Import",
+                "No pass lines found in that file.")
+            return
+        self.current_field["sprayer_passes"] = [
+            [[lat, lon] for lat, lon in p] for p in passes
+        ]
+        self.show_sprayer_passes.set(True)
+        self._redraw_sprayer_passes()
+        n_pts = sum(len(p) for p in passes)
+        self._status(f"Imported {len(passes)} sprayer passes ({n_pts:,} pts) "
+                     f"from {Path(path).name}.")
+
+    def _clear_sprayer_data(self):
+        """Remove uploaded sprayer pass data from this field."""
+        self._close_all_popups()
+        self.current_field["sprayer_passes"] = None
+        self.show_sprayer_passes.set(False)
+        self._redraw_sprayer_passes()
+        self._status("Sprayer uploaded paths cleared.")
+
+    def _toggle_sprayer_passes(self):
+        """Show/hide the uploaded sprayer-pass polylines."""
+        self._close_all_popups()
+        passes = self.current_field.get("sprayer_passes") or []
+        if not passes:
+            self._status("No sprayer data uploaded yet — use Import Sprayer Data first.")
+            return
+        self.show_sprayer_passes.set(not self.show_sprayer_passes.get())
+        self._redraw_sprayer_passes()
+        self._status("Sprayer uploaded paths " +
+                     ("shown." if self.show_sprayer_passes.get() else "hidden."))
+
+    def _redraw_sprayer_passes(self):
+        """Tear down old overlays and redraw if the layer is visible and data exists."""
+        for o in self.sprayer_path_overlays:
+            try: o.delete()
+            except Exception: pass
+        self.sprayer_path_overlays = []
+        if not self.show_sprayer_passes.get(): return
+        passes = self.current_field.get("sprayer_passes") or []
+        for poly in passes:
+            if not poly or len(poly) < 2: continue
+            try:
+                p = self.map_widget.set_path(
+                    [(lat, lon) for lat, lon in poly],
+                    color="#FF8C00", width=1)
+                self.sprayer_path_overlays.append(p)
+            except Exception:
+                pass
+
     # ── Shelter preview ────────────────────────────────────────────────────────
     def _toggle_shelters(self):
         self.show_shelters.set(not self.show_shelters.get())
@@ -3419,7 +3495,7 @@ class BeetentApp(ctk.CTk):
                 self.map_widget.set_position(plat,plon); self.map_widget.set_zoom(14)
         except (ValueError,TypeError): pass
         self._redraw_pivot()
-        self._redraw_boundary(); self._redraw_tracks(); self._redraw_passes(); self._redraw_bays(); self._redraw_corner_arms(); self._redraw_planter_passes(); self._redraw_shelters()
+        self._redraw_boundary(); self._redraw_tracks(); self._redraw_passes(); self._redraw_bays(); self._redraw_corner_arms(); self._redraw_planter_passes(); self._redraw_sprayer_passes(); self._redraw_shelters()
 
     def _clear_all_overlays(self):
         if self.pivot_marker: self.pivot_marker.delete(); self.pivot_marker=None
@@ -3437,6 +3513,10 @@ class BeetentApp(ctk.CTk):
             try: o.delete()
             except Exception: pass
         self.planter_path_overlays=[]
+        for o in self.sprayer_path_overlays:
+            try: o.delete()
+            except Exception: pass
+        self.sprayer_path_overlays=[]
         self._clear_shelters()
 
     # ── Pivot drag handler ─────────────────────────────────────────────────────
