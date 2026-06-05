@@ -361,21 +361,34 @@ def enu_to_latlon(e,n,pivot_lat,pivot_lon):
     lon2,lat2=utmish.to_lonlat(pe+e,pn+n,pivot_lon)
     return lat2,lon2
 
-def inset_polygon_enu(poly_enu, dist, miter_limit=3.0):
-    """Offset every edge of poly_enu inward by dist metres. Works for convex
-    polygons and tolerable for concave ones.
+def inset_polygon_enu(poly_enu, dist, miter_limit=1.5):
+    """Offset every edge of poly_enu inward by dist metres.
 
-    Sharp corners get a beveled join instead of a miter spike: if the
-    natural miter point lies more than `miter_limit × dist` from the
-    original vertex, we emit the two offset edge endpoints separately
-    instead. Without this, an acute corner produces a long inward spike
-    that backtracks on itself and looks like a kink the sprayer would
-    never actually drive."""
+    Each pair of adjacent offset edges joins at one of two kinds of
+    corner:
+
+      * Miter (point) join — natural intersection of the two offset
+        edges. Used when the corner is open enough that the miter
+        doesn't spike too far past the original vertex.
+
+      * Round (arc) join — circular arc on the inside of the corner,
+        centred at the original vertex with radius `dist`. Used at
+        sharp corners where a miter would spike or a bevel would kink.
+        The two offset edge endpoints are by construction both at
+        distance `dist` from the original vertex, so they lie on a
+        common circle — we just walk between them in small angular
+        steps to trace a smooth curve.
+
+    miter_limit (~1.5 × dist by default): max allowed distance from
+    the miter intersection to the original vertex before we switch to
+    a round join. Lower = round earlier = smoother curves on sharp
+    corners.
+    """
     n=len(poly_enu)
     if n<3: return []
     cx=sum(e for e,_ in poly_enu)/n; cn=sum(nn for _,nn in poly_enu)/n
     edges=[]
-    src_vertex=[]   # original (next) vertex paired with each edge, for miter test
+    src_vertex=[]   # original (next) vertex paired with each edge
     for i in range(n):
         e1,n1=poly_enu[i]; e2,n2=poly_enu[(i+1)%n]
         dx2,dy2=e2-e1,n2-n1; L=math.sqrt(dx2*dx2+dy2*dy2)
@@ -388,6 +401,8 @@ def inset_polygon_enu(poly_enu, dist, miter_limit=3.0):
     if len(edges)<3: return []
     result=[]
     miter_threshold = miter_limit * abs(dist)
+    abs_dist = abs(dist)
+    arc_step = math.pi / 16   # ~11.25° between arc points
     for i in range(len(edges)):
         a=edges[i]; b=edges[(i+1)%len(edges)]
         ax,ay=a[1][0]-a[0][0],a[1][1]-a[0][1]
@@ -395,20 +410,33 @@ def inset_polygon_enu(poly_enu, dist, miter_limit=3.0):
         det=ax*(-by)-(-bx)*ay
         if abs(det)<1e-9:
             result.append(((a[1][0]+b[0][0])/2,(a[1][1]+b[0][1])/2))
-        else:
-            ddx=b[0][0]-a[0][0]; ddy=b[0][1]-a[0][1]
-            t=(ddx*(-by)-ddy*(-bx))/det
-            ix, iy = a[0][0]+t*ax, a[0][1]+t*ay
-            # Miter-limit check: distance from intersection to the original
-            # vertex shouldn't exceed miter_limit × dist. Otherwise bevel.
-            ovx, ovy = src_vertex[i]
-            d = math.sqrt((ix - ovx)**2 + (iy - ovy)**2)
-            if d > miter_threshold:
-                # Bevel: keep the two offset endpoints as separate vertices.
-                result.append(a[1])
-                result.append(b[0])
-            else:
-                result.append((ix, iy))
+            continue
+        ddx=b[0][0]-a[0][0]; ddy=b[0][1]-a[0][1]
+        t=(ddx*(-by)-ddy*(-bx))/det
+        ix, iy = a[0][0]+t*ax, a[0][1]+t*ay
+        ovx, ovy = src_vertex[i]
+        d = math.sqrt((ix - ovx)**2 + (iy - ovy)**2)
+        if d <= miter_threshold:
+            result.append((ix, iy))
+            continue
+        # Round join — walk an arc on the inside of the corner from
+        # a's endpoint to b's startpoint, centred on the original
+        # vertex with radius |dist|.
+        v1x, v1y = a[1][0]-ovx, a[1][1]-ovy
+        v2x, v2y = b[0][0]-ovx, b[0][1]-ovy
+        ang1 = math.atan2(v1y, v1x)
+        ang2 = math.atan2(v2y, v2x)
+        # Take the shorter angular sweep (the one that stays on the
+        # inside of the corner). atan2 returns in [-π, π]; normalise
+        # the delta to the same range.
+        delta = (ang2 - ang1 + math.pi) % (2 * math.pi) - math.pi
+        result.append(a[1])
+        n_steps = max(2, int(abs(delta) / arc_step))
+        for k in range(1, n_steps):
+            ang = ang1 + delta * (k / n_steps)
+            result.append((ovx + abs_dist * math.cos(ang),
+                           ovy + abs_dist * math.sin(ang)))
+        result.append(b[0])
     return result
 
 def clip_line_to_polygon_intervals(px, py, dx, dy, polygon):
