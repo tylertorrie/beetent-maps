@@ -1666,61 +1666,105 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                     samples.append((t, e, n_v, _pf_valid(e, n_v)))
                 centerline_cache.append(samples)
 
-            def _place_at(ns):
-                # Look up cached samples — no validity recompute — at the
-                # requested spacing. For each centerline, walk through the
-                # target t values and pick the nearest cached sample.
-                pts = []
-                for r_idx, samples in enumerate(centerline_cache):
-                    if not samples: continue
-                    total = samples[-1][0]
-                    if ns <= 0: continue
-                    n = int(total / ns) + 1
-                    if n == 1:
-                        # Single-shelter centerline (ns > total) — scatter t
-                        # with a golden-ratio low-discrepancy sequence keyed
-                        # by centerline index so consecutive centerlines
-                        # drop their shelter at well-distributed N positions
-                        # instead of all stacking at the midpoint.
-                        phi = ((r_idx + 1) * 0.6180339887498949) % 1.0
-                        t_list = (phi * total,)
-                    else:
-                        offset = (total - (n - 1) * ns) * 0.5
-                        if offset < 0: offset = 0.0
-                        t_list = tuple(offset + j * ns for j in range(n))
-                    n_samples = len(samples)
-                    for t in t_list:
-                        if t < 0 or t > total: continue
-                        # Cached samples are uniformly spaced at SAMPLE_STEP_M
-                        # so we can index directly — O(1) instead of binary
-                        # searching.
-                        k = int(t / SAMPLE_STEP_M + 0.5)
-                        if k < 0: k = 0
-                        elif k >= n_samples: k = n_samples - 1
-                        ts, es, ns_v, valid = samples[k]
-                        if valid:
-                            pts.append((es, ns_v, r_idx))
-                return pts
+            # ── 2D GRID placement ───────────────────────────────────────
+            # The previous algorithm placed one shelter per centerline at a
+            # golden-ratio scattered N position, which gave a visually random
+            # pattern when target < centerlines. Now we pick R uniform N
+            # positions × C centerlines (even-stride pick from the 108
+            # available) so the result is a proper R × C grid with the same
+            # regularity as the synthetic-grid mode the user sees when
+            # planter data is toggled off.
 
-            # Binary search for the largest spacing that yields >= num_tents
-            # valid placements. _place_at is monotonically non-decreasing as
-            # spacing decreases, so a 24-step bisection over [0.5 m, 2×total]
-            # converges to sub-mm precision and reliably hits the target
-            # (where the previous proportional-scaling loop could oscillate).
-            lo, hi = 0.5, max(2.0, total_len_m * 2)
-            if len(_place_at(lo)) < num_tents:
-                # Even at the tightest spacing we can't fit num_tents; take
-                # whatever we get at lo.
-                placed = _place_at(lo)
+            # Direction vectors derived from the first centerline.
+            ax = enu_centerlines[0][1][0][0]; ay = enu_centerlines[0][1][0][1]
+            bx = enu_centerlines[0][1][-1][0]; by = enu_centerlines[0][1][-1][1]
+            tlen0 = math.sqrt((bx-ax)**2 + (by-ay)**2) or 1
+            tdx0 = (bx-ax)/tlen0; tdy0 = (by-ay)/tlen0       # travel direction
+            ldx0, ldy0 = -tdy0, tdx0                          # lateral direction
+
+            # Sort centerlines by their lateral midpoint coord so even-stride
+            # picks a clean E-W spread.
+            cl_meta = []
+            for r_idx, samples in enumerate(centerline_cache):
+                if not samples: continue
+                mid = samples[len(samples)//2]
+                lat_coord = mid[1] * ldx0 + mid[2] * ldy0
+                cl_meta.append((lat_coord, r_idx, samples))
+            cl_meta.sort()
+
+            n_clines = len(cl_meta)
+            if n_clines == 0:
+                return ([], []) if return_rows else []
+            e_range = cl_meta[-1][0] - cl_meta[0][0] if n_clines > 1 else 1.0
+            if e_range <= 0: e_range = 1.0
+            avg_len = total_len_m / n_clines
+
+            # R × C with R/C ≈ N-S range / E-W range. Aim for 25% over-target
+            # so validity rejections (track exclusions, kill zones) don't
+            # leave us short.
+            target_over = max(1, int(math.ceil(num_tents * 1.25)))
+            aspect = (avg_len / e_range) if e_range > 0 else 1.0
+            R = max(1, round(math.sqrt(target_over * aspect)))
+            C = max(1, math.ceil(target_over / R))
+            if C > n_clines: C = n_clines
+
+            # Pick C centerlines via even stride from the lateral-sorted list.
+            if C >= n_clines:
+                picked = list(range(n_clines))
+            elif C == 1:
+                picked = [n_clines // 2]
             else:
-                for _ in range(24):
-                    mid = (lo + hi) / 2
-                    if len(_place_at(mid)) >= num_tents:
-                        lo = mid
-                    else:
-                        hi = mid
-                ns_spacing_pf = lo
-                placed = _place_at(ns_spacing_pf)
+                step = (n_clines - 1) / (C - 1)
+                picked = sorted({int(round(i * step)) for i in range(C)})
+
+            # Find the global N-S range across all picked centerlines so the
+            # R row positions are ABSOLUTE — every row lands at the same N
+            # latitude regardless of which centerlines reach that far.
+            # That's what gives the clean horizontal-row look the user
+            # expects (was previously using each centerline's own t/total
+            # fraction, which produced ragged rows on fields with passes of
+            # different lengths).
+            travel_n_proj = lambda e, n: e * tdx0 + n * tdy0
+            picked_samples = [cl_meta[pi][2] for pi in picked]
+            picked_rids    = [cl_meta[pi][1] for pi in picked]
+            t_proj_min = min(travel_n_proj(s[0][1], s[0][2])
+                             for s in picked_samples)
+            t_proj_max = max(travel_n_proj(s[-1][1], s[-1][2])
+                             for s in picked_samples)
+            # Pass polylines run start→end along travel direction; if any
+            # centerline's start projects HIGHER than its end (boustrophedon
+            # alternation), our min/max above already covers both cases.
+            lo_proj = min(t_proj_min, t_proj_max)
+            hi_proj = max(t_proj_min, t_proj_max)
+            n_span = hi_proj - lo_proj
+            if n_span <= 0: n_span = avg_len
+
+            row_targets = [lo_proj + (r + 0.5) * n_span / R for r in range(R)]
+            # For each centerline, project every sample onto the travel axis
+            # and find the closest sample to each row's target. Keep only
+            # samples within half-step of the target so a too-short
+            # centerline doesn't contribute spurious end-clamped pins.
+            half_step = n_span / (2 * R) if R > 0 else 0
+            placed = []
+            for r_idx, samples in zip(picked_rids, picked_samples):
+                if not samples: continue
+                # Precompute projections so we don't redo per row.
+                projs = [travel_n_proj(s[1], s[2]) for s in samples]
+                p_lo = min(projs); p_hi = max(projs)
+                for n_target in row_targets:
+                    if n_target < p_lo - half_step or n_target > p_hi + half_step:
+                        continue
+                    best_k = None; best_dn = float('inf')
+                    for k, p in enumerate(projs):
+                        d = p - n_target
+                        if d < 0: d = -d
+                        if d < best_dn:
+                            best_dn = d; best_k = k
+                    if best_k is None or best_dn > half_step:
+                        continue
+                    _ts, es, ns_v, valid = samples[best_k]
+                    if valid:
+                        placed.append((es, ns_v, r_idx))
 
             if not placed:
                 return ([], []) if return_rows else []
