@@ -376,7 +376,16 @@
     384.98
   ],
   "corner_arms": [],
-  "shelter_overrides": {},
+  "shelter_overrides": {
+    "45": [
+      49.89170031720277,
+      -111.854479292696
+    ],
+    "49": [
+      49.891684765457775,
+      -111.8533098495655
+    ]
+  },
   "gals_per_acre": "3",
   "acres": "66.37",
   "gals_per_tray": "2",
@@ -62524,8 +62533,9 @@
   "lld": "",
   "row_layout": "custom",
   "custom_row_mask": "FFFFMMFFFFFFFFMMFFFF",
-  "use_imported_passes": true,
+  "use_imported_passes": false,
   "acres_per_shelter": "",
   "total_rows": "20",
-  "use_bays": true
+  "use_bays": true,
+  "pass_edge_buffer_ft": "0"
 }
