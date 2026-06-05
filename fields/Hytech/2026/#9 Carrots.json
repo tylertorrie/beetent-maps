@@ -118,8 +118,8 @@
       -111.80206912294766
     ],
     "16": [
-      49.91499919656343,
-      -111.80396276251217
+      49.91402635576532,
+      -111.80231945479045
     ]
   },
   "gals_per_acre": "4",
@@ -135,5 +135,6 @@
   "use_imported_passes": false,
   "acres_per_shelter": "",
   "total_rows": "20",
-  "use_bays": false
+  "use_bays": false,
+  "pass_edge_buffer_ft": "0"
 }
