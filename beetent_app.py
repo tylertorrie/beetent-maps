@@ -411,6 +411,40 @@ def inset_polygon_enu(poly_enu, dist, miter_limit=3.0):
                 result.append((ix, iy))
     return result
 
+def clip_line_to_polygon_intervals(px, py, dx, dy, polygon):
+    """All inside-the-polygon intervals (in line-parameter t) for the
+    infinite line through (px,py) with direction (dx,dy).
+
+    Returns a list of (t_enter, t_exit) tuples. For a convex polygon
+    that's a single interval; for a polygon with a concave bay or
+    multiple lobes it's several. Used by `_band_polygon_enu` to produce
+    one band polygon per inside-segment instead of a single bounding
+    rectangle that fills across the gaps.
+    """
+    ts = []
+    n = len(polygon)
+    for i in range(n):
+        x1, y1 = polygon[i]; x2, y2 = polygon[(i+1) % n]
+        ex, ey = x2 - x1, y2 - y1
+        denom = dx * ey - dy * ex
+        if abs(denom) < 1e-9: continue
+        t = ((x1 - px) * ey - (y1 - py) * ex) / denom
+        u = ((x1 - px) * dy - (y1 - py) * dx) / denom
+        if -1e-9 <= u <= 1 + 1e-9:
+            ts.append(t)
+    if len(ts) < 2: return []
+    ts.sort()
+    # Group sorted t-values into in/out intervals. With ray-casting
+    # convention each pair (ts[0], ts[1]), (ts[2], ts[3]), … is an
+    # inside-segment; rounding can produce odd-count lists, in which
+    # case the final stray is dropped.
+    intervals = []
+    for i in range(0, len(ts) - 1, 2):
+        a, b = ts[i], ts[i+1]
+        if b - a > 1e-6:
+            intervals.append((a, b))
+    return intervals
+
 def clip_line_to_polygon(px,py,dx,dy,polygon):
     ts=[]
     n=len(polygon)
@@ -3671,16 +3705,62 @@ class BeetentApp(ctk.CTk):
             except Exception: pass
         self.bay_polygons=[]
 
-    def _band_polygon_enu(self,x1,x2,tdx,tdy,ldx,ldy,poly_enu):
-        p1e,p1n=x1*ldx,x1*ldy; p2e,p2n=x2*ldx,x2*ldy
-        r1=clip_line_to_polygon(p1e,p1n,tdx,tdy,poly_enu)
-        r2=clip_line_to_polygon(p2e,p2n,tdx,tdy,poly_enu)
-        if r1 is None and r2 is None: return None
-        if r1 is None: r1=r2
-        if r2 is None: r2=r1
-        t0=min(r1[0],r2[0]); t1=max(r1[1],r2[1])
-        return [(p1e+t0*tdx,p1n+t0*tdy),(p2e+t0*tdx,p2n+t0*tdy),
-                (p2e+t1*tdx,p2n+t1*tdy),(p1e+t1*tdx,p1n+t1*tdy)]
+    def _band_polygon_enu(self, x1, x2, tdx, tdy, ldx, ldy, poly_enu,
+                           inner_polys_enu=None):
+        """Clip a band (between lateral positions x1 and x2, travelling
+        along (tdx, tdy)) to the outer polygon AND subtract every inner
+        polygon. Returns a LIST of band polygons (one per inside-interval).
+
+        Uses clip_line_to_polygon_intervals on both band edges and walks
+        through the merged t-interval set, so a non-convex outer polygon
+        (e.g. a field that wraps around a farmstead) gets multiple bay
+        slices instead of one bounding rectangle that fills across the
+        gap. Each interval is also subtracted by every inner polygon.
+        """
+        p1e, p1n = x1 * ldx, x1 * ldy
+        p2e, p2n = x2 * ldx, x2 * ldy
+        # Inside-intervals for each band edge.
+        edge_a = clip_line_to_polygon_intervals(p1e, p1n, tdx, tdy, poly_enu)
+        edge_b = clip_line_to_polygon_intervals(p2e, p2n, tdx, tdy, poly_enu)
+        if not edge_a and not edge_b: return []
+        # If one edge is entirely outside, fall back to the other (so we
+        # don't drop a band just because its outer edge skims past).
+        if not edge_a: edge_a = edge_b
+        if not edge_b: edge_b = edge_a
+        # Pair up matching intervals between the two edges. They should
+        # always have the same count for sane geometry; intersect the i-th
+        # interval of each edge to get the band's i-th inside-segment.
+        intervals = []
+        for (a0, a1), (b0, b1) in zip(edge_a, edge_b):
+            t0 = max(a0, b0); t1 = min(a1, b1)
+            if t1 - t0 > 1e-6: intervals.append((t0, t1))
+        if not intervals: return []
+        # Subtract each inner polygon's intervals from the band's intervals.
+        for inner_enu in (inner_polys_enu or []):
+            sub_a = clip_line_to_polygon_intervals(p1e, p1n, tdx, tdy, inner_enu)
+            sub_b = clip_line_to_polygon_intervals(p2e, p2n, tdx, tdy, inner_enu)
+            inner_ts = []
+            for (a0, a1), (b0, b1) in zip(sub_a, sub_b):
+                # The cut is the UNION of the two edge's inner-intervals — be
+                # conservative and remove anywhere either edge dips into the
+                # cutout.
+                inner_ts.append((min(a0, b0), max(a1, b1)))
+            for (i0, i1) in inner_ts:
+                new_intervals = []
+                for (a, b) in intervals:
+                    if i1 <= a or i0 >= b:
+                        new_intervals.append((a, b))
+                    else:
+                        if i0 > a: new_intervals.append((a, i0))
+                        if i1 < b: new_intervals.append((i1, b))
+                intervals = new_intervals
+        polys = []
+        for (t0, t1) in intervals:
+            polys.append([(p1e + t0*tdx, p1n + t0*tdy),
+                          (p2e + t0*tdx, p2n + t0*tdy),
+                          (p2e + t1*tdx, p2n + t1*tdy),
+                          (p1e + t1*tdx, p1n + t1*tdy)])
+        return polys
 
     def _clear_pass_buffer_overlay(self):
         for o in self.pass_buffer_overlays:
@@ -3720,11 +3800,19 @@ class BeetentApp(ctk.CTk):
         # Main-pass kill zones: a band of width 2 × dead_half centred on each
         # sprayer pass at r * sprayer_width.
         max_rows = int(max_r / width_m) + 2
+        # Inner boundaries as ENU rings (so the kill-zone bands also stop at
+        # interior cutouts when present).
+        inner_polys_enu = []
+        for inner in (self.current_field.get("boundary_inner") or []):
+            if not inner or len(inner) < 3: continue
+            inner_polys_enu.append(
+                [latlon_to_enu(pt[0], pt[1], plat, plon) for pt in inner])
         for r in range(-max_rows, max_rows + 1):
             cx = r * width_m
-            band = self._band_polygon_enu(cx - dead_half, cx + dead_half,
-                                           tdx, tdy, ldx, ldy, poly_enu)
-            if band:
+            bands = self._band_polygon_enu(cx - dead_half, cx + dead_half,
+                                            tdx, tdy, ldx, ldy, poly_enu,
+                                            inner_polys_enu=inner_polys_enu)
+            for band in bands:
                 lpts = [enu_to_latlon(e, n, plat, plon) for e, n in band]
                 try:
                     o = self.map_widget.set_polygon(
@@ -3779,6 +3867,13 @@ class BeetentApp(ctk.CTk):
             return
         row_m=rs*0.0254; female_m=(nf+1)*row_m; male_m=(nm+1)*row_m
         poly_enu=[latlon_to_enu(lat,lon,plat,plon) for lat,lon in bp]
+        # Inner cutouts in ENU so bays don't render across building / slough
+        # footprints either.
+        inner_polys_enu = []
+        for inner in (self.current_field.get("boundary_inner") or []):
+            if not inner or len(inner) < 3: continue
+            inner_polys_enu.append(
+                [latlon_to_enu(pt[0], pt[1], plat, plon) for pt in inner])
         max_r=max(math.sqrt(e*e+n*n) for e,n in poly_enu)*1.1
         rot=math.radians((180-angle)%360-180)
         cos_r,sin_r=math.cos(rot),math.sin(rot)
@@ -3789,8 +3884,11 @@ class BeetentApp(ctk.CTk):
         for i in range(-n_units,n_units+1):
             cx=i*unit
             # Female bays hidden — only male bays shown
-            band=self._band_polygon_enu(cx+female_m/2,cx+female_m/2+male_m,tdx,tdy,ldx,ldy,poly_enu)
-            if band:
+            bands = self._band_polygon_enu(
+                cx + female_m/2, cx + female_m/2 + male_m,
+                tdx, tdy, ldx, ldy, poly_enu,
+                inner_polys_enu=inner_polys_enu)
+            for band in bands:
                 lpts=[enu_to_latlon(e,n,plat,plon) for e,n in band]
                 try:
                     p=self.map_widget.set_polygon(lpts,fill_color="#001F7A",outline_color="#001F7A",border_width=0)
