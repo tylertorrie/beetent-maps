@@ -543,6 +543,17 @@ def list_fields(co,yr):
 # ── Application ───────────────────────────────────────────────────────────────
 class BeetentApp(ctk.CTk):
     def __init__(self):
+        # Tell Windows we're a standalone app (not a generic pythonw.exe
+        # window) BEFORE any window is created. Without an AppUserModelID
+        # Windows groups us under pythonw.exe in the taskbar and uses its
+        # icon there even though iconbitmap sets the title-bar icon.
+        try:
+            if sys.platform.startswith("win"):
+                import ctypes
+                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                    "beetent.maps.app")
+        except Exception:
+            pass
         super().__init__()
         _apply_typography(self)   # Inter as the default UI font (headings use Inter Medium)
         self.title("Bee Tent Maps")
@@ -1025,15 +1036,12 @@ class BeetentApp(ctk.CTk):
         # gals/tray) — the entry just displays the computed count.
         self._shelter_mode_key={"total":"num_structures","per_acre":"shelters_per_acre",
                                  "acres_per_shelter":"acres_per_shelter","spacing":"spacing"}
-        ctk.CTkLabel(fs,text="Shelters",anchor="w",font=ctk.CTkFont(family=FONT_LABEL,size=11)).pack(fill="x")
+        # Variables for the shelter mode dropdown live here so they're
+        # defined when _form_from_field runs, but the UI for them is built
+        # later under Bee Allocation (the shelter count is the primary
+        # input to the bee math).
         self.shelter_mode_var=tk.StringVar(value="Total shelters")
-        ctk.CTkComboBox(fs,variable=self.shelter_mode_var,values=list(self._shelter_mode_labels.keys()),
-                        command=self._on_shelter_mode_change).pack(fill="x",pady=(0,2))
         self.shelter_value_var=tk.StringVar()
-        self._shelter_entry=ctk.CTkEntry(fs,textvariable=self.shelter_value_var)
-        self._shelter_entry.pack(fill="x",pady=(0,2))
-        self.shelter_hint_lbl=ctk.CTkLabel(fs,text="",anchor="w",text_color=UI_MUTED,font=ctk.CTkFont(size=10))
-        self.shelter_hint_lbl.pack(fill="x",pady=(0,5))
         self.shelter_value_var.trace_add("write", self._on_shelter_value_change)
 
         # Outside Sprayer Pass
@@ -1163,6 +1171,16 @@ class BeetentApp(ctk.CTk):
         ctk.CTkButton(bp_row,text="🗑",width=30,command=self._delete_bee_preset).pack(side="left")
 
         ctk.CTkFrame(ba,height=1,fg_color=UI_BORDER).pack(fill="x",pady=(2,4))
+
+        # Shelter count drives the bee math, so the mode + value live here at
+        # the top of Bee Allocation (was previously under Field Details).
+        ctk.CTkLabel(ba,text="Shelters",anchor="w",font=ctk.CTkFont(family=FONT_LABEL,size=11)).pack(fill="x")
+        ctk.CTkComboBox(ba,variable=self.shelter_mode_var,values=list(self._shelter_mode_labels.keys()),
+                        command=self._on_shelter_mode_change).pack(fill="x",pady=(0,2))
+        self._shelter_entry=ctk.CTkEntry(ba,textvariable=self.shelter_value_var)
+        self._shelter_entry.pack(fill="x",pady=(0,2))
+        self.shelter_hint_lbl=ctk.CTkLabel(ba,text="",anchor="w",text_color=UI_MUTED,font=ctk.CTkFont(size=10))
+        self.shelter_hint_lbl.pack(fill="x",pady=(0,8))
 
         bee_rows=[
             ("gals_per_acre", "Gals/acre"),
