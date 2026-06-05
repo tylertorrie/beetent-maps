@@ -517,6 +517,16 @@ def blank_field(company="",year=""):
 def _field_dir(company,year):
     d=DATA_DIR/company/str(year); d.mkdir(parents=True,exist_ok=True); return d
 
+FIELD_NAME_BAD_CHARS = '#/\\:*?"<>|'   # JD rejects # and /; the rest break Windows file paths and shapefile names
+FIELD_NAME_BAD_CHARS_HUMAN = '# / \\ : * ? " < > |'
+
+def invalid_field_name_chars(name):
+    """Return a list of bad characters present in `name`, or [] if clean.
+    Used both for fields and for company/year names since all of them
+    become folder / file name components on disk."""
+    if not name: return []
+    return sorted(set(c for c in name if c in FIELD_NAME_BAD_CHARS))
+
 def save_field(f):
     if not f.get("Name"): return
     p=_field_dir(f.get("company","Default"),f.get("year",str(datetime.date.today().year)))/(f["Name"]+".json")
@@ -1889,11 +1899,27 @@ class BeetentApp(ctk.CTk):
 
     def _new_company(self):
         n=self._ask_string("New Company","Company name:")
-        if n: (DATA_DIR/n).mkdir(parents=True,exist_ok=True); self._refresh_company_list(); self.company_var.set(n); self._on_company_change()
+        if not n: return
+        n = n.strip()
+        bad = invalid_field_name_chars(n)
+        if bad:
+            tkinter.messagebox.showerror("Invalid company name",
+                f"\"{' '.join(bad)}\" not allowed. JD Operations Center rejects # and /,\n"
+                f"and these characters also break Windows folders:\n    {FIELD_NAME_BAD_CHARS_HUMAN}")
+            return
+        (DATA_DIR/n).mkdir(parents=True,exist_ok=True); self._refresh_company_list(); self.company_var.set(n); self._on_company_change()
 
     def _new_year(self):
         y=self._ask_string("New Year",f"Year (e.g. {datetime.date.today().year}):")
-        if y: (DATA_DIR/self.company_var.get()/y).mkdir(parents=True,exist_ok=True); self._on_company_change(); self.year_var.set(y); self._refresh_field_list()
+        if not y: return
+        y = y.strip()
+        bad = invalid_field_name_chars(y)
+        if bad:
+            tkinter.messagebox.showerror("Invalid year",
+                f"\"{' '.join(bad)}\" not allowed in year folder name.\n"
+                f"Use just the digits — e.g. {datetime.date.today().year}.")
+            return
+        (DATA_DIR/self.company_var.get()/y).mkdir(parents=True,exist_ok=True); self._on_company_change(); self.year_var.set(y); self._refresh_field_list()
 
     # ── Field list ─────────────────────────────────────────────────────────────
     def _is_all_scope(self):
@@ -4387,9 +4413,31 @@ class BeetentApp(ctk.CTk):
         f=self._field_from_form()
         if not f.get("Name"):
             self._status("Enter a field name."); return
+        # Field name validation: certain characters break the on-disk
+        # folder structure AND get rejected by John Deere Operations
+        # Center on upload. Block them here with a clear alert so the
+        # user fixes the name before we write anything.
+        bad = invalid_field_name_chars(f.get("Name") or "")
+        if bad:
+            tkinter.messagebox.showerror("Invalid field name",
+                f"The field name contains \"{' '.join(bad)}\".\n\n"
+                f"John Deere Operations Center rejects field names with "
+                f"# or /, and these characters also break Windows file "
+                f"paths:\n    {FIELD_NAME_BAD_CHARS_HUMAN}\n\n"
+                f"Please change the name before saving.")
+            return
         co=(f.get("company") or "").strip()
         if not co:
             self._status("Enter a company in Field Details before saving."); return
+        # Company name has the same restriction since it becomes a folder.
+        bad_co = invalid_field_name_chars(co)
+        if bad_co:
+            tkinter.messagebox.showerror("Invalid company name",
+                f"The company name contains \"{' '.join(bad_co)}\".\n\n"
+                f"These characters break Windows folders and JD uploads:\n"
+                f"    {FIELD_NAME_BAD_CHARS_HUMAN}\n\n"
+                f"Please change the company before saving.")
+            return
         # Year falls back to the current calendar year if the dropdown is
         # on "All years" — saves the user the click in that common case.
         yr=(f.get("year") or "").strip()
@@ -4501,8 +4549,12 @@ class BeetentApp(ctk.CTk):
                 self.after(0,lambda:tkinter.messagebox.showinfo("Done",
                     "%d field(s) written to:\n%s\n\n"
                     "For John Deere Operations Center:\n"
-                    "  Upload Files → Other → drop the {field}_JD.zip\n"
-                    "  (or read the README.txt inside the .zip for details).\n"
+                    "  Files → Upload Files → Flags → drop\n"
+                    "    {field}_Shelter_Pins.zip\n"
+                    "  Files → Upload Files → Internal Boundaries → drop\n"
+                    "    {field}_Shelter_Buffer_Zones.zip  (if buffers are enabled)\n"
+                    "\n"
+                    "Each zip has a README.txt with the same instructions.\n"
                     "\n"
                     "Trimble import: Trimble/ subfolder.\n"
                     "Google Earth: open the .kml file."

@@ -653,40 +653,102 @@ def export_field_outputs(positions_latlon, pivotpoint, out_dir, field_name,
     writer.writestr(os.path.join(field_dir, "PointFeature.shp"), shp.getvalue())
     writer.writestr(os.path.join(field_dir, "PointFeature.shx"), shx.getvalue())
 
-    # ── John Deere Operations Center GeoJSON ─────────────────────────────────
+    # ── John Deere Operations Center exports ────────────────────────────────
+    # JD Operations Center expects SHAPEFILES inside a zip (not GeoJSON),
+    # and the two semantic categories — flags vs internal boundaries — are
+    # uploaded separately under different JD categories. So we produce two
+    # zips: one with point shelters (JD "Flags") and one with buffer-circle
+    # polygons (JD "Internal Boundaries"). Loose .geojson also kept for
+    # other GIS tools.
     jd_lonlat = [(lon, lat) for lat, lon in positions_latlon]
     jd_geojson_text = _make_geojson_with_buffers(jd_lonlat, field_name,
                                                   include_buffers, buffer_radius_m)
     writer.writestr(os.path.join(out_dir, "%s.geojson" % field_name),
                     jd_geojson_text)
 
-    # JD Operations Center's Upload Files → Other category accepts a .zip
-    # containing a GeoJSON. Pack one alongside the loose .geojson so the
-    # user has a drag-and-drop-ready file. Also include a short README so
-    # the user knows where to upload it inside JD.
-    jd_zip_buf = BytesIO()
-    with zipfile.ZipFile(jd_zip_buf, 'w', zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("%s.geojson" % field_name, jd_geojson_text)
+    # WGS84 PRJ — required by Operations Center to read the shapefile.
+    WGS84_PRJ = ('GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",'
+                 'SPHEROID["WGS_1984",6378137,298.257223563]],'
+                 'PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]]')
+
+    def _shelter_pins_shapefile_bytes():
+        """Point shapefile of shelter markers. JD reads this as Flags."""
+        shp = BytesIO(); shx = BytesIO(); dbf = BytesIO()
+        w = shapefile.Writer(shp=shp, shx=shx, dbf=dbf, shapeType=shapefile.POINT)
+        w.field('id',   'N', size=8,  decimal=0)
+        w.field('name', 'C', size=32)
+        w.field('type', 'C', size=16)
+        for i, (lat, lon) in enumerate(positions_latlon):
+            w.point(lon, lat)
+            w.record(i + 1, "Shelter_%d" % (i + 1), "flag")
+        w.close()
+        return shp.getvalue(), shx.getvalue(), dbf.getvalue()
+
+    def _buffer_zones_shapefile_bytes(radius_m):
+        """Polygon shapefile of shelter buffer circles. JD reads this as
+        Internal Boundaries (passable interior boundaries)."""
+        shp = BytesIO(); shx = BytesIO(); dbf = BytesIO()
+        w = shapefile.Writer(shp=shp, shx=shx, dbf=dbf, shapeType=shapefile.POLYGON)
+        w.field('id',   'N', size=8,  decimal=0)
+        w.field('name', 'C', size=32)
+        w.field('type', 'C', size=16)
+        for i, (lat, lon) in enumerate(positions_latlon):
+            ring = _circle_lonlat(lat, lon, radius_m, 24)
+            w.poly([ring])
+            w.record(i + 1, "Buffer_%d" % (i + 1), "interior")
+        w.close()
+        return shp.getvalue(), shx.getvalue(), dbf.getvalue()
+
+    # ── {field}_Shelter_Pins.zip  (upload to JD → Flags) ─────────────────────
+    shp, shx, dbf = _shelter_pins_shapefile_bytes()
+    pins_zip_buf = BytesIO()
+    with zipfile.ZipFile(pins_zip_buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        base = "%s_Shelter_Pins" % field_name
+        zf.writestr("%s.shp" % base, shp)
+        zf.writestr("%s.shx" % base, shx)
+        zf.writestr("%s.dbf" % base, dbf)
+        zf.writestr("%s.prj" % base, WGS84_PRJ)
         zf.writestr("README.txt",
-            "Beetent Maps — John Deere Operations Center upload\n"
+            "Beetent Maps — Shelter Pins for John Deere Operations Center\n"
             "\n"
-            "This .zip contains shelter marker positions as GeoJSON for the\n"
-            "field \"%s\".\n"
+            "This .zip is the shelter-pin layer for the field \"%s\".\n"
+            "Contains a point shapefile (one feature per shelter).\n"
             "\n"
             "To upload in John Deere Operations Center:\n"
-            "  1. Open Files (cloud icon in the top-right).\n"
-            "  2. Click \"Upload Files\" → choose the \"Other\" category.\n"
-            "     (\"Work Data\" expects machine-generated logs from a JD\n"
-            "     display; the shelter layer is reference data, not work\n"
-            "     data, so \"Other\" is the right home.)\n"
-            "  3. Drag this .zip into the upload box, or pick it with\n"
-            "     Choose Files. Click Upload.\n"
+            "  Files (cloud icon) → Upload Files → Flags → drop this .zip.\n"
             "\n"
-            "Once uploaded, the GeoJSON points will appear in the field's\n"
-            "\"Other\" files and can be referenced from a JD-compatible app.\n"
+            "If Flags isn't available in your JD plan, the \"Other\"\n"
+            "category accepts it too and the points stay viewable on the\n"
+            "field map.\n"
             % field_name)
-    writer.writestr(os.path.join(out_dir, "%s_JD.zip" % field_name),
-                    jd_zip_buf.getvalue())
+    writer.writestr(os.path.join(out_dir, "%s_Shelter_Pins.zip" % field_name),
+                    pins_zip_buf.getvalue())
+
+    # ── {field}_Shelter_Buffer_Zones.zip  (upload as Internal Boundaries) ────
+    if include_buffers and buffer_radius_m and buffer_radius_m > 0:
+        shp, shx, dbf = _buffer_zones_shapefile_bytes(buffer_radius_m)
+        bz_zip_buf = BytesIO()
+        with zipfile.ZipFile(bz_zip_buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+            base = "%s_Shelter_Buffer_Zones" % field_name
+            zf.writestr("%s.shp" % base, shp)
+            zf.writestr("%s.shx" % base, shx)
+            zf.writestr("%s.dbf" % base, dbf)
+            zf.writestr("%s.prj" % base, WGS84_PRJ)
+            zf.writestr("README.txt",
+                "Beetent Maps — Shelter Buffer Zones for John Deere Operations Center\n"
+                "\n"
+                "This .zip is the shelter-buffer layer for the field \"%s\".\n"
+                "Contains a polygon shapefile (one circle per shelter) marking\n"
+                "the passable interior zones the sprayer / planter should\n"
+                "drive around.\n"
+                "\n"
+                "To upload in John Deere Operations Center:\n"
+                "  Files → Upload Files → Internal Boundaries → drop this .zip.\n"
+                "\n"
+                "The buffer zones import as interior (passable) boundaries.\n"
+                % field_name)
+        writer.writestr(os.path.join(out_dir, "%s_Shelter_Buffer_Zones.zip" % field_name),
+                        bz_zip_buf.getvalue())
 
 
 def latlon_list_to_enu(latlon_list, pivot_lon, pivot_lat):
