@@ -4557,7 +4557,7 @@ class BeetentApp(ctk.CTk):
                     "Each zip has a README.txt with the same instructions.\n"
                     "\n"
                     "Trimble import: Trimble/ subfolder.\n"
-                    "Google Earth: open the .kml file."
+                    "Google Earth: open {field}_Shelter_Pins.kml."
                     % (ok,out_dir)))
                 try: self.after(0,lambda:os.startfile(str(out_dir)))
                 except Exception: pass

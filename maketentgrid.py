@@ -613,11 +613,13 @@ def export_field_outputs(positions_latlon, pivotpoint, out_dir, field_name,
     (so the output matches exactly what get_tent_positions drew on the map).
 
     Creates, under out_dir:
-      {field}.kml                                              Google Earth points
+      {field}_Shelter_Pins.kml                                 Google Earth points
       Trimble/AgGPS/Data/TNTBees/BeeTents/{field}/             Trimble import set
           PointFeature.shp / .shx / .dbf, origin.kml, *.pos, newField.ok
-      {field}.geojson                                          John Deere Ops Center
-          (+ buffer-circle polygons when include_buffers is True)
+      {field}.geojson                                          loose GeoJSON
+      {field}_Shelter_Pins.zip                                 JD Ops Center → Flags
+      {field}_Shelter_Buffer_Zones.zip                         JD → Internal Boundaries
+          (only when include_buffers is True)
 
     positions_latlon : [(lat, lon), ...]
     pivotpoint       : (lon, lat)
@@ -625,10 +627,13 @@ def export_field_outputs(positions_latlon, pivotpoint, out_dir, field_name,
     writer = FileWriter()
 
     # ── Google Earth KML (points) ───────────────────────────────────────────
+    # Name explicitly as "Shelter Pins" so it doesn't get confused with
+    # field boundary KMLs when the user has several KMLs from different
+    # tools loaded in Google Earth at once.
     kml = simplekml.Kml()
     for i, (lat, lon) in enumerate(positions_latlon):
         kml.newpoint(name="Shelter %d" % (i + 1), coords=[(lon, lat)])
-    writer.writestr(os.path.join(out_dir, "%s.kml" % field_name), kml.kml())
+    writer.writestr(os.path.join(out_dir, "%s_Shelter_Pins.kml" % field_name), kml.kml())
 
     # ── Trimble shapefile set: Trimble/AgGPS/Data/TNTBees/BeeTents/{field} ───
     field_dir = os.path.join(out_dir, "Trimble", "AgGPS", "Data", "TNTBees", "BeeTents", field_name)
