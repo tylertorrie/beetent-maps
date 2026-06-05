@@ -9,12 +9,32 @@ import tkinter.font as tkfont
 import customtkinter as ctk
 import tkintermapview
 import math, os, sys, threading, json, re, csv, datetime, zipfile, struct, glob
+import subprocess
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import maketentgrid
 import utmish
+
+# Hide the brief cmd-window flash that subprocess.run shows by default when
+# launched from a pythonw process (git pull / push / fetch on save & startup).
+# Wrap subprocess.run once at module load so every caller inside the file —
+# and inside any function that does its own `import subprocess` — picks up
+# the flag without each call site having to remember to pass it.
+if sys.platform.startswith("win"):
+    _orig_subprocess_run = subprocess.run
+    def _quiet_run(*args, **kw):
+        kw.setdefault("creationflags", subprocess.CREATE_NO_WINDOW)
+        return _orig_subprocess_run(*args, **kw)
+    subprocess.run = _quiet_run
+    # Same for Popen so any long-running git operations stay hidden too.
+    _orig_subprocess_popen = subprocess.Popen
+    class _QuietPopen(_orig_subprocess_popen):
+        def __init__(self, *args, **kw):
+            kw.setdefault("creationflags", subprocess.CREATE_NO_WINDOW)
+            super().__init__(*args, **kw)
+    subprocess.Popen = _QuietPopen
 
 ctk.set_appearance_mode("light")
 ctk.set_default_color_theme("blue")
