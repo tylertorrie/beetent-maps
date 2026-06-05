@@ -1436,66 +1436,88 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
             buffer_enabled_pf = pass_edge_buffer_m_pf > 0
             pass_dead_half_pf = max(0.0, sprayer_width / 2.0 - pass_edge_buffer_m_pf)
 
+            # Pre-compute boundary edge data once so the outside-pass
+            # min-distance loop avoids re-deriving dx/dy/seg² for every
+            # candidate. ~150K validity calls × 87 edges × subtraction =
+            # the difference between sub-second and minute-long freezes.
+            _bnd_edges = None
+            if boundary_enu and outside_pass and buffer_enabled_pf:
+                _bnd_edges = []
+                n_b = len(boundary_enu)
+                for i in range(n_b):
+                    ax, ay = boundary_enu[i]
+                    bx, by = boundary_enu[(i+1) % n_b]
+                    dx_ = bx - ax; dy_ = by - ay
+                    seg2 = dx_*dx_ + dy_*dy_
+                    _bnd_edges.append((ax, ay, dx_, dy_, seg2))
+            # Pre-square sprayer_width for the pivot-inner check.
+            _inner_pivot_r2 = sprayer_width * sprayer_width
+            # Pre-tuple pivot_tracks so we iterate a tuple (faster than list).
+            _pivot_tracks_t = tuple(pivot_tracks) if pivot_tracks else ()
+            # Outside-pass kill zone bounds — pre-bound the comparison so the
+            # hot loop just does two compares per candidate.
+            _outpass_lo = pass_edge_buffer_m_pf
+            _outpass_hi = sprayer_width - pass_edge_buffer_m_pf
+
             def _pf_valid(east, north):
-                # Inside boundary (with the same round-trip safety check used
-                # by the synthetic branch)
+                # Cheapest checks first — pivot inner and main-pass kill zone
+                # are constant-time. The round-trip lat/lon safety check that
+                # used to live here is gone; the final post-filter still does
+                # it, and the savings on the hot path are large (~150K calls
+                # at the binary-search starting spacing).
+                d_sq = east * east + north * north
+                if d_sq < _inner_pivot_r2:
+                    return False
+                if buffer_enabled_pf and pass_dead_half_pf > 0 and sprayer_width > 0:
+                    lat_e = east * cos_r + north * sin_r
+                    r_idx = round(lat_e / sprayer_width)
+                    d_pc = lat_e - r_idx * sprayer_width
+                    if d_pc < 0: d_pc = -d_pc
+                    if d_pc < pass_dead_half_pf:
+                        return False
+                if _pivot_tracks_t:
+                    d = math.sqrt(d_sq)
+                    for tr in _pivot_tracks_t:
+                        diff = d - tr
+                        if diff < 0: diff = -diff
+                        if diff < excl_m_safe_pf:
+                            return False
+                if corner_excl and _in_corner_excl(east, north):
+                    return False
+                # Boundary check (O(N_outer) edges). After the above cheap
+                # checks have early-rejected most candidates, only the
+                # ones that need this expensive test reach it.
                 if boundary_enu:
                     if not _point_in_polygon(east, north, boundary_enu):
                         return False
-                    lon, lat = utmish.to_lonlat(east + easting, north + northing,
-                                                 pivotpoint[0])
-                    re_e, re_n = utmish.from_lonlat(lon, lat, pivotpoint[0])
-                    if not _point_in_polygon(re_e - easting, re_n - northing,
-                                              boundary_enu):
-                        return False
                 else:
-                    if east*east + north*north > radius_sqr: return False
+                    if d_sq > radius_sqr:
+                        return False
                 # Inner exclusions — must NOT be inside any of them.
                 for ring in boundary_inner_enu:
                     if _point_in_polygon(east, north, ring):
                         return False
-                # Pivot inner exclusion: don't sit on top of the pivot.
-                if east*east + north*north < sprayer_width * sprayer_width:
-                    return False
-                # Outside-pass kill zone — kill anywhere more than buffer
-                # away from BOTH the boundary edge and the inner pass line.
+                # Outside-pass kill zone last (it does an O(N_outer) min
+                # distance calc and is the second-most expensive check).
                 if outside_pass and buffer_enabled_pf:
-                    if boundary_enu:
-                        # min distance to boundary
+                    if _bnd_edges is not None:
                         min_d2 = float('inf')
-                        n_b = len(boundary_enu)
-                        for i in range(n_b):
-                            ax, ay = boundary_enu[i]
-                            bx, by = boundary_enu[(i+1) % n_b]
-                            dx, dy = bx - ax, by - ay
-                            seg2 = dx*dx + dy*dy
+                        for ax, ay, dx_, dy_, seg2 in _bnd_edges:
                             if seg2 > 0:
-                                t = max(0.0, min(1.0, ((east-ax)*dx + (north-ay)*dy) / seg2))
-                                px, py = ax + t*dx, ay + t*dy
+                                t = ((east - ax) * dx_ + (north - ay) * dy_) / seg2
+                                if t < 0.0: t = 0.0
+                                elif t > 1.0: t = 1.0
+                                px = ax + t * dx_; py = ay + t * dy_
                             else:
                                 px, py = ax, ay
-                            d2 = (east-px)**2 + (north-py)**2
+                            ddx = east - px; ddy = north - py
+                            d2 = ddx*ddx + ddy*ddy
                             if d2 < min_d2: min_d2 = d2
                         d_b = math.sqrt(min_d2)
                     else:
-                        d_b = radius - math.sqrt(east*east + north*north)
-                    if pass_edge_buffer_m_pf < d_b < (sprayer_width - pass_edge_buffer_m_pf):
+                        d_b = radius - math.sqrt(d_sq)
+                    if _outpass_lo < d_b < _outpass_hi:
                         return False
-                # Main-pass kill zone — middle of every interior sprayer pass.
-                # Convert (east, north) to the rotated frame so pass centres
-                # line up with multiples of sprayer_width.
-                if buffer_enabled_pf and pass_dead_half_pf > 0 and sprayer_width > 0:
-                    lat_e = east * cos_r + north * sin_r
-                    r_idx = round(lat_e / sprayer_width)
-                    d_pc = abs(lat_e - r_idx * sprayer_width)
-                    if d_pc < pass_dead_half_pf:
-                        return False
-                if pivot_tracks:
-                    d = math.sqrt(east*east + north*north)
-                    if any(abs(d - tr) < excl_m_safe_pf for tr in pivot_tracks):
-                        return False
-                if corner_excl and _in_corner_excl(east, north):
-                    return False
                 return True
 
             # Estimate target N-S spacing from the total length of all
@@ -1508,35 +1530,65 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
             # leaving us short.
             ns_spacing_pf = max(1.0, total_len_m / max(1, num_tents))
 
+            # PERFORMANCE — Pre-sample each centerline at fine resolution and
+            # cache (t, e, n, valid). The binary search below calls _place_at
+            # ~25 times with different spacings; without caching, that was
+            # ~150K × 25 = 3.75M validity checks (a many-second to many-
+            # minute freeze on real fields). With caching, validity is
+            # computed ONCE (~150K calls) and _place_at then does cheap
+            # array lookups for each subsequent spacing.
+            SAMPLE_STEP_M = 2.0   # cached sample every 2 m — placement
+                                   # accuracy of ~1 m is well below shelter
+                                   # spacing; halves cache-build time.
+            centerline_cache = []   # one entry per centerline; each = list of (t, e, n, valid)
+            for r_idx, (_, cl_enu, lens) in enumerate(enu_centerlines):
+                total = lens[-1]
+                if total <= 0:
+                    centerline_cache.append([])
+                    continue
+                n_samples = int(total / SAMPLE_STEP_M) + 1
+                samples = []
+                for j in range(n_samples + 1):
+                    t = j * SAMPLE_STEP_M
+                    if t > total: t = total
+                    e, n_v = _interp_enu(cl_enu, lens, t)
+                    samples.append((t, e, n_v, _pf_valid(e, n_v)))
+                centerline_cache.append(samples)
+
             def _place_at(ns):
-                # Walk each centerline at ns metres and collect valid points
-                # tagged with row_idx (the centerline they came from).
+                # Look up cached samples — no validity recompute — at the
+                # requested spacing. For each centerline, walk through the
+                # target t values and pick the nearest cached sample.
                 pts = []
-                for r_idx, (_, cl_enu, lens) in enumerate(enu_centerlines):
-                    total = lens[-1]
-                    if total <= 0 or ns <= 0: continue
+                for r_idx, samples in enumerate(centerline_cache):
+                    if not samples: continue
+                    total = samples[-1][0]
+                    if ns <= 0: continue
                     n = int(total / ns) + 1
                     if n == 1:
-                        # Single-shelter centerline (ns > total). Without this
-                        # branch every centerline's lone shelter lands at the
-                        # midpoint, stacking all of them on the same N-S line
-                        # and clustering the result in the centre of the field.
-                        # Scatter t with a golden-ratio low-discrepancy sequence
-                        # so consecutive centerlines drop their shelter at
-                        # well-distributed N positions instead.
+                        # Single-shelter centerline (ns > total) — scatter t
+                        # with a golden-ratio low-discrepancy sequence keyed
+                        # by centerline index so consecutive centerlines
+                        # drop their shelter at well-distributed N positions
+                        # instead of all stacking at the midpoint.
                         phi = ((r_idx + 1) * 0.6180339887498949) % 1.0
-                        t_list = [phi * total]
+                        t_list = (phi * total,)
                     else:
-                        # Centre the spacing along the centerline so we don't get
-                        # a long dangling tail at one end only.
                         offset = (total - (n - 1) * ns) * 0.5
                         if offset < 0: offset = 0.0
-                        t_list = [offset + j * ns for j in range(n)]
+                        t_list = tuple(offset + j * ns for j in range(n))
+                    n_samples = len(samples)
                     for t in t_list:
                         if t < 0 or t > total: continue
-                        e, n_v = _interp_enu(cl_enu, lens, t)
-                        if _pf_valid(e, n_v):
-                            pts.append((e, n_v, r_idx))
+                        # Cached samples are uniformly spaced at SAMPLE_STEP_M
+                        # so we can index directly — O(1) instead of binary
+                        # searching.
+                        k = int(t / SAMPLE_STEP_M + 0.5)
+                        if k < 0: k = 0
+                        elif k >= n_samples: k = n_samples - 1
+                        ts, es, ns_v, valid = samples[k]
+                        if valid:
+                            pts.append((es, ns_v, r_idx))
                 return pts
 
             # Binary search for the largest spacing that yields >= num_tents
@@ -1643,21 +1695,35 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
             # For a circular field: enforce d < radius - sprayer_width.
             outer_r_circle = radius - sprayer_width  # used only for circular fields
 
+            # Pre-compute boundary edge data (dx, dy, seg²) so the min-
+            # distance and outside-pass kill zone calls in the hot loop
+            # don't re-derive these per call. The synthetic-grid path runs
+            # _count_at_least 32 times during binary search, each walking
+            # thousands of candidates × all 87 boundary edges — caching
+            # this turns multi-minute compute into sub-second.
+            _bnd_edges_sg = None
+            if boundary_enu:
+                _bnd_edges_sg = []
+                n_b = len(boundary_enu)
+                for i in range(n_b):
+                    ax, ay = boundary_enu[i]
+                    bx, by = boundary_enu[(i + 1) % n_b]
+                    dx_, dy_ = bx - ax, by - ay
+                    _bnd_edges_sg.append((ax, ay, dx_, dy_, dx_*dx_ + dy_*dy_))
+
             def _min_dist_to_bnd(east, north):
                 """Min distance from (east, north) to any boundary polygon edge."""
                 min_d2 = float('inf')
-                n = len(boundary_enu)
-                for i in range(n):
-                    ax, ay = boundary_enu[i]
-                    bx, by = boundary_enu[(i + 1) % n]
-                    dx, dy = bx - ax, by - ay
-                    seg2 = dx*dx + dy*dy
+                for ax, ay, dx_, dy_, seg2 in _bnd_edges_sg:
                     if seg2 > 0:
-                        t = max(0.0, min(1.0, ((east-ax)*dx + (north-ay)*dy) / seg2))
-                        px, py = ax + t*dx, ay + t*dy
+                        t = ((east-ax)*dx_ + (north-ay)*dy_) / seg2
+                        if t < 0.0: t = 0.0
+                        elif t > 1.0: t = 1.0
+                        px = ax + t*dx_; py = ay + t*dy_
                     else:
                         px, py = ax, ay
-                    d2 = (east-px)**2 + (north-py)**2
+                    ddx = east - px; ddy = north - py
+                    d2 = ddx*ddx + ddy*ddy
                     if d2 < min_d2:
                         min_d2 = d2
                 return math.sqrt(min_d2)
@@ -1685,11 +1751,30 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
             SNAP_MAX_M = 15.0
             SNAP_STEP_M = 0.25
 
+            _pivot_tracks_sg = tuple(pivot_tracks) if pivot_tracks else ()
+
             def _valid(east, north):
+                # Cheapest checks first so the hot loop bails fast.
                 d_sq = east*east + north*north
                 if d_sq < inner_r2: return False
-                # Outside-pass kill zone — only when the user runs an
-                # outside pass AND the buffer is enabled.
+                # Main-pass kill zone — middle of every interior sprayer
+                # pass (constant-time, computed in the rotated frame).
+                if buffer_enabled and pass_dead_half > 0 and sprayer_width > 0:
+                    lat_e = east * cos_r + north * sin_r
+                    r_idx = round(lat_e / sprayer_width)
+                    d_pc = lat_e - r_idx * sprayer_width
+                    if d_pc < 0: d_pc = -d_pc
+                    if d_pc < pass_dead_half:
+                        return False
+                if _pivot_tracks_sg:
+                    d = math.sqrt(d_sq)
+                    for tr in _pivot_tracks_sg:
+                        diff = d - tr
+                        if diff < 0: diff = -diff
+                        if diff < excl_m_safe:
+                            return False
+                if corner_excl and _in_corner_excl(east, north): return False
+                # Outside-pass kill zone — expensive O(N_outer); do it last.
                 if outside_pass and buffer_enabled:
                     if boundary_enu:
                         d_b = _min_dist_to_bnd(east, north)
@@ -1697,39 +1782,19 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                         d_b = radius - math.sqrt(d_sq)
                     if pass_edge_buffer_m < d_b < (sprayer_width - pass_edge_buffer_m):
                         return False
-                # Main-pass kill zone — middle of every interior sprayer
-                # pass. Convert (east, north) to the rotated frame so pass
-                # centres line up with multiples of sprayer_width.
-                if buffer_enabled and pass_dead_half > 0 and sprayer_width > 0:
-                    lat_e = east * cos_r + north * sin_r
-                    r_idx = round(lat_e / sprayer_width)
-                    d_pc = abs(lat_e - r_idx * sprayer_width)
-                    if d_pc < pass_dead_half:
-                        return False
-                if pivot_tracks:
-                    d = math.sqrt(d_sq)
-                    if any(abs(d - tr) < excl_m_safe for tr in pivot_tracks): return False
-                if corner_excl and _in_corner_excl(east, north): return False
                 return True
 
             def _inside(east, north):
                 """Is the point inside the field boundary (polygon or circle)
                 AND outside every inner-exclusion ring?
 
-                For polygon fields we also verify the position survives an
-                ENU→latlon→ENU round-trip without crossing the boundary.
-                That keeps placement consistent with the final output filter:
-                the binary-search count and the final-list filter agree on
-                which positions are placeable, so the user always gets the
-                requested num_tents (no silent loss to floating-point drift)."""
+                The lat/lon round-trip safety check that used to live here
+                ran utmish trig per call — way too expensive for the
+                _count_at_least binary search hot loop. The final post-filter
+                still does it, so any sub-mm drift past the boundary is
+                still caught before the result is returned."""
                 if boundary_enu:
                     if not _point_in_polygon(east, north, boundary_enu):
-                        return False
-                    lon, lat = utmish.to_lonlat(east + easting, north + northing,
-                                                pivotpoint[0])
-                    re_e, re_n = utmish.from_lonlat(lon, lat, pivotpoint[0])
-                    if not _point_in_polygon(re_e - easting, re_n - northing,
-                                              boundary_enu):
                         return False
                 else:
                     if east*east + north*north > radius_sqr:
