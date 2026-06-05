@@ -655,9 +655,38 @@ def export_field_outputs(positions_latlon, pivotpoint, out_dir, field_name,
 
     # ── John Deere Operations Center GeoJSON ─────────────────────────────────
     jd_lonlat = [(lon, lat) for lat, lon in positions_latlon]
+    jd_geojson_text = _make_geojson_with_buffers(jd_lonlat, field_name,
+                                                  include_buffers, buffer_radius_m)
     writer.writestr(os.path.join(out_dir, "%s.geojson" % field_name),
-                    _make_geojson_with_buffers(jd_lonlat, field_name,
-                                               include_buffers, buffer_radius_m))
+                    jd_geojson_text)
+
+    # JD Operations Center's Upload Files → Other category accepts a .zip
+    # containing a GeoJSON. Pack one alongside the loose .geojson so the
+    # user has a drag-and-drop-ready file. Also include a short README so
+    # the user knows where to upload it inside JD.
+    jd_zip_buf = BytesIO()
+    with zipfile.ZipFile(jd_zip_buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("%s.geojson" % field_name, jd_geojson_text)
+        zf.writestr("README.txt",
+            "Beetent Maps — John Deere Operations Center upload\n"
+            "\n"
+            "This .zip contains shelter marker positions as GeoJSON for the\n"
+            "field \"%s\".\n"
+            "\n"
+            "To upload in John Deere Operations Center:\n"
+            "  1. Open Files (cloud icon in the top-right).\n"
+            "  2. Click \"Upload Files\" → choose the \"Other\" category.\n"
+            "     (\"Work Data\" expects machine-generated logs from a JD\n"
+            "     display; the shelter layer is reference data, not work\n"
+            "     data, so \"Other\" is the right home.)\n"
+            "  3. Drag this .zip into the upload box, or pick it with\n"
+            "     Choose Files. Click Upload.\n"
+            "\n"
+            "Once uploaded, the GeoJSON points will appear in the field's\n"
+            "\"Other\" files and can be referenced from a JD-compatible app.\n"
+            % field_name)
+    writer.writestr(os.path.join(out_dir, "%s_JD.zip" % field_name),
+                    jd_zip_buf.getvalue())
 
 
 def latlon_list_to_enu(latlon_list, pivot_lon, pivot_lat):

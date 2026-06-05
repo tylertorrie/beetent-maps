@@ -3573,24 +3573,28 @@ class BeetentApp(ctk.CTk):
             lat_e=r*width_m; lat_n=0
             pe=lat_e*cos_r-lat_n*sin_r; pn=lat_n*cos_r+lat_e*sin_r
 
-            res=clip_line_to_polygon(pe,pn,tdx,tdy,poly_enu)
-            if res is None: continue
-            # Build a set of (t_enter, t_exit) intervals where the pass line
-            # is inside the outer boundary but outside every inner cutout.
-            t_intervals = [(res[0], res[1])]
+            # All inside-segments of the pass line against the outer boundary.
+            # On non-convex fields a single line can enter, exit, and re-enter
+            # the polygon — the old single-interval clip dropped the gap, so
+            # the pass appeared to draw straight across open ground past the
+            # field edge. Multi-interval clipping draws each inside-segment
+            # separately and breaks at every gap.
+            t_intervals = clip_line_to_polygon_intervals(pe, pn, tdx, tdy, poly_enu)
+            if not t_intervals: continue
+            # Subtract every inner cutout (one inner ring at a time).
             for inner_enu in inner_polys_enu:
-                inner_res = clip_line_to_polygon(pe, pn, tdx, tdy, inner_enu)
-                if inner_res is None: continue
-                ti1, ti2 = inner_res
-                new_intervals = []
-                for (a, b) in t_intervals:
-                    # Subtract [ti1, ti2] from [a, b].
-                    if ti2 <= a or ti1 >= b:
-                        new_intervals.append((a, b))   # no overlap
-                    else:
-                        if ti1 > a: new_intervals.append((a, ti1))
-                        if ti2 < b: new_intervals.append((ti2, b))
-                t_intervals = new_intervals
+                inner_intervals = clip_line_to_polygon_intervals(
+                    pe, pn, tdx, tdy, inner_enu)
+                if not inner_intervals: continue
+                for (ti1, ti2) in inner_intervals:
+                    new_intervals = []
+                    for (a, b) in t_intervals:
+                        if ti2 <= a or ti1 >= b:
+                            new_intervals.append((a, b))   # no overlap
+                        else:
+                            if ti1 > a: new_intervals.append((a, ti1))
+                            if ti2 < b: new_intervals.append((ti2, b))
+                    t_intervals = new_intervals
             for (t1, t2) in t_intervals:
                 if t2 - t1 < 0.01: continue   # skip degenerate slivers
                 e1, n1 = pe + t1 * tdx, pn + t1 * tdy
@@ -4416,7 +4420,14 @@ class BeetentApp(ctk.CTk):
                     self.after(0,lambda n=fname,k=len(positions):self._log("  ✓ %s (%d shelters)" % (n,k)))
                 self.after(0,lambda:self._log("Done. %d/%d fields exported." % (ok,len(scope))))
                 self.after(0,lambda:tkinter.messagebox.showinfo("Done",
-                    "%d field(s) written to:\n%s" % (ok,out_dir)))
+                    "%d field(s) written to:\n%s\n\n"
+                    "For John Deere Operations Center:\n"
+                    "  Upload Files → Other → drop the {field}_JD.zip\n"
+                    "  (or read the README.txt inside the .zip for details).\n"
+                    "\n"
+                    "Trimble import: Trimble/ subfolder.\n"
+                    "Google Earth: open the .kml file."
+                    % (ok,out_dir)))
                 try: self.after(0,lambda:os.startfile(str(out_dir)))
                 except Exception: pass
             except Exception:
