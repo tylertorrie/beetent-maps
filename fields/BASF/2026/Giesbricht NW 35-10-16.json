@@ -3254,7 +3254,7 @@
   "custom_row_mask": "",
   "use_imported_passes": false,
   "use_bays": true,
-  "pass_edge_buffer_ft": "30",
+  "pass_edge_buffer_ft": "0",
   "boundary_inner": [
     [
       [
