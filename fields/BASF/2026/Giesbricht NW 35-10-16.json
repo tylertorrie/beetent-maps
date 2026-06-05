@@ -2,8 +2,8 @@
   "Name": "Giesbricht NW 35-10-16",
   "company": "BASF",
   "year": "2026",
-  "PP_Latitude": "49.8694042",
-  "PP_Longitude": "-112.0761088",
+  "PP_Latitude": "49.8693968",
+  "PP_Longitude": "-112.0761114",
   "Spray_angle": "0",
   "Sprayer_width": "133",
   "num_structures": "130",
@@ -1291,13 +1291,13 @@
     ]
   ],
   "pivot_tracks": [
-    4.39,
-    57.16,
-    112.76,
-    170.25,
-    227.38,
-    283.52,
-    332.78
+    56.39,
+    112.78,
+    169.16,
+    227.79,
+    285.15,
+    333.89,
+    394.72
   ],
   "corner_arms": [
     {
@@ -3249,5 +3249,6 @@
   "row_layout": "centered",
   "custom_row_mask": "",
   "use_imported_passes": false,
-  "use_bays": true
+  "use_bays": true,
+  "pass_edge_buffer_ft": "30"
 }
