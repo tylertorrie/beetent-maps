@@ -361,12 +361,21 @@ def enu_to_latlon(e,n,pivot_lat,pivot_lon):
     lon2,lat2=utmish.to_lonlat(pe+e,pn+n,pivot_lon)
     return lat2,lon2
 
-def inset_polygon_enu(poly_enu, dist):
-    """Offset every edge of poly_enu inward by dist metres. Works for convex polygons."""
+def inset_polygon_enu(poly_enu, dist, miter_limit=3.0):
+    """Offset every edge of poly_enu inward by dist metres. Works for convex
+    polygons and tolerable for concave ones.
+
+    Sharp corners get a beveled join instead of a miter spike: if the
+    natural miter point lies more than `miter_limit × dist` from the
+    original vertex, we emit the two offset edge endpoints separately
+    instead. Without this, an acute corner produces a long inward spike
+    that backtracks on itself and looks like a kink the sprayer would
+    never actually drive."""
     n=len(poly_enu)
     if n<3: return []
     cx=sum(e for e,_ in poly_enu)/n; cn=sum(nn for _,nn in poly_enu)/n
     edges=[]
+    src_vertex=[]   # original (next) vertex paired with each edge, for miter test
     for i in range(n):
         e1,n1=poly_enu[i]; e2,n2=poly_enu[(i+1)%n]
         dx2,dy2=e2-e1,n2-n1; L=math.sqrt(dx2*dx2+dy2*dy2)
@@ -375,8 +384,10 @@ def inset_polygon_enu(poly_enu, dist):
         me,mn=(e1+e2)/2,(n1+n2)/2
         if (cx-me)*nx+(cn-mn)*ny<0: nx,ny=-nx,-ny
         edges.append(((e1+dist*nx,n1+dist*ny),(e2+dist*nx,n2+dist*ny)))
+        src_vertex.append((e2, n2))
     if len(edges)<3: return []
     result=[]
+    miter_threshold = miter_limit * abs(dist)
     for i in range(len(edges)):
         a=edges[i]; b=edges[(i+1)%len(edges)]
         ax,ay=a[1][0]-a[0][0],a[1][1]-a[0][1]
@@ -387,7 +398,17 @@ def inset_polygon_enu(poly_enu, dist):
         else:
             ddx=b[0][0]-a[0][0]; ddy=b[0][1]-a[0][1]
             t=(ddx*(-by)-ddy*(-bx))/det
-            result.append((a[0][0]+t*ax,a[0][1]+t*ay))
+            ix, iy = a[0][0]+t*ax, a[0][1]+t*ay
+            # Miter-limit check: distance from intersection to the original
+            # vertex shouldn't exceed miter_limit × dist. Otherwise bevel.
+            ovx, ovy = src_vertex[i]
+            d = math.sqrt((ix - ovx)**2 + (iy - ovy)**2)
+            if d > miter_threshold:
+                # Bevel: keep the two offset endpoints as separate vertices.
+                result.append(a[1])
+                result.append(b[0])
+            else:
+                result.append((ix, iy))
     return result
 
 def clip_line_to_polygon(px,py,dx,dy,polygon):
@@ -425,6 +446,8 @@ def blank_field(company="",year=""):
                 sprayer_passes=None,           # [[(lat,lon), ...], ...]  uploaded GPS sprayer tracks
                 gals_per_acre="3",acres="",gals_per_tray="2",tray_distribution="even",
                 boundary_polygon=None,pivot_tracks=[],corner_arms=[],
+                boundary_inner=[],            # list of inner-exclusion polygons (JD-style "interior boundaries")
+                sprayer_routes_around_inner=True,   # sprayer pass lines break around inner boundaries when True
                 shelter_overrides={})
 
 def _field_dir(company,year):
@@ -504,6 +527,9 @@ class BeetentApp(ctk.CTk):
         # bands so the user can visually verify the buffer.
         self.show_pass_buffer_overlay = tk.BooleanVar(value=False)
         self.pass_buffer_overlays = []
+        # Inner boundary outline overlays (drawn by _redraw_boundary, but the
+        # list lives here so _clear_all_overlays can wipe them too).
+        self.boundary_inner_polys = []
         # Corner tracks (a.k.a. corner arms) — polygon paths and circles drawn
         # at absolute lat/lon (don't follow the pivot when it's moved). Used
         # for swing-arm pivot tracks, shelter belts, etc. that should exclude
@@ -695,6 +721,19 @@ class BeetentApp(ctk.CTk):
         self._status("Sprayer buffer overlay " +
                      ("shown." if self.show_pass_buffer_overlay.get() else "hidden."))
 
+    def _toggle_route_around_inner(self):
+        """Toggle whether sprayer passes route AROUND inner-boundary cutouts
+        (lines break at the cutout edge — what really happens when the
+        sprayer drives around a slough/building) vs. cut straight through
+        them (default off doesn't change the pass-line drawing)."""
+        self._close_all_popups()
+        cur = bool(self.current_field.get("sprayer_routes_around_inner", True))
+        self.current_field["sprayer_routes_around_inner"] = not cur
+        self._redraw_passes()
+        self._status("Sprayer " +
+                     ("routes around" if not cur else "cuts straight through") +
+                     " inner boundaries.")
+
     # ── Collapsible section card ────────────────────────────────────────────
     def _collapsible(self, parent, title, expanded=True):
         """A card with a clickable header that expands/collapses its content.
@@ -754,10 +793,12 @@ class BeetentApp(ctk.CTk):
         self._pivot_btn.pack(side="left", padx=(0,4))
 
         self._bnd_btn = self._make_menu_btn(bb, "✏️ Boundary", [
-            ("Draw",         self._mode_boundary),
-            ("Edit",         self._mode_edit_boundary),
-            ("Upload File",  self._upload_boundary),
-            ("Delete",       self._clear_boundary),
+            ("Draw Outer",          self._mode_boundary),
+            ("Edit Outer",          self._mode_edit_boundary),
+            ("Upload File",         self._upload_boundary),
+            ("Delete Outer",        self._clear_boundary),
+            ("Add Inner Boundary",  self._mode_add_inner_boundary),
+            ("Delete Inner",        self._mode_delete_inner_boundary),
         ], color="#5a3a8a")
         self._bnd_btn.pack(side="left", padx=(0,4))
 
@@ -769,6 +810,7 @@ class BeetentApp(ctk.CTk):
             ("Clear Uploaded Paths",            self._clear_sprayer_data),
             ("Set Edge Buffer (ft)",            self._edit_pass_edge_buffer),
             ("Toggle Edge Buffer Overlay",      self._toggle_pass_buffer_overlay),
+            ("Toggle Route Around Inner",       self._toggle_route_around_inner),
         ], color="#2a5a4a")
         self._sp_btn.pack(side="left", padx=(0,4))
 
@@ -2008,6 +2050,78 @@ class BeetentApp(ctk.CTk):
         self._show_context_btn("✔ Save Boundary", self._close_boundary)
         self._status("Click map to add boundary vertices. ✔ Save when done.")
 
+    # ── Inner boundary (interior exclusion) ──────────────────────────────────
+    def _mode_add_inner_boundary(self):
+        """Click-to-add-vertices for a new inner exclusion polygon.
+        Vertices use the same per-click marker pattern as the outer; on
+        ✔ Save, the new ring is appended to current_field['boundary_inner']."""
+        self._close_all_popups()
+        bp = self.current_field.get("boundary_polygon")
+        if not bp or len(bp) < 3:
+            self._status("Draw the outer boundary first."); return
+        self.click_mode = "inner_boundary"
+        self.inner_pts = []
+        # Re-use boundary_markers list so existing _on_map_click handlers and
+        # _clear_boundary_markers continue to work for the in-progress draw.
+        for m in self.boundary_markers:
+            try: m.delete()
+            except Exception: pass
+        self.boundary_markers = []
+        self._show_context_btn("✔ Save Inner Boundary", self._close_inner_boundary)
+        self._status("Click map to draw an inner exclusion. ✔ Save when done.")
+
+    def _close_inner_boundary(self):
+        if len(getattr(self, "inner_pts", [])) < 3:
+            self._status("Need ≥ 3 points for an inner boundary."); return
+        inner = [list(p) for p in self.inner_pts]
+        self.current_field.setdefault("boundary_inner", []).append(inner)
+        self.inner_pts = []
+        self.click_mode = None
+        self._hide_context_btn()
+        # Wipe the in-progress markers, then redraw the boundary block.
+        for m in self.boundary_markers:
+            try: m.delete()
+            except Exception: pass
+        self.boundary_markers = []
+        self._redraw_boundary()
+        if self.show_shelters.get(): self._redraw_shelters()
+        if self.show_passes.get():   self._redraw_passes()
+        if self.show_bays.get():     self._redraw_bays()
+        n = len(self.current_field["boundary_inner"])
+        self._status(f"Inner boundary #{n} saved ({len(inner)} vertices).")
+
+    def _mode_delete_inner_boundary(self):
+        """Pick an existing inner boundary to remove."""
+        self._close_all_popups()
+        inners = self.current_field.get("boundary_inner") or []
+        if not inners:
+            self._status("No inner boundaries to delete."); return
+        win = ctk.CTkToplevel(self)
+        win.title("Delete Inner Boundary")
+        win.geometry("320x240"); win.grab_set()
+        ctk.CTkLabel(win, text="Select inner boundary to delete:").pack(pady=(12,4))
+        lb = tk.Listbox(win, bg=UI_CARD, fg=UI_TEXT,
+                        selectbackground=UI_SELECT, selectforeground=UI_TEXT,
+                        relief="flat", font=(FONT_BODY, 11), height=6,
+                        activestyle="none", highlightthickness=1,
+                        highlightbackground=UI_BORDER)
+        for i, ring in enumerate(inners):
+            lb.insert(tk.END, f"Inner #{i+1}: {len(ring)} pts")
+        lb.pack(fill="x", padx=10, pady=4)
+        def do_delete():
+            sel = lb.curselection()
+            if not sel: return
+            del self.current_field["boundary_inner"][sel[0]]
+            self._redraw_boundary()
+            if self.show_shelters.get(): self._redraw_shelters()
+            if self.show_passes.get():   self._redraw_passes()
+            if self.show_bays.get():     self._redraw_bays()
+            win.destroy()
+            self._status("Inner boundary deleted.")
+        ctk.CTkButton(win, text="Delete Selected", fg_color="#6b1a1a",
+                      command=do_delete).pack(pady=(4,2))
+        ctk.CTkButton(win, text="Cancel", command=win.destroy).pack()
+
     def _mode_edit_boundary(self):
         self._close_all_popups()
         bp=self.current_field.get("boundary_polygon")
@@ -2125,25 +2239,57 @@ class BeetentApp(ctk.CTk):
         if not path: return
         try:
             ext=Path(path).suffix.lower()
-            pts=[]
+            # Return list of polygons (each = list of (lat, lon)). JD exports
+            # commonly bundle an outer field boundary with several "interior
+            # boundary" cutouts (buildings, sloughs, pivot pads) in the same
+            # file — we now split them instead of concatenating.
+            polys=[]
             if ext==".shp":
                 import shapefile as sf_mod
                 r=sf_mod.Reader(path)
-                shape=r.shape(0)
-                pts=[(lat,lon) for lon,lat in shape.points]
+                for s in r.shapes():
+                    pts=[(lat,lon) for lon,lat in s.points]
+                    # A shape with `parts` can hold multiple polygon rings.
+                    parts=list(getattr(s, "parts", []) or [])
+                    if len(parts) > 1:
+                        for k, start in enumerate(parts):
+                            end = parts[k+1] if k+1 < len(parts) else len(s.points)
+                            ring = [(lat, lon) for lon, lat in s.points[start:end]]
+                            if len(ring) >= 3: polys.append(ring)
+                    elif len(pts) >= 3:
+                        polys.append(pts)
             elif ext==".kml":
-                pts=self._parse_kml_coords(path)
+                polys=self._parse_kml_polygons(path)
             elif ext==".kmz":
                 with zipfile.ZipFile(path) as zf:
                     kml_name=next(n for n in zf.namelist() if n.endswith(".kml"))
                     kml_text=zf.read(kml_name).decode("utf-8")
-                pts=self._parse_kml_coords_text(kml_text)
-            if len(pts)<3:
-                tkinter.messagebox.showerror("Upload Error","Boundary must have at least 3 points."); return
-            self.current_field["boundary_polygon"]=[list(p) for p in pts]
-            self.boundary_pts=pts
+                polys=self._parse_kml_polygons_text(kml_text)
+            polys=[p for p in polys if len(p) >= 3]
+            if not polys:
+                tkinter.messagebox.showerror("Upload Error","No polygons with ≥ 3 points found."); return
+            # Largest polygon by approximate area = outer boundary; rest = inner
+            # exclusions. (Area in lat/lon-degree² is fine for ordering.)
+            def _abs_area(ring):
+                s = 0.0
+                n = len(ring)
+                for i in range(n):
+                    x1, y1 = ring[i][1], ring[i][0]
+                    x2, y2 = ring[(i+1) % n][1], ring[(i+1) % n][0]
+                    s += x1 * y2 - x2 * y1
+                return abs(s) * 0.5
+            polys.sort(key=_abs_area, reverse=True)
+            outer = polys[0]
+            inners = polys[1:]
+            self.current_field["boundary_polygon"] = [list(p) for p in outer]
+            self.current_field["boundary_inner"] = [[list(pt) for pt in inner] for inner in inners]
+            self.boundary_pts = outer
             self._redraw_boundary()
-            self._status(f"Boundary loaded: {len(pts)} vertices from {Path(path).name}")
+            if inners:
+                self._status(f"Loaded: 1 outer ({len(outer)} pts) + {len(inners)} inner boundary"
+                             f"{'ies' if len(inners) != 1 else 'y'} from {Path(path).name}")
+            else:
+                self._status(f"Boundary loaded: {len(outer)} vertices from {Path(path).name}")
         except Exception as ex:
             tkinter.messagebox.showerror("Upload Error",str(ex))
 
@@ -2165,6 +2311,34 @@ class BeetentApp(ctk.CTk):
                     pts.append((lat,lon))
             if pts: return pts
         return []
+
+    def _parse_kml_polygons(self, path):
+        with open(path, encoding="utf-8") as fh: text = fh.read()
+        return self._parse_kml_polygons_text(text)
+
+    def _parse_kml_polygons_text(self, text):
+        """All polygon rings in the KML — every <coordinates> element under
+        any <Polygon>/<LinearRing>/<outerBoundaryIs>/<innerBoundaryIs>.
+        Returns a list of [(lat,lon), ...] rings."""
+        root = ET.fromstring(text)
+        ns_match = re.match(r'\{[^}]+\}', root.tag)
+        ns = ns_match.group(0) if ns_match else ""
+        rings = []
+        for elem in root.iter(f"{ns}coordinates"):
+            if elem.text is None: continue
+            raw = elem.text.strip()
+            pts = []
+            for token in raw.split():
+                parts = token.split(",")
+                if len(parts) >= 2:
+                    try:
+                        lon, lat = float(parts[0]), float(parts[1])
+                        pts.append((lat, lon))
+                    except ValueError:
+                        continue
+            if len(pts) >= 3:
+                rings.append(pts)
+        return rings
 
     def _mode_track(self):
         self._close_all_popups()
@@ -2188,6 +2362,16 @@ class BeetentApp(ctk.CTk):
             m=self.map_widget.set_marker(lat,lon,text=str(len(self.boundary_pts)),
                                           marker_color_circle="#FFD700",marker_color_outside="#B8860B")
             self.boundary_markers.append(m); self._update_bnd_preview()
+
+        elif mode=="inner_boundary":
+            if not hasattr(self, "inner_pts"): self.inner_pts = []
+            self.inner_pts.append((lat,lon))
+            # Distinct orange-red marker so it doesn't get confused with the
+            # yellow outer-boundary in-progress marker.
+            m = self.map_widget.set_marker(lat, lon, text=str(len(self.inner_pts)),
+                                            marker_color_circle="#FF6600",
+                                            marker_color_outside="#993300")
+            self.boundary_markers.append(m)
 
         elif mode=="boundary_edit":
             self._deselect_bnd_vertex()
@@ -2315,6 +2499,12 @@ class BeetentApp(ctk.CTk):
         self._unregister_drag_prefix("bnd_")
         self._clear_boundary_markers()
         if self.boundary_poly: self.boundary_poly.delete(); self.boundary_poly=None
+        # Inner-boundary outlines (drawn separately so they show with their
+        # own colour and can be cleared / redrawn without touching the outer).
+        for o in getattr(self, "boundary_inner_polys", []):
+            try: o.delete()
+            except Exception: pass
+        self.boundary_inner_polys = []
 
     def _update_bnd_preview(self):
         if self.boundary_poly: self.boundary_poly.delete()
@@ -2324,10 +2514,25 @@ class BeetentApp(ctk.CTk):
 
     def _redraw_boundary(self):
         if self.boundary_poly: self.boundary_poly.delete(); self.boundary_poly=None
+        for o in getattr(self, "boundary_inner_polys", []):
+            try: o.delete()
+            except Exception: pass
+        self.boundary_inner_polys = []
         bp=self.current_field.get("boundary_polygon")
         if bp and len(bp)>=3:
             self.boundary_poly=self.map_widget.set_polygon(
                 [tuple(p) for p in bp],fill_color=None,outline_color="#00CED1",border_width=2)
+        # Inner boundaries: orange-red outlines so they read clearly as
+        # excluded zones distinct from the outer boundary.
+        for inner in (self.current_field.get("boundary_inner") or []):
+            if not inner or len(inner) < 3: continue
+            try:
+                o = self.map_widget.set_polygon(
+                    [(pt[0], pt[1]) for pt in inner],
+                    fill_color=None, outline_color="#FF6600", border_width=2)
+                self.boundary_inner_polys.append(o)
+            except Exception:
+                pass
 
     def _on_bnd_vertex_drag(self,idx,lat,lon):
         if self._selected_bnd_vertex==idx:
@@ -3270,6 +3475,18 @@ class BeetentApp(ctk.CTk):
         cos_r,sin_r=math.cos(rot),math.sin(rot)
         tdx=-sin_r; tdy=cos_r
 
+        # Inner boundaries (cutouts) in ENU. When the
+        # "sprayer_routes_around_inner" flag is on, every pass line is split
+        # at the cutouts so it shows the sprayer driving around them instead
+        # of straight through.
+        route_around = bool(self.current_field.get("sprayer_routes_around_inner", True))
+        inner_polys_enu = []
+        if route_around:
+            for inner in (self.current_field.get("boundary_inner") or []):
+                if not inner or len(inner) < 3: continue
+                inner_polys_enu.append(
+                    [latlon_to_enu(pt[0], pt[1], plat, plon) for pt in inner])
+
         max_rows=int(max_r/width_m)+2
         for r in range(-max_rows,max_rows+1):
             lat_e=r*width_m; lat_n=0
@@ -3277,16 +3494,34 @@ class BeetentApp(ctk.CTk):
 
             res=clip_line_to_polygon(pe,pn,tdx,tdy,poly_enu)
             if res is None: continue
-            t1,t2=res
-            e1,n1=pe+t1*tdx,pn+t1*tdy
-            e2,n2=pe+t2*tdx,pn+t2*tdy
-            lat1,lon1=enu_to_latlon(e1,n1,plat,plon)
-            lat2,lon2=enu_to_latlon(e2,n2,plat,plon)
-            try:
-                path=self.map_widget.set_path([(lat1,lon1),(lat2,lon2)],color="#FF3333",width=1)
-                self.pass_paths.append(path)
-            except Exception:
-                pass
+            # Build a set of (t_enter, t_exit) intervals where the pass line
+            # is inside the outer boundary but outside every inner cutout.
+            t_intervals = [(res[0], res[1])]
+            for inner_enu in inner_polys_enu:
+                inner_res = clip_line_to_polygon(pe, pn, tdx, tdy, inner_enu)
+                if inner_res is None: continue
+                ti1, ti2 = inner_res
+                new_intervals = []
+                for (a, b) in t_intervals:
+                    # Subtract [ti1, ti2] from [a, b].
+                    if ti2 <= a or ti1 >= b:
+                        new_intervals.append((a, b))   # no overlap
+                    else:
+                        if ti1 > a: new_intervals.append((a, ti1))
+                        if ti2 < b: new_intervals.append((ti2, b))
+                t_intervals = new_intervals
+            for (t1, t2) in t_intervals:
+                if t2 - t1 < 0.01: continue   # skip degenerate slivers
+                e1, n1 = pe + t1 * tdx, pn + t1 * tdy
+                e2, n2 = pe + t2 * tdx, pn + t2 * tdy
+                lat1, lon1 = enu_to_latlon(e1, n1, plat, plon)
+                lat2, lon2 = enu_to_latlon(e2, n2, plat, plon)
+                try:
+                    path = self.map_widget.set_path(
+                        [(lat1, lon1), (lat2, lon2)], color="#FF3333", width=1)
+                    self.pass_paths.append(path)
+                except Exception:
+                    pass
 
     # ── Unit label refresh ─────────────────────────────────────────────────────
     def _on_unit_change(self,val=None):

@@ -1193,6 +1193,23 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
             radius = float(r_raw) * conv
             boundary_enu = None
 
+        # Inner-exclusion boundaries (JD-style "interior boundaries":
+        # buildings, sloughs, pivot pads, etc.). A shelter is invalid if it
+        # lands inside ANY inner ring. Stored on the field as lat/lon; convert
+        # to ENU once for fast point-in-polygon checks below.
+        boundary_inner_raw = field_dict.get('boundary_inner') or []
+        boundary_inner_enu = []
+        for ring in boundary_inner_raw:
+            if not ring or len(ring) < 3: continue
+            try:
+                ring_enu = latlon_list_to_enu(
+                    [(float(p[0]), float(p[1])) for p in ring],
+                    pivotpoint[0], pivotpoint[1])
+                if len(ring_enu) >= 3:
+                    boundary_inner_enu.append(ring_enu)
+            except Exception:
+                pass
+
         seed_angle = float(field_dict.get('Spray_angle') or field_dict.get('Seed_angle') or 0)
 
         # Bay parameters → tent_row_width and lat_offset.
@@ -1433,6 +1450,10 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                         return False
                 else:
                     if east*east + north*north > radius_sqr: return False
+                # Inner exclusions — must NOT be inside any of them.
+                for ring in boundary_inner_enu:
+                    if _point_in_polygon(east, north, ring):
+                        return False
                 # Pivot inner exclusion: don't sit on top of the pivot.
                 if east*east + north*north < sprayer_width * sprayer_width:
                     return False
@@ -1692,7 +1713,8 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                 return True
 
             def _inside(east, north):
-                """Is the point inside the field boundary (polygon or circle)?
+                """Is the point inside the field boundary (polygon or circle)
+                AND outside every inner-exclusion ring?
 
                 For polygon fields we also verify the position survives an
                 ENU→latlon→ENU round-trip without crossing the boundary.
@@ -1706,9 +1728,17 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                     lon, lat = utmish.to_lonlat(east + easting, north + northing,
                                                 pivotpoint[0])
                     re_e, re_n = utmish.from_lonlat(lon, lat, pivotpoint[0])
-                    return _point_in_polygon(re_e - easting, re_n - northing,
-                                              boundary_enu)
-                return east*east + north*north <= radius_sqr
+                    if not _point_in_polygon(re_e - easting, re_n - northing,
+                                              boundary_enu):
+                        return False
+                else:
+                    if east*east + north*north > radius_sqr:
+                        return False
+                # Inner exclusions — must NOT be inside any of them.
+                for ring in boundary_inner_enu:
+                    if _point_in_polygon(east, north, ring):
+                        return False
+                return True
 
             def _snap_along_pre_n(pre_e, pre_n_0):
                 """Slide along the planting direction (pre_n axis) to find a valid
@@ -1881,6 +1911,11 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                     re_e, re_n = utmish.from_lonlat(lon, lat, pivotpoint[0])
                     re_e -= easting; re_n -= northing
                     if not _point_in_polygon(re_e, re_n, boundary_enu):
+                        continue
+                    # Drop any shelter that lands inside an inner-exclusion
+                    # ring after the round-trip too.
+                    if any(_point_in_polygon(re_e, re_n, ring)
+                           for ring in boundary_inner_enu):
                         continue
                 result.append((lat, lon))
                 kept_rows.append(row_idx)
