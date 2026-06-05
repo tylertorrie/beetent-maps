@@ -510,6 +510,8 @@ def blank_field(company="",year=""):
                 boundary_polygon=None,pivot_tracks=[],corner_arms=[],
                 boundary_inner=[],            # list of inner-exclusion polygons (JD-style "interior boundaries")
                 sprayer_routes_around_inner=True,   # sprayer pass lines break around inner boundaries when True
+                bays_through_inner=False,     # when True, planter bays draw through inner boundaries instead of clipping
+                manual_shelter_pins=[],       # remembered when shelter_mode="manual"; restored if user switches back
                 shelter_overrides={})
 
 def _field_dir(company,year):
@@ -896,11 +898,13 @@ class BeetentApp(ctk.CTk):
             ("Import Planter Data (.shp)", self._import_planter_data),
             ("Toggle Paths on/off",    self._toggle_planter_passes),
             ("Clear Planter Data",     self._clear_planter_passes),
+            ("Toggle Bays Through Inner", self._toggle_bays_through_inner),
         ], color="#3a5a1a")
         self._pl_btn.pack(side="left", padx=(0,4))
 
         self._shelter_btn = self._make_menu_btn(bb, "🏠 Shelters", [
             ("Toggle Pins",          self._toggle_shelters),
+            ("Add Shelter Pin",      self._mode_add_shelter),
             ("Numbers: Tray count",  lambda: self._set_pin_mode("trays")),
             ("Numbers: Shelter #",   lambda: self._set_pin_mode("shelters")),
             ("Numbers: Off",         lambda: self._set_pin_mode("off")),
@@ -1029,6 +1033,7 @@ class BeetentApp(ctk.CTk):
             "Spacing between shelters": "spacing",
             "1 tray per shelter":       "trays_1",
             "2 trays per shelter":      "trays_2",
+            "Manual pins only":         "manual",
         }
         self._shelter_mode_inverse={v:k for k,v in self._shelter_mode_labels.items()}
         # Only modes with user-editable values have an fv key. The two trays
@@ -2444,6 +2449,19 @@ class BeetentApp(ctk.CTk):
                                           marker_color_circle="#FFD700",marker_color_outside="#B8860B")
             self.boundary_markers.append(m); self._update_bnd_preview()
 
+        elif mode=="add_shelter":
+            # Append a manual shelter pin and redraw. Stays in this mode
+            # until the user clicks ✔ Done so multiple pins can be placed
+            # in one session.
+            pins = self.current_field.setdefault("manual_shelter_pins", [])
+            pins.append([lat, lon])
+            # If the user is in "Manual pins only" mode, the engine returns
+            # these pins as the shelter set; otherwise the pin is stored
+            # but only takes effect after the user switches to manual mode.
+            self.show_shelters.set(True)
+            self._redraw_shelters()
+            self._status(f"Added shelter pin #{len(pins)} — keep clicking, ✔ Done when finished.")
+
         elif mode=="inner_boundary":
             if not hasattr(self, "inner_pts"): self.inner_pts = []
             self.inner_pts.append((lat,lon))
@@ -3203,6 +3221,22 @@ class BeetentApp(ctk.CTk):
         self._status("Planter paths " +
                      ("shown." if self.show_planter_passes.get() else "hidden."))
 
+    def _toggle_bays_through_inner(self):
+        """Toggle whether the bay overlay clips at every inner cutout (default,
+        the same behaviour as pivot tracks) or draws straight through them.
+        Some fields have small interior boundaries that are still being
+        planted through (e.g. an access lane that the planter just drives
+        over) — for those the user wants bays continuous instead of broken
+        at the cutout edge."""
+        self._close_all_popups()
+        cur = bool(self.current_field.get("bays_through_inner", False))
+        self.current_field["bays_through_inner"] = not cur
+        if self.show_bays.get():
+            self._redraw_bays()
+        self._status("Planter bays " +
+                     ("draw through" if not cur else "stop at") +
+                     " inner boundaries.")
+
     def _redraw_planter_passes(self):
         """Tear down old overlays and redraw if the layer is visible AND the
         current field has imported pass data."""
@@ -3298,6 +3332,36 @@ class BeetentApp(ctk.CTk):
             self._redraw_shelters(); self._status("Shelter pins shown.")
         else:
             self._clear_shelters(); self._status("Shelter pins hidden.")
+
+    def _mode_add_shelter(self):
+        """Click-to-add-pins mode. Each click drops a manual shelter pin at
+        the click point; pins survive until the user clicks ✔ Done or picks
+        a different click mode. Manual pins are stored on the field as
+        manual_shelter_pins; they take effect immediately when the shelter
+        mode is "Manual pins only", and they're preserved (but inactive)
+        when the user switches to a different shelter mode."""
+        self._close_all_popups()
+        self.click_mode = "add_shelter"
+        self.show_shelters.set(True)
+        self._show_context_btn("✔ Done Adding Pins", self._close_add_shelter)
+        n = len(self.current_field.get("manual_shelter_pins") or [])
+        if n:
+            self._status(f"Click map to add shelter pins ({n} already placed). "
+                         "Drag a pin to move it, click a pin to delete it. ✔ Done when finished.")
+        else:
+            self._status("Click map to add shelter pins. Drag a pin to move it, "
+                         "click a pin to delete it. ✔ Done when finished.")
+
+    def _close_add_shelter(self):
+        self.click_mode = None
+        self._hide_context_btn()
+        n = len(self.current_field.get("manual_shelter_pins") or [])
+        mode = self._shelter_mode_labels.get(self.shelter_mode_var.get(), "total")
+        if n and mode != "manual":
+            self._status(f"{n} manual pins saved. Switch shelter mode to "
+                         "\"Manual pins only\" to use them.")
+        else:
+            self._status(f"{n} manual pins saved.")
 
     def _set_pin_mode(self, mode):
         """Pin labels: 'trays' (tray count), 'shelters' (sequential #), or 'off'."""
@@ -3919,12 +3983,15 @@ class BeetentApp(ctk.CTk):
         row_m=rs*0.0254; female_m=(nf+1)*row_m; male_m=(nm+1)*row_m
         poly_enu=[latlon_to_enu(lat,lon,plat,plon) for lat,lon in bp]
         # Inner cutouts in ENU so bays don't render across building / slough
-        # footprints either.
+        # footprints either — UNLESS the user has opted into "bays through
+        # inner" (some fields plant straight through small interior cutouts
+        # like access lanes, and the bays should stay continuous).
         inner_polys_enu = []
-        for inner in (self.current_field.get("boundary_inner") or []):
-            if not inner or len(inner) < 3: continue
-            inner_polys_enu.append(
-                [latlon_to_enu(pt[0], pt[1], plat, plon) for pt in inner])
+        if not bool(self.current_field.get("bays_through_inner", False)):
+            for inner in (self.current_field.get("boundary_inner") or []):
+                if not inner or len(inner) < 3: continue
+                inner_polys_enu.append(
+                    [latlon_to_enu(pt[0], pt[1], plat, plon) for pt in inner])
         max_r=max(math.sqrt(e*e+n*n) for e,n in poly_enu)*1.1
         rot=math.radians((180-angle)%360-180)
         cos_r,sin_r=math.cos(rot),math.sin(rot)
@@ -4168,9 +4235,21 @@ class BeetentApp(ctk.CTk):
                 except Exception: pass
             self._just_dragged=True
         elif not self._drag_moved:
-            # Click without drag — pivot/boundary/track modes win over pin-tap so
-            # the user can place points near existing pins.
-            if self.click_mode is not None:
+            # Click without drag.
+            #   - Add-shelter mode AND a pin was tapped → delete that pin
+            #     (so the user can remove their misplaced pin in the same
+            #     flow as adding others, without leaving add mode).
+            #   - Any other click_mode → defer to _on_map_click (so the user
+            #     can place pivot / boundary / etc. points near existing pins).
+            #   - No mode + pin tapped → offer delete.
+            #   - No mode + no pin → plain map click.
+            if self.click_mode == "add_shelter" and was_pin_drag and \
+               self._drag_item and self._drag_item.startswith("shelter_"):
+                try:
+                    idx = int(self._drag_item.split("_")[1])
+                    self._on_shelter_tap(idx)
+                except (ValueError, IndexError): pass
+            elif self.click_mode is not None:
                 try:
                     lat,lon=self.map_widget.convert_canvas_coords_to_decimal_coords(event.x,event.y)
                     self._on_map_click((lat,lon))

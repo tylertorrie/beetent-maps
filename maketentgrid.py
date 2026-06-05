@@ -1196,6 +1196,23 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
     When user spacing is given: rectangular grid pass-through (unchanged).
     When neither: auto-spacing rectangular grid.
     """
+    # Manual-pin mode is a complete short-circuit: the user owns the pin
+    # set, so we skip all geometry / boundary / placement work and just
+    # return the stored pins. No pivot, no boundary, nothing else needed.
+    mode_early = str(field_dict.get('shelter_mode') or '').strip().lower()
+    if mode_early == 'manual':
+        manual = field_dict.get('manual_shelter_pins') or []
+        result = []
+        for pt in manual:
+            try:
+                lat, lon = float(pt[0]), float(pt[1])
+                result.append((lat, lon))
+            except (TypeError, ValueError, IndexError):
+                continue
+        if return_rows:
+            return result, [0] * len(result)
+        return result
+
     try:
         from collections import defaultdict
 
@@ -1288,6 +1305,9 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
         def _int(v):
             try: return int(round(float(str(v).strip())))
             except (ValueError, TypeError): return None
+        # Manual mode is handled by the early short-circuit above. We
+        # shouldn't reach here in manual mode; if we do, fall through to
+        # the legacy spacing path defensively.
         if mode == 'spacing':
             sp_raw = str(field_dict.get('spacing') or '').strip()
         elif mode == 'per_acre':
