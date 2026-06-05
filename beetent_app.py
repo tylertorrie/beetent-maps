@@ -418,6 +418,7 @@ def blank_field(company="",year=""):
                 custom_row_mask="",       # only used when row_layout == "custom"
                 use_bays=True,            # False = blanket-planted crop, no female-bay constraint
                 outside_sprayer_pass="No",track_exclusion_ft="10",
+                pass_edge_buffer_ft="30",   # shelters must be within this distance of any sprayer-pass edge
                 shelter_buffer_m="1.524",
                 planter_passes=None,           # [[(lat,lon), ...], ...]  imported from JD
                 use_imported_passes=True,      # when False or no data, use synthetic grid
@@ -498,6 +499,11 @@ class BeetentApp(ctk.CTk):
         # Uploaded GPS sprayer tracks — distinct from the synthetic angle-grid lines.
         self.show_sprayer_passes = tk.BooleanVar(value=False)
         self.sprayer_path_overlays = []
+        # Sprayer-pass kill zones (the middle of each pass + the middle of the
+        # outside pass, where shelters cannot be placed). Red translucent
+        # bands so the user can visually verify the buffer.
+        self.show_pass_buffer_overlay = tk.BooleanVar(value=False)
+        self.pass_buffer_overlays = []
         # Corner tracks (a.k.a. corner arms) — polygon paths and circles drawn
         # at absolute lat/lon (don't follow the pivot when it's moved). Used
         # for swing-arm pivot tracks, shelter belts, etc. that should exclude
@@ -659,6 +665,36 @@ class BeetentApp(ctk.CTk):
             self.fv["track_exclusion_ft"].set(val)   # write-trace → _redraw_tracks
             self._status(f"Track exclusion set to {val} ft.")
 
+    def _edit_pass_edge_buffer(self):
+        """Adjust how far in from the edge of any sprayer pass shelters can
+        sit. Middle of each pass becomes a kill zone of width
+        max(0, sprayer_width − 2 × buffer); applies to BOTH the outside pass
+        and every main pass through the field."""
+        self._close_all_popups()
+        cur = self.fv["pass_edge_buffer_ft"].get() or "30"
+        val = self._ask_string("Sprayer Edge Buffer",
+                                f"How far in from the edge of any sprayer pass shelters can sit (ft).\n"
+                                f"Applies to the outside pass AND every main pass.\n"
+                                f"Current: {cur}")
+        if val is None: return
+        val = val.strip()
+        if val:
+            self.fv["pass_edge_buffer_ft"].set(val)   # write-trace → _on_form_change
+            self._status(f"Sprayer edge buffer set to {val} ft.")
+            # Refresh the overlay if it's currently being shown.
+            if self.show_pass_buffer_overlay.get():
+                self._redraw_pass_buffer_overlay()
+
+    def _toggle_pass_buffer_overlay(self):
+        """Show/hide a red translucent overlay marking the sprayer kill zones
+        (the middle of every sprayer pass + the middle of the outside pass).
+        Lets the user visually verify where shelters can and cannot land."""
+        self._close_all_popups()
+        self.show_pass_buffer_overlay.set(not self.show_pass_buffer_overlay.get())
+        self._redraw_pass_buffer_overlay()
+        self._status("Sprayer buffer overlay " +
+                     ("shown." if self.show_pass_buffer_overlay.get() else "hidden."))
+
     # ── Collapsible section card ────────────────────────────────────────────
     def _collapsible(self, parent, title, expanded=True):
         """A card with a clickable header that expands/collapses its content.
@@ -731,6 +767,8 @@ class BeetentApp(ctk.CTk):
             ("Import Sprayer Data (.shp/.geojson)", self._import_sprayer_data),
             ("Toggle Uploaded Paths on/off",    self._toggle_sprayer_passes),
             ("Clear Uploaded Paths",            self._clear_sprayer_data),
+            ("Set Edge Buffer (ft)",            self._edit_pass_edge_buffer),
+            ("Toggle Edge Buffer Overlay",      self._toggle_pass_buffer_overlay),
         ], color="#2a5a4a")
         self._sp_btn.pack(side="left", padx=(0,4))
 
@@ -864,6 +902,10 @@ class BeetentApp(ctk.CTk):
         # Track exclusion lives in the Pivot menu now, but keep its backing var
         # (used by _redraw_tracks / get_tent_positions) and its write-trace.
         self.fv["track_exclusion_ft"]=tk.StringVar(value="10")
+        # Sprayer-pass edge buffer (Sprayer menu). How far in from the edge of
+        # any sprayer pass shelters can sit; the middle of each pass becomes
+        # a kill zone of width max(0, sprayer_width − 2 × buffer).
+        self.fv["pass_edge_buffer_ft"]=tk.StringVar(value="30")
         self._shelter_mode_labels={
             "Total shelters":           "total",
             "Shelters per acre":        "per_acre",
@@ -1776,6 +1818,7 @@ class BeetentApp(ctk.CTk):
         self.show_corner_arms.set(False)
         self.show_planter_passes.set(False)
         self.show_sprayer_passes.set(False)
+        self.show_pass_buffer_overlay.set(False)
         self._form_from_field()
         self._redraw_all()
         self._zoom_to_field()
@@ -3404,6 +3447,76 @@ class BeetentApp(ctk.CTk):
         return [(p1e+t0*tdx,p1n+t0*tdy),(p2e+t0*tdx,p2n+t0*tdy),
                 (p2e+t1*tdx,p2n+t1*tdy),(p1e+t1*tdx,p1n+t1*tdy)]
 
+    def _clear_pass_buffer_overlay(self):
+        for o in self.pass_buffer_overlays:
+            try: o.delete()
+            except Exception: pass
+        self.pass_buffer_overlays = []
+
+    def _redraw_pass_buffer_overlay(self):
+        """Translucent red bands showing the sprayer-pass kill zones — the
+        middle of every main sprayer pass + the middle of the outside pass.
+        Helps the user visually verify where shelters can / cannot land."""
+        self._clear_pass_buffer_overlay()
+        if not self.show_pass_buffer_overlay.get(): return
+        try:
+            plat = float(self.fv["PP_Latitude"].get())
+            plon = float(self.fv["PP_Longitude"].get())
+            angle = float(self.fv["Spray_angle"].get() or 0)
+            width_ft = float(self.fv["Sprayer_width"].get() or 133)
+            width_m = width_ft * 0.3048
+            buffer_ft = float(self.fv["pass_edge_buffer_ft"].get() or 30)
+            buffer_m = buffer_ft * 0.3048
+            bp = self.current_field.get("boundary_polygon")
+        except (ValueError, TypeError):
+            return
+        if not bp or len(bp) < 3 or width_m <= 0: return
+        dead_half = max(0.0, width_m / 2.0 - buffer_m)
+        if dead_half <= 0:   # buffer ≥ half-width → no kill zone at all
+            self._status("Edge buffer ≥ half pass width — no kill zone to draw.")
+            return
+        poly_enu = [latlon_to_enu(lat, lon, plat, plon) for lat, lon in bp]
+        max_r = max(math.sqrt(e*e + n*n) for e, n in poly_enu) * 1.1
+        rot = math.radians((0 - angle + 180) % 360 - 180)
+        cos_r, sin_r = math.cos(rot), math.sin(rot)
+        tdx, tdy = -sin_r, cos_r
+        ldx, ldy = cos_r, sin_r
+        KILL_FILL = "#FF2233"   # translucent-looking red (no real alpha in tkintermapview)
+        # Main-pass kill zones: a band of width 2 × dead_half centred on each
+        # sprayer pass at r * sprayer_width.
+        max_rows = int(max_r / width_m) + 2
+        for r in range(-max_rows, max_rows + 1):
+            cx = r * width_m
+            band = self._band_polygon_enu(cx - dead_half, cx + dead_half,
+                                           tdx, tdy, ldx, ldy, poly_enu)
+            if band:
+                lpts = [enu_to_latlon(e, n, plat, plon) for e, n in band]
+                try:
+                    o = self.map_widget.set_polygon(
+                        lpts, fill_color=KILL_FILL,
+                        outline_color=KILL_FILL, border_width=0)
+                    self.pass_buffer_overlays.append(o)
+                except Exception:
+                    pass
+        # Outside-pass kill zone (only when running an outside pass) — drawn
+        # as the area between the boundary inset by buffer_m (outer edge of
+        # kill zone) and the boundary inset by (sprayer_width − buffer_m)
+        # (inner edge of kill zone). Since tkintermapview doesn't do
+        # polygons-with-holes, show it as two outline rings instead.
+        outside_pass_on = (self.outside_pass_var.get() or "No").strip().lower() == "yes"
+        if outside_pass_on:
+            for inset_dist in (buffer_m, width_m - buffer_m):
+                inset = inset_polygon_enu(poly_enu, inset_dist)
+                if len(inset) >= 3:
+                    lpts = [enu_to_latlon(e, n, plat, plon) for e, n in inset]
+                    try:
+                        o = self.map_widget.set_polygon(
+                            lpts, fill_color=None,
+                            outline_color=KILL_FILL, border_width=2)
+                        self.pass_buffer_overlays.append(o)
+                    except Exception:
+                        pass
+
     def _redraw_bays(self):
         self._clear_bays()
         if not self.show_bays.get(): return
@@ -3502,7 +3615,7 @@ class BeetentApp(ctk.CTk):
                 self.map_widget.set_position(plat,plon); self.map_widget.set_zoom(14)
         except (ValueError,TypeError): pass
         self._redraw_pivot()
-        self._redraw_boundary(); self._redraw_tracks(); self._redraw_passes(); self._redraw_bays(); self._redraw_corner_arms(); self._redraw_planter_passes(); self._redraw_sprayer_passes(); self._redraw_shelters()
+        self._redraw_boundary(); self._redraw_tracks(); self._redraw_passes(); self._redraw_bays(); self._redraw_corner_arms(); self._redraw_planter_passes(); self._redraw_sprayer_passes(); self._redraw_pass_buffer_overlay(); self._redraw_shelters()
 
     def _clear_all_overlays(self):
         if self.pivot_marker: self.pivot_marker.delete(); self.pivot_marker=None
@@ -3524,6 +3637,7 @@ class BeetentApp(ctk.CTk):
             try: o.delete()
             except Exception: pass
         self.sprayer_path_overlays=[]
+        self._clear_pass_buffer_overlay()
         self._clear_shelters()
 
     # ── Pivot drag handler ─────────────────────────────────────────────────────

@@ -1407,8 +1407,17 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
 
             # Same exclusion rules as the synthetic-grid branch.
             excl_m_safe_pf = excl_m + 0.01
-            PASS_KILL_HALF_M_PF = 30.0 * 0.3048
-            pass_center_pf = sprayer_width / 2.0
+            # User-settable edge buffer: how far in from any sprayer-pass edge
+            # shelters can sit. Middle of each pass becomes a kill zone of
+            # width max(0, sprayer_width − 2 × buffer). Applies to the outside
+            # pass AND every main pass through the field interior.
+            try:
+                pass_edge_buffer_m_pf = float(field_dict.get('pass_edge_buffer_ft') or 30) * 0.3048
+            except (ValueError, TypeError):
+                pass_edge_buffer_m_pf = 30.0 * 0.3048
+            # buffer ≤ 0 → user wants the kill zones turned off entirely.
+            buffer_enabled_pf = pass_edge_buffer_m_pf > 0
+            pass_dead_half_pf = max(0.0, sprayer_width / 2.0 - pass_edge_buffer_m_pf)
 
             def _pf_valid(east, north):
                 # Inside boundary (with the same round-trip safety check used
@@ -1427,8 +1436,9 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                 # Pivot inner exclusion: don't sit on top of the pivot.
                 if east*east + north*north < sprayer_width * sprayer_width:
                     return False
-                # Outside-pass kill zone (centre 60 ft of the outside pass).
-                if outside_pass:
+                # Outside-pass kill zone — kill anywhere more than buffer
+                # away from BOTH the boundary edge and the inner pass line.
+                if outside_pass and buffer_enabled_pf:
                     if boundary_enu:
                         # min distance to boundary
                         min_d2 = float('inf')
@@ -1448,7 +1458,16 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                         d_b = math.sqrt(min_d2)
                     else:
                         d_b = radius - math.sqrt(east*east + north*north)
-                    if abs(d_b - pass_center_pf) <= PASS_KILL_HALF_M_PF:
+                    if pass_edge_buffer_m_pf < d_b < (sprayer_width - pass_edge_buffer_m_pf):
+                        return False
+                # Main-pass kill zone — middle of every interior sprayer pass.
+                # Convert (east, north) to the rotated frame so pass centres
+                # line up with multiples of sprayer_width.
+                if buffer_enabled_pf and pass_dead_half_pf > 0 and sprayer_width > 0:
+                    lat_e = east * cos_r + north * sin_r
+                    r_idx = round(lat_e / sprayer_width)
+                    d_pc = abs(lat_e - r_idx * sprayer_width)
+                    if d_pc < pass_dead_half_pf:
                         return False
                 if pivot_tracks:
                     d = math.sqrt(east*east + north*north)
@@ -1476,12 +1495,23 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                     total = lens[-1]
                     if total <= 0 or ns <= 0: continue
                     n = int(total / ns) + 1
-                    # Centre the spacing along the centerline so we don't get
-                    # a long dangling tail at one end only.
-                    offset = (total - (n - 1) * ns) * 0.5
-                    if offset < 0: offset = 0.0
-                    for j in range(n):
-                        t = offset + j * ns
+                    if n == 1:
+                        # Single-shelter centerline (ns > total). Without this
+                        # branch every centerline's lone shelter lands at the
+                        # midpoint, stacking all of them on the same N-S line
+                        # and clustering the result in the centre of the field.
+                        # Scatter t with a golden-ratio low-discrepancy sequence
+                        # so consecutive centerlines drop their shelter at
+                        # well-distributed N positions instead.
+                        phi = ((r_idx + 1) * 0.6180339887498949) % 1.0
+                        t_list = [phi * total]
+                    else:
+                        # Centre the spacing along the centerline so we don't get
+                        # a long dangling tail at one end only.
+                        offset = (total - (n - 1) * ns) * 0.5
+                        if offset < 0: offset = 0.0
+                        t_list = [offset + j * ns for j in range(n)]
+                    for t in t_list:
                         if t < 0 or t > total: continue
                         e, n_v = _interp_enu(cl_enu, lens, t)
                         if _pf_valid(e, n_v):
@@ -1542,10 +1572,22 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                 ordered.extend(pts)
                 ordered_rows.extend([i] * len(pts))
 
-            # Trim any small excess (the spacing-fit loop usually lands within ±1).
-            if len(ordered) > num_tents:
-                ordered = ordered[:num_tents]
-                ordered_rows = ordered_rows[:num_tents]
+            # Trim to num_tents using an even-stride pick across the snake order
+            # rather than taking the first N. Taking the first N leaves the
+            # right-side rows empty whenever the candidate pool exceeds
+            # num_tents — visible as a hard E-W cutoff. Striding evenly across
+            # all candidates keeps the spatial distribution uniform.
+            if len(ordered) > num_tents > 0:
+                step = len(ordered) / num_tents
+                keep_idx = [int(round(i * step)) for i in range(num_tents)]
+                # round() can collide on the last index; clamp to bounds
+                keep_idx = sorted(set(min(len(ordered) - 1, k) for k in keep_idx))
+                # If de-duplication shrank below target, pad with the gaps
+                if len(keep_idx) < num_tents:
+                    extras = [i for i in range(len(ordered)) if i not in set(keep_idx)]
+                    keep_idx = sorted(keep_idx + extras[:num_tents - len(keep_idx)])
+                ordered = [ordered[i] for i in keep_idx]
+                ordered_rows = [ordered_rows[i] for i in keep_idx]
 
             result = []
             kept_rows = []
@@ -1605,15 +1647,18 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
             # land within rounding error of the track boundary are consistently excluded.
             excl_m_safe = excl_m + 0.01
 
-            # Outside-sprayer-pass rule: when ON, shelters can sit anywhere in
-            # the outside pass (the sprayer-width-wide band against the
-            # boundary) EXCEPT the center 60 ft — that's the sprayer's wheel /
-            # boom path. So the kill zone is a 60-ft band centred at
-            # sprayer_width/2 from the boundary. Shelters near the very edge
-            # AND shelters near the inner pass line are both OK.
-            #   kill if  | d_b - sprayer_width/2 | <= 30 ft  (≈ 9.144 m)
-            PASS_KILL_HALF_M = 30.0 * 0.3048
-            pass_center = sprayer_width / 2.0
+            # Sprayer edge buffer — how far in from any pass edge shelters
+            # can sit. Middle of each pass becomes a kill zone of width
+            # max(0, sprayer_width − 2 × buffer). Applies to:
+            #   - Outside pass (only when outside_sprayer_pass = Yes)
+            #   - Every main pass through the field interior (always on)
+            try:
+                pass_edge_buffer_m = float(field_dict.get('pass_edge_buffer_ft') or 30) * 0.3048
+            except (ValueError, TypeError):
+                pass_edge_buffer_m = 30.0 * 0.3048
+            # buffer ≤ 0 → kill zones turned off.
+            buffer_enabled = pass_edge_buffer_m > 0
+            pass_dead_half = max(0.0, sprayer_width / 2.0 - pass_edge_buffer_m)
             # Slide-along-bay budget for rescuing shelters that land in a forbidden
             # zone (pivot-track exclusion or sprayer kill zone).
             SNAP_MAX_M = 15.0
@@ -1622,13 +1667,23 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
             def _valid(east, north):
                 d_sq = east*east + north*north
                 if d_sq < inner_r2: return False
-                # Kill zone only applies when an outside sprayer pass is run.
-                if outside_pass:
+                # Outside-pass kill zone — only when the user runs an
+                # outside pass AND the buffer is enabled.
+                if outside_pass and buffer_enabled:
                     if boundary_enu:
                         d_b = _min_dist_to_bnd(east, north)
                     else:
                         d_b = radius - math.sqrt(d_sq)
-                    if abs(d_b - pass_center) <= PASS_KILL_HALF_M:
+                    if pass_edge_buffer_m < d_b < (sprayer_width - pass_edge_buffer_m):
+                        return False
+                # Main-pass kill zone — middle of every interior sprayer
+                # pass. Convert (east, north) to the rotated frame so pass
+                # centres line up with multiples of sprayer_width.
+                if buffer_enabled and pass_dead_half > 0 and sprayer_width > 0:
+                    lat_e = east * cos_r + north * sin_r
+                    r_idx = round(lat_e / sprayer_width)
+                    d_pc = abs(lat_e - r_idx * sprayer_width)
+                    if d_pc < pass_dead_half:
                         return False
                 if pivot_tracks:
                     d = math.sqrt(d_sq)
