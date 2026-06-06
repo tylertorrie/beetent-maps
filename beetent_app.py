@@ -861,7 +861,7 @@ class BeetentApp(ctk.CTk):
         # Pivot menu: pivot point + pivot tracks (concentric circles) + corner
         # tracks (polygon paths anchored to absolute lat/lon — stay put when
         # the pivot is moved). All share the same exclusion width.
-        self._pivot_btn = self._make_menu_btn(bb, "📍 Pivot", [
+        self._pivot_btn = self._make_menu_btn(bb, "🎯 Pivot", [
             ("Toggle on/off",           self._toggle_pivot),
             ("Set Pivot Point",         self._mode_pivot),
             ("Draw Track Circle",       self._mode_track),
@@ -872,7 +872,7 @@ class BeetentApp(ctk.CTk):
         ], color="#1a6b3a")
         self._pivot_btn.pack(side="left", padx=(0,4))
 
-        self._bnd_btn = self._make_menu_btn(bb, "✏️ Boundary", [
+        self._bnd_btn = self._make_menu_btn(bb, "◌ Boundary", [
             ("Draw Outer",          self._mode_boundary),
             ("Edit Outer",          self._mode_edit_boundary),
             ("Upload File",         self._upload_boundary),
@@ -882,7 +882,7 @@ class BeetentApp(ctk.CTk):
         ], color="#5a3a8a")
         self._bnd_btn.pack(side="left", padx=(0,4))
 
-        self._sp_btn = self._make_menu_btn(bb, "🌊 Sprayer", [
+        self._sp_btn = self._make_menu_btn(bb, "💦 Sprayer", [
             ("Toggle on/off",                   self._toggle_passes),
             ("Edit",                            self._mode_edit_passes),
             ("Import Sprayer Data (.shp/.geojson)", self._import_sprayer_data),
@@ -897,7 +897,7 @@ class BeetentApp(ctk.CTk):
         # Planter menu: synthetic bay overlay (from bay-calculator inputs) PLUS
         # imported planter passes from a John Deere Operations Center Seeding
         # shapefile (the actual path the planter took on this field).
-        self._pl_btn = self._make_menu_btn(bb, "🌾 Planter", [
+        self._pl_btn = self._make_menu_btn(bb, "🌱 Planter", [
             ("Toggle Bays on/off",     self._toggle_bays),
             ("Edit",                   self._mode_edit_bays),
             ("Import Planter Data (.shp)", self._import_planter_data),
@@ -907,7 +907,7 @@ class BeetentApp(ctk.CTk):
         ], color="#3a5a1a")
         self._pl_btn.pack(side="left", padx=(0,4))
 
-        self._shelter_btn = self._make_menu_btn(bb, "🏠 Shelters", [
+        self._shelter_btn = self._make_menu_btn(bb, "🐝 Shelters", [
             ("Toggle Pins",          self._toggle_shelters),
             ("Add Shelter Pin",      self._mode_add_shelter),
             ("Numbers: Tray count",  lambda: self._set_pin_mode("trays")),
