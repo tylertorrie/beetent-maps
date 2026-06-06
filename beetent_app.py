@@ -838,6 +838,7 @@ class BeetentApp(ctk.CTk):
         self.corner_arm_pts         = []   # points being drawn for in-progress path
         self.corner_arm_circle_center = None  # (lat,lon) for in-progress circle
         self.corner_arm_temp_markers = []
+        self._editing_corner_arm_idx = None  # index into corner_arms being vertex-edited
         self.show_passes      = tk.BooleanVar(value=False)
         self.show_bays        = tk.BooleanVar(value=False)
         self.show_pivot       = tk.BooleanVar(value=True)   # pivot marker + tracks together
@@ -968,9 +969,6 @@ class BeetentApp(ctk.CTk):
         ctk.CTkButton(bar,text="⚙ Generate Output Files",fg_color="#1a5c8a",
                       font=ctk.CTkFont(family=FONT_LABEL,size=12),
                       command=self._generate).pack(side="right",padx=(0,12),pady=6)
-        self._sync_btn=ctk.CTkButton(bar,text="☁ Refresh",width=90,
-                                     command=self._manual_sync)
-        self._sync_btn.pack(side="right",padx=(0,6),pady=6)
 
     # ── Popup menu helpers ─────────────────────────────────────────────────────
     def _make_menu_btn(self, bar, label, items, color="#2b2b2b",
@@ -1166,6 +1164,7 @@ class BeetentApp(ctk.CTk):
             ("Edit Track Measurements", self._mode_edit_track_measurements),
             ("Set Track Exclusion (ft)",self._edit_track_exclusion),
             ("Add Corner Path",         self._mode_add_corner_path),
+            ("Edit Corner Path",        self._mode_edit_corner_path),
             ("Delete Corner Path",      self._mode_delete_corner_ui),
         ], color="#1a6b3a",
            toggle_var=self.pivot_visible_var, toggle_fn=self._set_pivot_visible)
@@ -3466,6 +3465,85 @@ class BeetentApp(ctk.CTk):
         ctk.CTkButton(win,text="Delete Selected",fg_color="#6b1a1a",command=do_delete).pack(pady=(4,2))
         ctk.CTkButton(win,text="Cancel",command=win.destroy).pack()
 
+    # ── Corner path vertex editing ──────────────────────────────────────────────
+    def _mode_edit_corner_path(self):
+        self._close_all_popups()
+        arms = self.current_field.get("corner_arms") or []
+        path_arms = [(i, arm) for i, arm in enumerate(arms)
+                     if arm.get("type") == "path" and len(arm.get("pts") or []) >= 2]
+        if not path_arms:
+            self._status("No corner paths to edit — use Add Corner Path first.")
+            return
+        if len(path_arms) == 1:
+            self._start_edit_corner_arm(path_arms[0][0])
+            return
+        # Multiple paths — show a picker dialog
+        win = ctk.CTkToplevel(self)
+        win.title("Edit Corner Path")
+        win.grab_set()
+        self._center_on_parent(win, 300, 220)
+        ctk.CTkLabel(win, text="Select path to edit:").pack(pady=(10, 2))
+        lb = tk.Listbox(win, height=min(6, len(path_arms)), bg="#2b2b2b",
+                        fg="white", selectbackground="#1f6aa5")
+        for i, arm in path_arms:
+            lb.insert(tk.END, f"Path {i+1}: {len(arm.get('pts',[]))} pts")
+        lb.pack(padx=10, pady=4, fill="x")
+        def do_edit():
+            sel = lb.curselection()
+            if not sel: return
+            arm_idx = path_arms[sel[0]][0]
+            win.destroy()
+            self._start_edit_corner_arm(arm_idx)
+        ctk.CTkButton(win, text="Edit Selected", command=do_edit).pack(pady=(4, 2))
+        ctk.CTkButton(win, text="Cancel", command=win.destroy).pack()
+
+    def _start_edit_corner_arm(self, arm_idx):
+        """Place draggable vertex markers on the selected corner arm path."""
+        arms = self.current_field.get("corner_arms") or []
+        if arm_idx >= len(arms): return
+        arm = arms[arm_idx]
+        if arm.get("type") != "path": return
+        pts = arm.get("pts") or []
+        if len(pts) < 2:
+            self._status("Path has too few points."); return
+        self._cancel_corner_arm_drawing()         # wipe any in-progress drawing markers
+        self._unregister_drag_prefix("carm_v_")  # drop stale vertex drags
+        self._editing_corner_arm_idx = arm_idx
+        for i, pt in enumerate(pts):
+            lat, lon = float(pt[0]), float(pt[1])
+            m = self.map_widget.set_marker(lat, lon, text=str(i + 1),
+                                           marker_color_circle="#CC44FF",
+                                           marker_color_outside="#9900CC")
+            self.corner_arm_temp_markers.append(m)
+            self._register_drag(f"carm_v_{i}", lat, lon, str(i + 1),
+                                "#CC44FF", "#9900CC",
+                                lambda la, lo, vi=i: self._on_corner_arm_vertex_drag(vi, la, lo),
+                                marker=m)
+        self._show_context_btn("✔ Done Editing Path", self._finish_corner_arm_edit)
+        self._status(f"Corner path {arm_idx+1}: drag vertices to reposition. ✔ Done when finished.")
+        self._redraw_corner_arms()
+
+    def _on_corner_arm_vertex_drag(self, vertex_idx, lat, lon):
+        arm_idx = self._editing_corner_arm_idx
+        if arm_idx is None: return
+        arms = self.current_field.get("corner_arms") or []
+        if arm_idx >= len(arms): return
+        pts = arms[arm_idx].get("pts") or []
+        if 0 <= vertex_idx < len(pts):
+            pts[vertex_idx] = [lat, lon]
+            arms[arm_idx]["pts"] = pts
+        self._redraw_corner_arms()
+        if self.show_shelters.get(): self._redraw_shelters()
+
+    def _finish_corner_arm_edit(self):
+        self._hide_context_btn()
+        self._cancel_corner_arm_drawing()
+        self._unregister_drag_prefix("carm_v_")
+        self._editing_corner_arm_idx = None
+        self._redraw_corner_arms()
+        if self.show_shelters.get(): self._redraw_shelters()
+        self._status("Corner path saved. Save field to persist.")
+
     def _offset_path_latlon(self, pts_latlon, excl_m):
         """Return (left, right) lat/lon polylines parallel to pts_latlon at
         perpendicular distance excl_m on each side. At interior vertices the
@@ -3735,15 +3813,17 @@ class BeetentApp(ctk.CTk):
             self._clear_shelters(); self._status("Shelter pins hidden.")
 
     def _mode_add_shelter(self):
-        """Click-to-add-pins mode. Each click drops a manual shelter pin at
-        the click point; pins survive until the user clicks ✔ Done or picks
-        a different click mode. Manual pins are stored on the field as
-        manual_shelter_pins; they take effect immediately when the shelter
-        mode is "Manual pins only", and they're preserved (but inactive)
-        when the user switches to a different shelter mode."""
+        """Click-to-add-pins mode. Automatically switches to 'Manual pins only'
+        so every pin placed is immediately visible. Each click drops a manual
+        shelter pin; drag to reposition, click to delete. ✔ Done to exit."""
         self._close_all_popups()
+        # Switch to manual mode so added pins show immediately on the map.
+        if self._shelter_mode_labels.get(self.shelter_mode_var.get(), "") != "manual":
+            self.shelter_mode_var.set("Manual pins only")
+            self._on_shelter_mode_change()
         self.click_mode = "add_shelter"
         self.show_shelters.set(True)
+        self._redraw_shelters()
         self._show_context_btn("✔ Done Adding Pins", self._close_add_shelter)
         n = len(self.current_field.get("manual_shelter_pins") or [])
         if n:
@@ -3849,18 +3929,32 @@ class BeetentApp(ctk.CTk):
         if ans:
             self._delete_shelter(idx)
 
-    def _delete_shelter(self,idx):
-        self._record_shelter_change(idx)
-        overrides=self.current_field.setdefault("shelter_overrides",{})
-        overrides[str(idx)]=None
-        self._redraw_shelters()
-        self._status(f"Shelter #{idx+1} deleted — ↶ Reset Move to undo.")
+    def _delete_shelter(self, idx):
+        mode = self._shelter_mode_labels.get(self.shelter_mode_var.get(), "total")
+        if mode == "manual":
+            pins = self.current_field.get("manual_shelter_pins") or []
+            if 0 <= idx < len(pins):
+                pins.pop(idx)
+            self._redraw_shelters()
+            self._status(f"Manual pin deleted.")
+        else:
+            self._record_shelter_change(idx)
+            overrides = self.current_field.setdefault("shelter_overrides", {})
+            overrides[str(idx)] = None
+            self._redraw_shelters()
+            self._status(f"Shelter #{idx+1} deleted — ↶ Reset Move to undo.")
 
-    def _on_shelter_drag(self,idx,lat,lon):
-        self._record_shelter_change(idx)
-        overrides=self.current_field.setdefault("shelter_overrides",{})
-        overrides[str(idx)]=[lat,lon]
-        self._status(f"Shelter #{idx+1} moved — ↶ Reset Move to undo.")
+    def _on_shelter_drag(self, idx, lat, lon):
+        mode = self._shelter_mode_labels.get(self.shelter_mode_var.get(), "total")
+        if mode == "manual":
+            pins = self.current_field.get("manual_shelter_pins") or []
+            if 0 <= idx < len(pins):
+                pins[idx] = [lat, lon]
+        else:
+            self._record_shelter_change(idx)
+            overrides = self.current_field.setdefault("shelter_overrides", {})
+            overrides[str(idx)] = [lat, lon]
+            self._status(f"Shelter #{idx+1} moved — ↶ Reset Move to undo.")
         self._redraw_shelters()
 
     def _redraw_shelters(self):
