@@ -384,25 +384,12 @@ def enu_to_latlon(e,n,pivot_lat,pivot_lon):
 def inset_polygon_enu(poly_enu, dist, miter_limit=1.5):
     """Offset every edge of poly_enu inward by dist metres.
 
-    Each pair of adjacent offset edges joins at one of two kinds of
-    corner:
-
-      * Miter (point) join — natural intersection of the two offset
-        edges. Used when the corner is open enough that the miter
-        doesn't spike too far past the original vertex.
-
-      * Round (arc) join — circular arc on the inside of the corner,
-        centred at the original vertex with radius `dist`. Used at
-        sharp corners where a miter would spike or a bevel would kink.
-        The two offset edge endpoints are by construction both at
-        distance `dist` from the original vertex, so they lie on a
-        common circle — we just walk between them in small angular
-        steps to trace a smooth curve.
-
-    miter_limit (~1.5 × dist by default): max allowed distance from
-    the miter intersection to the original vertex before we switch to
-    a round join. Lower = round earlier = smoother curves on sharp
-    corners.
+    Corner joins:
+      * Miter — natural intersection of the two offset edges. Used when
+        the spike stays within miter_limit of the original vertex.
+      * Bevel — straight cut from one offset edge's endpoint to the
+        next offset edge's startpoint. Used at sharp corners where the
+        miter would spike too far; never backtracks.
     """
     n=len(poly_enu)
     if n<3: return []
@@ -421,8 +408,6 @@ def inset_polygon_enu(poly_enu, dist, miter_limit=1.5):
     if len(edges)<3: return []
     result=[]
     miter_threshold = miter_limit * abs(dist)
-    abs_dist = abs(dist)
-    arc_step = math.pi / 16   # ~11.25° between arc points
     for i in range(len(edges)):
         a=edges[i]; b=edges[(i+1)%len(edges)]
         ax,ay=a[1][0]-a[0][0],a[1][1]-a[0][1]
@@ -439,23 +424,11 @@ def inset_polygon_enu(poly_enu, dist, miter_limit=1.5):
         if d <= miter_threshold:
             result.append((ix, iy))
             continue
-        # Round join — walk an arc on the inside of the corner from
-        # a's endpoint to b's startpoint, centred on the original
-        # vertex with radius |dist|.
-        v1x, v1y = a[1][0]-ovx, a[1][1]-ovy
-        v2x, v2y = b[0][0]-ovx, b[0][1]-ovy
-        ang1 = math.atan2(v1y, v1x)
-        ang2 = math.atan2(v2y, v2x)
-        # Take the shorter angular sweep (the one that stays on the
-        # inside of the corner). atan2 returns in [-π, π]; normalise
-        # the delta to the same range.
-        delta = (ang2 - ang1 + math.pi) % (2 * math.pi) - math.pi
+        # Bevel join — straight cut from a's natural endpoint to b's
+        # natural startpoint. Always the shortest path between them and
+        # can never backtrack, unlike an arc whose sweep direction is
+        # ambiguous at acute or near-degenerate corners.
         result.append(a[1])
-        n_steps = max(2, int(abs(delta) / arc_step))
-        for k in range(1, n_steps):
-            ang = ang1 + delta * (k / n_steps)
-            result.append((ovx + abs_dist * math.cos(ang),
-                           ovy + abs_dist * math.sin(ang)))
         result.append(b[0])
     return result
 
