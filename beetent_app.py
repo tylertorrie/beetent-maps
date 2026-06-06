@@ -1285,15 +1285,20 @@ class BeetentApp(ctk.CTk):
 
         # Field preset (reuse a field's fixed geometry — name, pivot, tracks,
         # acres, boundary, corner zones — across years)
-        fpr=ctk.CTkFrame(fd,fg_color="transparent"); fpr.pack(fill="x",pady=(4,2))
+        fpr=ctk.CTkFrame(fd,fg_color="transparent"); fpr.pack(fill="x",pady=(4,0))
         ctk.CTkLabel(fpr,text="Preset:",width=55,anchor="w").pack(side="left")
         self.field_preset_var=tk.StringVar()
-        self.field_preset_cb=ctk.CTkComboBox(fpr,variable=self.field_preset_var,values=[""],width=150,
+        self.field_preset_cb=ctk.CTkComboBox(fpr,variable=self.field_preset_var,
+                                              values=["— Create New —"],width=150,
                                               command=self._on_field_preset_selected)
         self.field_preset_cb.pack(side="left",padx=(2,2))
-        ctk.CTkButton(fpr,text="+",width=30,command=self._save_new_field_preset).pack(side="left",padx=(0,2))
-        ctk.CTkButton(fpr,text="💾",width=30,command=self._update_field_preset).pack(side="left",padx=(0,2))
         ctk.CTkButton(fpr,text="🗑",width=30,command=self._delete_field_preset).pack(side="left")
+        fpr2=ctk.CTkFrame(fd,fg_color="transparent"); fpr2.pack(fill="x",pady=(2,2))
+        ctk.CTkLabel(fpr2,text="Name:",width=55,anchor="w").pack(side="left")
+        self.field_preset_name_var=tk.StringVar()
+        self._loaded_field_preset_name=None
+        ctk.CTkEntry(fpr2,textvariable=self.field_preset_name_var,width=130).pack(side="left",padx=(2,2))
+        ctk.CTkButton(fpr2,text="Save",width=60,command=self._save_field_preset_unified).pack(side="left")
 
         fs=ctk.CTkFrame(fd,fg_color="transparent"); fs.pack(fill="x",pady=(4,0))
         self.fv={}; self.hint_labels={}; self.field_labels={}
@@ -1486,15 +1491,21 @@ class BeetentApp(ctk.CTk):
         ba=self._collapsible(right,"Bee Allocation",expanded=False)
 
         bp_row=ctk.CTkFrame(ba,fg_color="transparent")
-        bp_row.pack(fill="x",pady=(2,2))
+        bp_row.pack(fill="x",pady=(2,0))
         ctk.CTkLabel(bp_row,text="Preset:",width=55,anchor="w").pack(side="left")
         self.bee_preset_var=tk.StringVar()
-        self.bee_preset_cb=ctk.CTkComboBox(bp_row,variable=self.bee_preset_var,values=[""],width=160,
+        self.bee_preset_cb=ctk.CTkComboBox(bp_row,variable=self.bee_preset_var,
+                                            values=["— Create New —"],width=160,
                                             command=self._on_bee_preset_selected)
         self.bee_preset_cb.pack(side="left",padx=(2,2))
-        ctk.CTkButton(bp_row,text="+",width=30,command=self._save_new_bee_preset).pack(side="left",padx=(0,2))
-        ctk.CTkButton(bp_row,text="💾",width=30,command=self._update_bee_preset).pack(side="left",padx=(0,2))
         ctk.CTkButton(bp_row,text="🗑",width=30,command=self._delete_bee_preset).pack(side="left")
+        bp_row2=ctk.CTkFrame(ba,fg_color="transparent")
+        bp_row2.pack(fill="x",pady=(2,2))
+        ctk.CTkLabel(bp_row2,text="Name:",width=55,anchor="w").pack(side="left")
+        self.bee_preset_name_var=tk.StringVar()
+        self._loaded_bee_preset_name=None
+        ctk.CTkEntry(bp_row2,textvariable=self.bee_preset_name_var,width=130).pack(side="left",padx=(2,2))
+        ctk.CTkButton(bp_row2,text="Save",width=60,command=self._save_bee_preset_unified).pack(side="left")
 
         ctk.CTkFrame(ba,height=1,fg_color=UI_BORDER).pack(fill="x",pady=(2,4))
 
@@ -1733,51 +1744,50 @@ class BeetentApp(ctk.CTk):
             tkinter.messagebox.showerror("Preset Error",str(ex))
 
     def _refresh_bee_preset_list(self):
-        names=[""]+[p["name"] for p in self._load_bee_presets()]
+        names=["— Create New —"]+[p["name"] for p in self._load_bee_presets()]
         self.bee_preset_cb.configure(values=names)
 
     def _on_bee_preset_selected(self, name):
+        if name == "— Create New —":
+            for k in ("gals_per_acre","gals_per_tray"):
+                if k in self.fv: self.fv[k].set("")
+            self.bee_preset_name_var.set("")
+            self._loaded_bee_preset_name = None
+            return
         if not name: return
         for p in self._load_bee_presets():
             if p["name"]==name:
                 for k in ("gals_per_acre","gals_per_tray"):
                     if k in p and k in self.fv: self.fv[k].set(str(p[k]))
+                self.bee_preset_name_var.set(name)
+                self._loaded_bee_preset_name = name
                 break
 
-    def _save_new_bee_preset(self):
-        name=self._ask_string("Save Bee Preset","Preset name:")
-        if not name: return
-        presets=self._load_bee_presets()
-        entry={"name":name,
-               "gals_per_acre":self.fv["gals_per_acre"].get(),
-               "gals_per_tray":self.fv["gals_per_tray"].get()}
-        presets=[p for p in presets if p["name"]!=name]
-        presets.append(entry)
-        self._save_bee_presets(presets)
-        self._refresh_bee_preset_list()
-        self.bee_preset_var.set(name)
-
-    def _update_bee_preset(self):
-        name=self.bee_preset_var.get()
+    def _save_bee_preset_unified(self):
+        name = self.bee_preset_name_var.get().strip()
         if not name:
-            self._status("Select a bee preset to update (or use + to save a new one)."); return
-        entry={"name":name,
-               "gals_per_acre":self.fv["gals_per_acre"].get(),
-               "gals_per_tray":self.fv["gals_per_tray"].get()}
-        presets=[p for p in self._load_bee_presets() if p["name"]!=name]
-        presets.append(entry)
+            self._status("Enter a preset name before saving."); return
+        presets = self._load_bee_presets()
+        loaded  = getattr(self, "_loaded_bee_preset_name", None)
+        presets = [p for p in presets if p["name"] != name and p["name"] != loaded]
+        presets.append({"name":name,
+                        "gals_per_acre":self.fv["gals_per_acre"].get(),
+                        "gals_per_tray":self.fv["gals_per_tray"].get()})
         self._save_bee_presets(presets)
         self._refresh_bee_preset_list()
         self.bee_preset_var.set(name)
-        self._status(f"Updated bee preset: {name}")
+        self._loaded_bee_preset_name = name
+        self._status(f"Saved bee preset: {name}")
 
     def _delete_bee_preset(self):
         name=self.bee_preset_var.get()
-        if not name: return
+        if not name or name=="— Create New —": return
         presets=[p for p in self._load_bee_presets() if p["name"]!=name]
         self._save_bee_presets(presets)
         self._refresh_bee_preset_list()
-        self.bee_preset_var.set("")
+        self.bee_preset_var.set("— Create New —")
+        self.bee_preset_name_var.set("")
+        self._loaded_bee_preset_name=None
 
     # ── Field Presets (fixed field geometry reused year to year) ──────────────
     # Captures only the physical layout that stays constant: pivot point,
@@ -1803,29 +1813,14 @@ class BeetentApp(ctk.CTk):
             tkinter.messagebox.showerror("Preset Error",str(ex))
 
     def _refresh_field_preset_list(self):
-        names=[""]+[p["name"] for p in self._load_field_presets()]
+        names=["— Create New —"]+[p["name"] for p in self._load_field_presets()]
         self.field_preset_cb.configure(values=names)
 
-    def _save_new_field_preset(self):
-        name=self._ask_string("Save Field Preset",
-            "Preset name (saves field name, pivot, tracks, acres, boundary, corners):")
-        if not name: return
-        f=self._field_from_form()
-        bp=f.get("boundary_polygon")
-        entry={"name":name,
-               "pivot_tracks":list(f.get("pivot_tracks") or []),
-               "boundary_polygon":[list(pt) for pt in bp] if bp else None,
-               "corner_arms":f.get("corner_arms") or []}
-        for k in self._FIELD_PRESET_SCALARS:
-            entry[k]=f.get(k,"")
-        presets=[p for p in self._load_field_presets() if p["name"]!=name]
-        presets.append(entry)
-        self._save_field_presets(presets)
-        self._refresh_field_preset_list()
-        self.field_preset_var.set(name)
-        self._status(f"Saved field preset: {name}")
-
     def _on_field_preset_selected(self, name):
+        if name == "— Create New —":
+            self.field_preset_name_var.set("")
+            self._loaded_field_preset_name = None
+            return
         if not name: return
         p=next((x for x in self._load_field_presets() if x["name"]==name), None)
         if not p: return
@@ -1842,12 +1837,12 @@ class BeetentApp(ctk.CTk):
         self.boundary_pts=[]
         self._refresh_track_list()
         self._redraw_all()
+        self.field_preset_name_var.set(name)
+        self._loaded_field_preset_name = name
         self._status(f"Applied field preset: {name} — set name, angle & bees for this year.")
 
-    def _update_field_preset(self):
-        name=self.field_preset_var.get()
-        if not name:
-            self._status("Select a field preset to update (or use + to save a new one)."); return
+    def _field_preset_entry(self, name):
+        """Build the dict written to field_presets.json for the current form state."""
         f=self._field_from_form()
         bp=f.get("boundary_polygon")
         entry={"name":name,
@@ -1856,20 +1851,31 @@ class BeetentApp(ctk.CTk):
                "corner_arms":f.get("corner_arms") or []}
         for k in self._FIELD_PRESET_SCALARS:
             entry[k]=f.get(k,"")
-        presets=[p for p in self._load_field_presets() if p["name"]!=name]
-        presets.append(entry)
+        return entry
+
+    def _save_field_preset_unified(self):
+        name = self.field_preset_name_var.get().strip()
+        if not name:
+            self._status("Enter a preset name before saving."); return
+        presets = self._load_field_presets()
+        loaded  = getattr(self, "_loaded_field_preset_name", None)
+        presets = [p for p in presets if p["name"] != name and p["name"] != loaded]
+        presets.append(self._field_preset_entry(name))
         self._save_field_presets(presets)
         self._refresh_field_preset_list()
         self.field_preset_var.set(name)
-        self._status(f"Updated field preset: {name}")
+        self._loaded_field_preset_name = name
+        self._status(f"Saved field preset: {name}")
 
     def _delete_field_preset(self):
         name=self.field_preset_var.get()
-        if not name: return
+        if not name or name=="— Create New —": return
         presets=[p for p in self._load_field_presets() if p["name"]!=name]
         self._save_field_presets(presets)
         self._refresh_field_preset_list()
-        self.field_preset_var.set("")
+        self.field_preset_var.set("— Create New —")
+        self.field_preset_name_var.set("")
+        self._loaded_field_preset_name=None
 
     # ── Bee tray math ────────────────────────────────────────────────────────
     def _compute_bee_distribution(self, num_shelters, row_indices=None,
