@@ -28,5 +28,10 @@
     "name": "Hytech 2026 4 gals/acre",
     "gals_per_acre": "4",
     "gals_per_tray": "2"
+  },
+  {
+    "name": "Corteva 2026 3 gal/shelter every 1.1 acres",
+    "gals_per_acre": "3",
+    "gals_per_tray": "2"
   }
 ]
