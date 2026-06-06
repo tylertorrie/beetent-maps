@@ -384,15 +384,14 @@ def enu_to_latlon(e,n,pivot_lat,pivot_lon):
 def inset_polygon_enu(poly_enu, dist):
     """Offset every edge of poly_enu inward by dist metres.
 
-    Corner join strategy:
-      * Concave corners (miter intersection lies beyond the edge, t >= 1):
-        always use miter — the two offset edges converge naturally and the
-        bevel would cut across the wrong side, creating a self-intersection.
-      * Convex corners where the miter stays within miter_threshold of the
-        original vertex (t < 1, d <= threshold): use miter — clean corner.
-      * Convex corners with a deep miter spike (t < 1, d > threshold):
-        use bevel — straight cut from one offset endpoint to the next,
-        shortest possible path, never backtracks.
+    Corner joins:
+      * Concave corners (t >= 1): always miter — natural convergence,
+        bevel would self-intersect.
+      * Convex corners, shallow miter (d <= 1.5×dist): miter — clean.
+      * Convex corners, deep miter spike (d > 1.5×dist): arc centred
+        on the original vertex at radius dist, sweeping toward the
+        polygon interior (direction picked via centroid, not the
+        shorter-arc assumption which can sweep the wrong way).
     """
     n=len(poly_enu)
     if n<3: return []
@@ -409,6 +408,8 @@ def inset_polygon_enu(poly_enu, dist):
         src_vertex.append((e2,n2))
     if len(edges)<3: return []
     miter_threshold=1.5*abs(dist)
+    abs_dist=abs(dist)
+    arc_step=math.pi/16
     result=[]
     for i in range(len(edges)):
         a=edges[i]; b=edges[(i+1)%len(edges)]
@@ -423,12 +424,22 @@ def inset_polygon_enu(poly_enu, dist):
         ix,iy=a[0][0]+t*ax,a[0][1]+t*ay
         ovx,ovy=src_vertex[i]
         d=math.sqrt((ix-ovx)**2+(iy-ovy)**2)
-        # Concave corner OR miter not too deep: use miter.
         if t>=1.0 or d<=miter_threshold:
             result.append((ix,iy))
             continue
-        # Sharp convex corner: bevel — straight cut, no spike.
+        # Sharp convex corner: arc centred on original vertex, sweeping
+        # through the polygon interior (toward centroid).
+        ang1=math.atan2(a[1][1]-ovy, a[1][0]-ovx)
+        ang2=math.atan2(b[0][1]-ovy, b[0][0]-ovx)
+        ang_c=math.atan2(cn-ovy, cx-ovx)
+        ccw_span=(ang2-ang1)%(2*math.pi)
+        ccw_c=(ang_c-ang1)%(2*math.pi)
+        delta=ccw_span if ccw_c<ccw_span else ccw_span-2*math.pi
         result.append(a[1])
+        n_steps=max(2,int(abs(delta)/arc_step))
+        for k in range(1,n_steps):
+            ang=ang1+delta*k/n_steps
+            result.append((ovx+abs_dist*math.cos(ang),ovy+abs_dist*math.sin(ang)))
         result.append(b[0])
     return result
 
