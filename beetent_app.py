@@ -744,6 +744,8 @@ class _ExportTypePicker(ctk.CTkToplevel):
 
     # ── helpers ───────────────────────────────────────────────────────────
     def _on_jd_toggle(self):
+        if not self._jd_var.get():
+            self._buffers_var.set(False)
         self._buf_cb.configure(
             state="normal" if self._jd_var.get() else "disabled")
         self._update_ok()
