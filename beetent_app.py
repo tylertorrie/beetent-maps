@@ -1189,17 +1189,18 @@ class BeetentApp(ctk.CTk):
         self._pivot_btn.pack(side="left", padx=(0,4))
 
         self._bnd_btn = self._make_menu_btn(bb, "◌ Boundary", [
-            ("Draw Outer",          self._mode_boundary),
-            ("Edit Outer",          self._mode_edit_boundary),
-            ("Upload File",         self._upload_boundary),
-            ("Delete Outer",        self._clear_boundary),
-            ("Add Inner Boundary",  self._mode_add_inner_boundary),
-            ("Delete Inner",        self._mode_delete_inner_boundary),
+            ("Draw Outer",            self._mode_boundary),
+            ("Draw Circle (pivot)",   self._mode_boundary_circle),
+            ("Edit Outer",            self._mode_edit_boundary),
+            ("Upload File",           self._upload_boundary),
+            ("Delete Outer",          self._clear_boundary),
+            ("Add Inner Boundary",    self._mode_add_inner_boundary),
+            ("Delete Inner",          self._mode_delete_inner_boundary),
         ], color="#5a3a8a",
            toggle_var=self.boundary_visible_var, toggle_fn=self._set_boundary_visible)
         self._bnd_btn.pack(side="left", padx=(0,4))
 
-        self._sp_btn = self._make_menu_btn(bb, "┊┊┊ Sprayer", [
+        self._sp_btn = self._make_menu_btn(bb, "⋰⋱ Sprayer", [
             ("Edit",                            self._mode_edit_passes),
             ("Import Sprayer Data (.shp/.geojson)", self._import_sprayer_data),
             ("Toggle Uploaded Paths on/off",    self._toggle_sprayer_passes),
@@ -2696,6 +2697,30 @@ class BeetentApp(ctk.CTk):
         self._show_context_btn("✔ Save Boundary", self._close_boundary)
         self._status("Click map to add boundary vertices. ✔ Save when done.")
 
+    def _mode_boundary_circle(self):
+        """Draw a circular outer boundary centred on the pivot point — same feel
+        as placing a pivot track. The click radius is sampled into a vertex
+        every 50 ft so the user can later drag/add/delete points (Edit Outer)
+        to fit fields that aren't a perfect circle."""
+        self._close_all_popups()
+        if not self.fv["PP_Latitude"].get() or not self.fv["PP_Longitude"].get():
+            self._status("Set the pivot point first."); return
+        self.click_mode="boundary_circle"
+        self._show_context_btn("✔ Done", self._close_boundary_circle)
+        self._status("Click the map to set the circle radius from the pivot point "
+                     "(a boundary point every 50 ft). Click again to resize. "
+                     "✔ Done when finished.")
+
+    def _close_boundary_circle(self):
+        self.click_mode=None
+        self._hide_context_btn()
+        bp=self.current_field.get("boundary_polygon") or []
+        if bp:
+            self._status(f"Circular boundary saved ({len(bp)} points). "
+                         "Use Boundary → Edit Outer to drag, add, or delete points.")
+        else:
+            self._status("No circle drawn.")
+
     # ── Inner boundary (interior exclusion) ──────────────────────────────────
     def _mode_add_inner_boundary(self):
         """Click-to-add-vertices for a new inner exclusion polygon.
@@ -2791,7 +2816,8 @@ class BeetentApp(ctk.CTk):
         self.click_mode="boundary_edit"
         self._selected_bnd_vertex=None
         self._show_context_btn("✔ Save Boundary", self._close_boundary)
-        self._status("Click a vertex to select it (drag to move, 🗑 Delete to remove). Esc to deselect. ✔ Save when finished.")
+        self._status("Click a vertex to select (drag to move, 🗑 Delete to remove). "
+                     "Click the boundary line to add a vertex. Esc to deselect. ✔ Save when finished.")
 
     def _make_bnd_vertex_cb(self,idx):
         def cb(marker):
@@ -2815,7 +2841,8 @@ class BeetentApp(ctk.CTk):
             self._redraw_bnd_vertex(self._selected_bnd_vertex,selected=False)
         self._selected_bnd_vertex=None
         self._show_context_btn("✔ Save Boundary",self._close_boundary)
-        self._status("Click a vertex to select it (drag to move, 🗑 Delete to remove). ✔ Save when finished.")
+        self._status("Click a vertex to select (drag to move, 🗑 Delete to remove). "
+                     "Click the boundary line to add a vertex. ✔ Save when finished.")
 
     def _redraw_bnd_vertex(self,idx,selected=False):
         if idx>=len(self.boundary_pts) or idx>=len(self.boundary_markers): return
@@ -2842,6 +2869,31 @@ class BeetentApp(ctk.CTk):
         self._selected_bnd_vertex=None
         self._mode_edit_boundary()
         self._status(f"Vertex deleted. {len(self.boundary_pts)} vertices remain.")
+
+    def _try_insert_bnd_vertex(self, lat, lon):
+        """In boundary-edit mode, a click on (near) a boundary edge inserts a new
+        draggable vertex at that point and selects it. Returns True if inserted,
+        False if the click wasn't close enough to any edge (caller deselects)."""
+        pts=self.boundary_pts
+        if len(pts)<2: return False
+        mpp=self._pixel_scale()
+        tol=max(14*mpp, 6.0)        # ~14 px from the line counts as a hit
+        n=len(pts); best_edge=None; best_gap=tol
+        for i in range(n):
+            a=pts[i]; b=pts[(i+1)%n]
+            gap=self._point_seg_dist_m(lat,lon,a[0],a[1],b[0],b[1])
+            if gap<=best_gap:
+                best_gap=gap; best_edge=i
+        if best_edge is None: return False
+        ins=best_edge+1
+        pts.insert(ins,(lat,lon))
+        self.current_field["boundary_polygon"]=[list(p) for p in pts]
+        self._selected_bnd_vertex=None
+        self._mode_edit_boundary()      # rebuild markers + numbering
+        self._select_bnd_vertex(ins)    # highlight the new vertex for dragging
+        self._status(f"Vertex added ({len(pts)} total) — drag to position, "
+                     "🗑 Delete to remove. ✔ Save when done.")
+        return True
 
     def _on_delete_key(self,event):
         if self._selected_bnd_vertex is not None:
@@ -3033,8 +3085,38 @@ class BeetentApp(ctk.CTk):
                                             marker_color_outside="#993300")
             self.boundary_markers.append(m)
 
+        elif mode=="boundary_circle":
+            try:
+                plat=float(self.fv["PP_Latitude"].get()); plon=float(self.fv["PP_Longitude"].get())
+            except (ValueError,TypeError):
+                self._status("Set the pivot point first."); self.click_mode=None; return
+            r_m=haversine_m(plat,plon,lat,lon)
+            if r_m<1.0:
+                self._status("Click farther from the pivot to set the radius."); return
+            spacing_m=50*0.3048                       # one vertex every 50 ft
+            n=max(8,int(round(2*math.pi*r_m/spacing_m)))
+            pts=circle_pts(plat,plon,r_m,n=n)
+            self.current_field["boundary_polygon"]=[list(p) for p in pts]
+            self.boundary_pts=[]
+            self.boundary_visible_var.set(True)
+            self.show_boundary.set(True)
+            area_m2=polygon_area_m2([(p[0],p[1]) for p in pts])
+            acres=area_m2*ACRES_PER_M2
+            if acres>0:
+                try: self.fv["acres"].set(f"{acres:.2f}")
+                except Exception: pass
+            self._redraw_boundary(); self._redraw_passes()
+            if self.show_bays.get():     self._redraw_bays()
+            if self.show_tracks.get():   self._redraw_tracks(skip_shelters=True)
+            if self.show_shelters.get(): self._redraw_shelters()
+            self._status(f"Circle radius {r_m/0.3048:.0f} ft → {n} boundary points "
+                         f"({acres:.1f} ac). Click again to resize, or ✔ Done.")
+
         elif mode=="boundary_edit":
-            self._deselect_bnd_vertex()
+            # Clicking on (near) an edge inserts a new vertex; clicking empty
+            # space deselects the current vertex.
+            if not self._try_insert_bnd_vertex(lat,lon):
+                self._deselect_bnd_vertex()
 
         elif isinstance(mode,tuple) and mode[0]=="move_boundary_vertex":
             idx=mode[1]
