@@ -1199,7 +1199,7 @@ class BeetentApp(ctk.CTk):
            toggle_var=self.boundary_visible_var, toggle_fn=self._set_boundary_visible)
         self._bnd_btn.pack(side="left", padx=(0,4))
 
-        self._sp_btn = self._make_menu_btn(bb, "⋰⋮⋱ Sprayer", [
+        self._sp_btn = self._make_menu_btn(bb, "┊┊┊ Sprayer", [
             ("Edit",                            self._mode_edit_passes),
             ("Import Sprayer Data (.shp/.geojson)", self._import_sprayer_data),
             ("Toggle Uploaded Paths on/off",    self._toggle_sprayer_passes),
@@ -2314,9 +2314,24 @@ class BeetentApp(ctk.CTk):
             self.field_tree.move(iid,"",i)
 
     def _on_field_click(self, event):
-        """Deselect the active field when the user clicks it a second time."""
+        """Deselect the active field when the user clicks it again.
+
+        We compare the clicked row against the *active* field (current_field)
+        rather than the Treeview's selection(): this ButtonPress widget binding
+        runs before ttk's own class binding updates the selection, so
+        selection() is stale here and a single click on the selected row would
+        otherwise be missed (the old behaviour needed a double-click)."""
         iid = self.field_tree.identify_row(event.y)
-        if iid and iid in self.field_tree.selection():
+        if not iid:
+            return
+        row = self._field_rows.get(iid)
+        if not row:
+            return
+        co, yr, name = row
+        cur = self.current_field or {}
+        if (str(cur.get("company")) == str(co) and
+                str(cur.get("year")) == str(yr) and
+                str(cur.get("Name")) == str(name)):
             self._deactivate_field()
             return "break"   # prevent Treeview re-selecting the row
 
