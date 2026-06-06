@@ -495,7 +495,7 @@ def blank_field(company="",year=""):
                 row_layout="centered",   # "outer" | "centered" | "custom"
                 custom_row_mask="",       # only used when row_layout == "custom"
                 use_bays=True,            # False = blanket-planted crop, no female-bay constraint
-                outside_sprayer_pass="No",track_exclusion_ft="10",
+                outside_sprayer_pass="Yes",track_exclusion_ft="10",
                 pass_edge_buffer_ft="0",    # 0 = no sprayer-pass kill zone (opt in via Sprayer → Set Edge Buffer)
                 shelter_buffer_m="1.524",
                 planter_passes=None,           # [[(lat,lon), ...], ...]  imported from JD
@@ -1189,8 +1189,8 @@ class BeetentApp(ctk.CTk):
         self._pivot_btn.pack(side="left", padx=(0,4))
 
         self._bnd_btn = self._make_menu_btn(bb, "◌ Boundary", [
-            ("Draw Outer",            self._mode_boundary),
-            ("Draw Circle (pivot)",   self._mode_boundary_circle),
+            ("Draw Outer",                self._mode_boundary),
+            ("Draw Circle Outer Boundary", self._mode_boundary_circle),
             ("Edit Outer",            self._mode_edit_boundary),
             ("Upload File",           self._upload_boundary),
             ("Delete Outer",          self._clear_boundary),
@@ -1200,7 +1200,7 @@ class BeetentApp(ctk.CTk):
            toggle_var=self.boundary_visible_var, toggle_fn=self._set_boundary_visible)
         self._bnd_btn.pack(side="left", padx=(0,4))
 
-        self._sp_btn = self._make_menu_btn(bb, "⋰⋱ Sprayer", [
+        self._sp_btn = self._make_menu_btn(bb, "⋰⋮⋱ Sprayer", [
             ("Edit",                            self._mode_edit_passes),
             ("Import Sprayer Data (.shp/.geojson)", self._import_sprayer_data),
             ("Toggle Uploaded Paths on/off",    self._toggle_sprayer_passes),
@@ -1216,7 +1216,7 @@ class BeetentApp(ctk.CTk):
         # imported planter passes from a John Deere Operations Center Seeding
         # shapefile (the actual path the planter took on this field).
         self._pl_btn = self._make_menu_btn(bb, "🌱 Planter", [
-            ("Edit",                      self._mode_edit_bays),
+            ("Shift",                     self._mode_shift_planter),
             ("Import Planter Data (.shp)", self._import_planter_data),
             ("Clear Planter Data",        self._clear_planter_passes),
             ("Toggle Bays Through Inner", self._toggle_bays_through_inner),
@@ -1282,12 +1282,17 @@ class BeetentApp(ctk.CTk):
                       relief="flat",font=(FONT_LABEL,10))
         _st.map("Fields.Treeview",background=[("selected",UI_SELECT)],foreground=[("selected",UI_TEXT)])
         _st.map("Fields.Treeview.Heading",background=[("active",UI_BORDER)])
-        self.field_tree=ttk.Treeview(lf,columns=("field","company","year"),show="headings",
+        tree_wrap=ctk.CTkFrame(lf,fg_color="transparent")
+        tree_wrap.pack(fill="x")
+        self.field_tree=ttk.Treeview(tree_wrap,columns=("field","company","year"),show="headings",
                                      height=7,style="Fields.Treeview",selectmode="browse")
         for col,label,w,anchor in (("field","Field",130,"w"),("company","Company",110,"w"),("year","Year",55,"center")):
             self.field_tree.heading(col,text=label,command=lambda c=col:self._sort_fields(c))
             self.field_tree.column(col,width=w,anchor=anchor,stretch=(col=="field"))
-        self.field_tree.pack(fill="x")
+        _fvsb=ttk.Scrollbar(tree_wrap,orient="vertical",command=self.field_tree.yview)
+        self.field_tree.configure(yscrollcommand=_fvsb.set)
+        _fvsb.pack(side="right",fill="y")
+        self.field_tree.pack(side="left",fill="x",expand=True)
         self.field_tree.bind("<<TreeviewSelect>>",self._on_field_select)
         self.field_tree.bind("<ButtonPress-1>",self._on_field_click)
         self._field_rows={}            # tree item id -> (company, year, name)
@@ -3965,9 +3970,80 @@ class BeetentApp(ctk.CTk):
         self._status("Sprayer pass editing: adjust Spray Angle or Sprayer Width in Field Details, then Toggle on/off to refresh.")
 
     # ── Planter passes extras ──────────────────────────────────────────────────
-    def _mode_edit_bays(self):
+    def _mode_shift_planter(self):
+        """Shift the imported planter passes (and the bays derived from them)
+        by a chosen compass direction + distance. The bay overlay is built from
+        the pass polylines, so moving the passes moves the bays in lockstep —
+        keeping the bays tied to the planter width and the shifted position."""
         self._close_all_popups()
-        self._status("Bay editing: adjust Row Spacing / Female Rows / Male Rows in Bay Calculator, then recalculate.")
+        passes = self.current_field.get("planter_passes") or []
+        if not passes:
+            self._status("Import planter data first — Shift moves the planter "
+                         "passes and their bays.")
+            return
+        use_m = self.unit_var.get() == "Metres"
+        unit = "m" if use_m else "ft"
+        win = ctk.CTkToplevel(self)
+        win.title("Shift Planter / Bays")
+        win.grab_set()
+        ctk.CTkLabel(win, text="Shift planter passes & bays",
+                     font=ctk.CTkFont(family=FONT_HEADING, size=15)).pack(padx=24, pady=(18, 8))
+        dir_var = tk.StringVar(value="N")
+        drow = ctk.CTkFrame(win, fg_color="transparent"); drow.pack(padx=24, pady=2)
+        ctk.CTkLabel(drow, text="Direction:", width=70, anchor="w").pack(side="left")
+        for d in ("N", "E", "S", "W"):
+            ctk.CTkRadioButton(drow, text=d, variable=dir_var, value=d,
+                               width=46).pack(side="left", padx=2)
+        crow = ctk.CTkFrame(win, fg_color="transparent"); crow.pack(padx=24, pady=(8, 4))
+        ctk.CTkLabel(crow, text="Distance:", width=70, anchor="w").pack(side="left")
+        dist_var = tk.StringVar(value="")
+        ctk.CTkEntry(crow, textvariable=dist_var, width=90).pack(side="left", padx=(2, 4))
+        ctk.CTkLabel(crow, text=unit, width=24, anchor="w").pack(side="left")
+        def do_shift():
+            try:
+                dist = float(dist_var.get().strip())
+            except ValueError:
+                self._status("Enter a distance."); return
+            if dist == 0:
+                win.destroy(); return
+            dist_m = dist if use_m else dist * 0.3048
+            d = dir_var.get()
+            d_e = d_n = 0.0
+            if   d == "N": d_n = dist_m
+            elif d == "S": d_n = -dist_m
+            elif d == "E": d_e = dist_m
+            elif d == "W": d_e = -dist_m
+            self._apply_planter_shift(d_e, d_n)
+            win.destroy()
+            self._status(f"Shifted planter passes & bays {dist:g} {unit} {d}.")
+        ctk.CTkButton(win, text="Shift", height=36, command=do_shift).pack(
+            fill="x", padx=24, pady=(8, 4))
+        ctk.CTkButton(win, text="Cancel", height=36, fg_color="#555",
+                      command=win.destroy).pack(fill="x", padx=24, pady=(0, 18))
+        _center_on_parent(win, self)
+
+    def _apply_planter_shift(self, d_e_m, d_n_m):
+        """Translate every imported planter-pass point by (east, north) metres
+        and redraw. Bays are derived from these passes, so they follow."""
+        passes = self.current_field.get("planter_passes") or []
+        if not passes: return
+        new_passes = []
+        for poly in passes:
+            np = []
+            for pt in poly:
+                try:
+                    lat, lon = float(pt[0]), float(pt[1])
+                except (TypeError, ValueError, IndexError):
+                    continue
+                nlat = lat + d_n_m / 111111.0
+                nlon = lon + d_e_m / (111111.0 * math.cos(math.radians(lat)))
+                np.append([nlat, nlon])
+            if np: new_passes.append(np)
+        self.current_field["planter_passes"] = new_passes
+        self.show_planter_passes.set(True)
+        self._redraw_planter_passes()
+        if self.show_bays.get():     self._redraw_bays()
+        if self.show_shelters.get(): self._redraw_shelters()
 
     # ── Imported planter passes (JD Operations Center Seeding shapefile) ─────
     def _import_planter_data(self):
