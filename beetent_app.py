@@ -1007,6 +1007,7 @@ class BeetentApp(ctk.CTk):
         if toggle_var is not None and toggle_fn is not None:
             cb = ctk.CTkCheckBox(container, variable=toggle_var, text="",
                                  width=20, checkbox_width=16, checkbox_height=16,
+                                 border_width=1,
                                  border_color="white", fg_color="white",
                                  checkmark_color="#333333", hover_color="#ffffff33",
                                  command=lambda: toggle_fn(toggle_var.get()))
@@ -1368,17 +1369,24 @@ class BeetentApp(ctk.CTk):
         # Bay calculator (collapsible)
         bc=self._collapsible(right,"Bay Calculator",expanded=False)
 
-        # Preset row
+        # Preset: dropdown row
         preset_row=ctk.CTkFrame(bc,fg_color="transparent")
-        preset_row.pack(fill="x",pady=(2,2))
+        preset_row.pack(fill="x",pady=(2,0))
         ctk.CTkLabel(preset_row,text="Preset:",width=55,anchor="w").pack(side="left")
         self.preset_var=tk.StringVar()
-        self.preset_cb=ctk.CTkComboBox(preset_row,variable=self.preset_var,values=[""],width=160,
+        self.preset_cb=ctk.CTkComboBox(preset_row,variable=self.preset_var,
+                                        values=["— Create New —"],width=160,
                                         command=self._on_preset_selected)
         self.preset_cb.pack(side="left",padx=(2,2))
-        ctk.CTkButton(preset_row,text="+",width=30,command=self._save_new_preset).pack(side="left",padx=(0,2))
-        ctk.CTkButton(preset_row,text="💾",width=30,command=self._update_preset).pack(side="left",padx=(0,2))
         ctk.CTkButton(preset_row,text="🗑",width=30,command=self._delete_preset).pack(side="left")
+        # Name entry + unified Save button
+        preset_name_row=ctk.CTkFrame(bc,fg_color="transparent")
+        preset_name_row.pack(fill="x",pady=(2,2))
+        ctk.CTkLabel(preset_name_row,text="Name:",width=55,anchor="w").pack(side="left")
+        self.preset_name_var=tk.StringVar()
+        self._loaded_preset_name=None
+        ctk.CTkEntry(preset_name_row,textvariable=self.preset_name_var,width=130).pack(side="left",padx=(2,2))
+        ctk.CTkButton(preset_name_row,text="Save",width=60,command=self._save_preset_unified).pack(side="left")
 
         ctk.CTkFrame(bc,height=1,fg_color=UI_BORDER).pack(fill="x",pady=(2,4))
 
@@ -1618,10 +1626,22 @@ class BeetentApp(ctk.CTk):
 
     def _refresh_preset_list(self):
         presets=self._load_bay_presets()
-        names=[""]+[p["name"] for p in presets]
+        names=["— Create New —"]+[p["name"] for p in presets]
         self.preset_cb.configure(values=names)
 
     def _on_preset_selected(self, name):
+        if name == "— Create New —":
+            # Blank all bay calculator fields and clear the name entry
+            for k in ("row_spacing_in","total_rows","num_female_rows","num_male_rows"):
+                if k in self.fv: self.fv[k].set("")
+            self.row_layout_var.set("Centered male")
+            self.custom_mask_var.set("")
+            self.shelter_mode_var.set("Total shelters")
+            self.shelter_value_var.set("")
+            self.preset_name_var.set("")
+            self._loaded_preset_name = None
+            self._on_row_layout_change()
+            return
         if not name: return
         presets=self._load_bay_presets()
         for p in presets:
@@ -1633,50 +1653,67 @@ class BeetentApp(ctk.CTk):
                 rl = p.get("row_layout","centered")
                 self.row_layout_var.set(self._row_layout_inverse.get(rl,"Centered male"))
                 self.custom_mask_var.set(str(p.get("custom_row_mask","")))
+                # Restore shelter mode + value if saved in preset
+                s_mode = p.get("shelter_mode","")
+                if s_mode and s_mode in self._shelter_mode_inverse:
+                    self.shelter_mode_var.set(self._shelter_mode_inverse[s_mode])
+                    s_key = self._shelter_mode_key.get(s_mode,"num_structures")
+                    if s_key in p and s_key in self.fv:
+                        self.fv[s_key].set(str(p[s_key]))
+                        self._loading_shelter_value = True
+                        self.shelter_value_var.set(str(p[s_key]))
+                        self._loading_shelter_value = False
                 self._on_row_layout_change()
+                self.preset_name_var.set(name)
+                self._loaded_preset_name = name
                 break
 
     def _bay_preset_entry(self, name):
         """Build the dict written to bay_presets.json for the current bay-calc
-        state. One spot so save-new and update stay in sync."""
-        return {"name":name,
-                "row_spacing_in":self.fv["row_spacing_in"].get(),
-                "total_rows":self.fv["total_rows"].get(),
-                "num_female_rows":self.fv["num_female_rows"].get(),
-                "num_male_rows":self.fv["num_male_rows"].get(),
-                "row_layout":self._row_layout_labels.get(self.row_layout_var.get(),"centered"),
-                "custom_row_mask":self.custom_mask_var.get()}
+        and shelter-allocation state. One spot so all save paths stay in sync."""
+        s_mode = self._shelter_mode_labels.get(self.shelter_mode_var.get(),"total")
+        s_key  = self._shelter_mode_key.get(s_mode,"num_structures")
+        entry = {"name":name,
+                 "row_spacing_in":self.fv["row_spacing_in"].get(),
+                 "total_rows":self.fv["total_rows"].get(),
+                 "num_female_rows":self.fv["num_female_rows"].get(),
+                 "num_male_rows":self.fv["num_male_rows"].get(),
+                 "row_layout":self._row_layout_labels.get(self.row_layout_var.get(),"centered"),
+                 "custom_row_mask":self.custom_mask_var.get(),
+                 "shelter_mode":s_mode}
+        if s_key and s_key in self.fv:
+            entry[s_key] = self.fv[s_key].get()
+        return entry
 
-    def _save_new_preset(self):
-        name=self._ask_string("Save Preset","Preset name:")
-        if not name: return
-        presets=self._load_bay_presets()
-        entry=self._bay_preset_entry(name)
-        presets=[p for p in presets if p["name"]!=name]
-        presets.append(entry)
-        self._save_bay_presets(presets)
-        self._refresh_preset_list()
-        self.preset_var.set(name)
-
-    def _update_preset(self):
-        name=self.preset_var.get()
+    def _save_preset_unified(self):
+        """Save bay-calc state under the name in the Name entry.
+        - New name → creates a new preset.
+        - Name matches existing → overwrites it.
+        - Name differs from the preset that was loaded → renames it (removes old,
+          saves under new name), so no duplicate is created."""
+        name = self.preset_name_var.get().strip()
         if not name:
-            self._status("Select a bay preset to update (or use + to save a new one)."); return
-        entry=self._bay_preset_entry(name)
-        presets=[p for p in self._load_bay_presets() if p["name"]!=name]
-        presets.append(entry)
+            self._status("Enter a preset name before saving."); return
+        presets = self._load_bay_presets()
+        loaded  = getattr(self, "_loaded_preset_name", None)
+        # Remove old entry (rename case) and any existing entry with the target name
+        presets = [p for p in presets if p["name"] != name and p["name"] != loaded]
+        presets.append(self._bay_preset_entry(name))
         self._save_bay_presets(presets)
         self._refresh_preset_list()
         self.preset_var.set(name)
-        self._status(f"Updated bay preset: {name}")
+        self._loaded_preset_name = name
+        self._status(f"Saved bay preset: {name}")
 
     def _delete_preset(self):
         name=self.preset_var.get()
-        if not name: return
+        if not name or name=="— Create New —": return
         presets=[p for p in self._load_bay_presets() if p["name"]!=name]
         self._save_bay_presets(presets)
         self._refresh_preset_list()
-        self.preset_var.set("")
+        self.preset_var.set("— Create New —")
+        self.preset_name_var.set("")
+        self._loaded_preset_name=None
 
     # ── Bee Allocation Presets ────────────────────────────────────────────────
     def _load_bee_presets(self):
