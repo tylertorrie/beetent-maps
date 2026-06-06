@@ -3530,24 +3530,41 @@ class BeetentApp(ctk.CTk):
         unit="m" if use_m else "ft"
         conv=1.0 if use_m else 1.0/0.3048
         dist=tracks[idx]*conv
+        # Span length = this ring's distance minus the next ring inward (or the
+        # pivot for the innermost ring). Tracks are stored as cumulative
+        # distance-from-pivot, so we find the largest track below this one.
+        this_m=tracks[idx]; prev_m=0.0
+        for t in sorted(tracks):
+            if t < this_m-1e-6: prev_m=t
+            else: break
+        span=(this_m-prev_m)*conv
         try: excl=float(self.fv.get("track_exclusion_ft",self.excl_var).get() or "10")
         except (ValueError,AttributeError): excl=10.0
         win=ctk.CTkToplevel(self)
         win.title(f"Pivot Track {idx+1}")
+        win.geometry("400x400")
         win.grab_set()
         ctk.CTkLabel(win,text=f"Pivot Track {idx+1}",
-                     font=ctk.CTkFont(family=FONT_HEADING,size=13)).pack(padx=18,pady=(12,2))
-        ctk.CTkLabel(win,text=f"Distance from pivot: {dist:.1f} {unit}\nBuffer zone: {excl:g} ft",
-                     text_color=UI_MUTED,font=ctk.CTkFont(size=11),justify="left").pack(padx=18,pady=(0,8))
+                     font=ctk.CTkFont(family=FONT_HEADING,size=18)).pack(padx=24,pady=(20,6))
+        ctk.CTkLabel(win,
+                     text=(f"Distance from pivot point: {dist:.1f} {unit}\n"
+                           f"Span length: {span:.1f} {unit}\n"
+                           f"Buffer zone: {excl:g} ft"),
+                     text_color=UI_MUTED,font=ctk.CTkFont(size=13),justify="left").pack(padx=24,pady=(0,14))
         def act(fn):
             win.destroy(); fn()
-        ctk.CTkButton(win,text="Edit Span Length…",
-                      command=lambda:act(lambda:self._edit_single_track(idx))).pack(fill="x",padx=18,pady=2)
-        ctk.CTkButton(win,text="Edit Buffer Zone…",
-                      command=lambda:act(self._edit_track_exclusion)).pack(fill="x",padx=18,pady=2)
-        ctk.CTkButton(win,text="Delete Track",fg_color="#6b1a1a",
-                      command=lambda:act(lambda:self._delete_single_track(idx))).pack(fill="x",padx=18,pady=2)
-        ctk.CTkButton(win,text="Cancel",fg_color="#555",command=win.destroy).pack(fill="x",padx=18,pady=(2,12))
+        ctk.CTkButton(win,text="Edit Span Length…",height=40,
+                      font=ctk.CTkFont(size=13),
+                      command=lambda:act(lambda:self._edit_single_track(idx))).pack(fill="x",padx=24,pady=4)
+        ctk.CTkButton(win,text="Edit Buffer Zone…",height=40,
+                      font=ctk.CTkFont(size=13),
+                      command=lambda:act(self._edit_track_exclusion)).pack(fill="x",padx=24,pady=4)
+        ctk.CTkButton(win,text="Delete Track",fg_color="#6b1a1a",height=40,
+                      font=ctk.CTkFont(size=13),
+                      command=lambda:act(lambda:self._delete_single_track(idx))).pack(fill="x",padx=24,pady=4)
+        ctk.CTkButton(win,text="Cancel",fg_color="#555",height=40,
+                      font=ctk.CTkFont(size=13),
+                      command=win.destroy).pack(fill="x",padx=24,pady=(4,20))
         _center_on_parent(win,self)
 
     def _show_corner_track_popup(self,idx):
