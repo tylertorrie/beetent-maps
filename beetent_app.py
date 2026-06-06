@@ -533,11 +533,13 @@ def load_field(company,year,name):
 
 def _pt_in_poly(lat,lon,poly):
     """Ray-cast point-in-polygon. poly is [[lat,lon],...] or [(lat,lon),...].
-    Returns True if (lat,lon) is inside the polygon."""
+    Returns True if (lat,lon) is inside the polygon.
+    Casts a northward ray: checks if edge lon-coords straddle test lon,
+    then whether the edge crossing is north of (greater lat than) test lat."""
     inside=False; n=len(poly); j=n-1
     for i in range(n):
         xi,yi=poly[i][0],poly[i][1]; xj,yj=poly[j][0],poly[j][1]
-        if (yi>lat)!=(yj>lat) and lon<(xj-xi)*(lat-yi)/(yj-yi)+xi:
+        if (yi>lon)!=(yj>lon) and lat<(xj-xi)*(lon-yi)/(yj-yi)+xi:
             inside=not inside
         j=i
     return inside
@@ -724,6 +726,9 @@ class BeetentApp(ctk.CTk):
         ctk.CTkButton(bar,text="⚙ Generate Output Files",fg_color="#1a5c8a",
                       font=ctk.CTkFont(family=FONT_LABEL,size=12),
                       command=self._generate).pack(side="right",padx=(0,12),pady=6)
+        self._sync_btn=ctk.CTkButton(bar,text="☁ Refresh",width=90,
+                                     command=self._manual_sync)
+        self._sync_btn.pack(side="right",padx=(0,6),pady=6)
 
     # ── Popup menu helpers ─────────────────────────────────────────────────────
     def _make_menu_btn(self, bar, label, items, color="#2b2b2b"):
@@ -1171,12 +1176,21 @@ class BeetentApp(ctk.CTk):
         # ground truth for shelter placement, OR fall back to the synthetic
         # math grid computed from the bay calculator. Default ON — if you
         # have real data you almost always want to use it.
-        self.use_imported_passes_var=tk.BooleanVar(value=True)
+        self.use_imported_passes_var=tk.BooleanVar(value=False)
+        self._planter_file_var=tk.StringVar(value="")
         ctk.CTkLabel(bc,text="Planter pass source",anchor="w",
                      font=ctk.CTkFont(family=FONT_LABEL,size=11)).pack(fill="x",pady=(8,0))
-        ctk.CTkCheckBox(bc,text="Use uploaded planter data (if any)",
+        self._use_planter_cb=ctk.CTkCheckBox(bc,text="Use uploaded planter data (if any)",
                         variable=self.use_imported_passes_var,
-                        command=self._on_form_change).pack(anchor="w",pady=(2,4))
+                        state="disabled",
+                        command=self._on_form_change)
+        self._use_planter_cb.pack(anchor="w",pady=(2,0))
+        ctk.CTkLabel(bc,textvariable=self._planter_file_var,anchor="w",
+                     font=ctk.CTkFont(family=FONT_LABEL,size=10),
+                     text_color="#888888").pack(fill="x",pady=(0,2))
+        ctk.CTkButton(bc,text="Upload Planter Data (.shp)",
+                      command=self._import_planter_data,
+                      height=26).pack(fill="x",pady=(0,4))
         # No "Recalculate Bays" button — the bay widths and map redraw
         # automatically whenever any bay-calculator field changes.
 
@@ -1931,9 +1945,6 @@ class BeetentApp(ctk.CTk):
         (DATA_DIR/self.company_var.get()/y).mkdir(parents=True,exist_ok=True); self._on_company_change(); self.year_var.set(y); self._refresh_field_list()
 
     # ── Field list ─────────────────────────────────────────────────────────────
-    def _is_all_scope(self):
-        return self.company_var.get()==ALL_COMPANIES or self.year_var.get()==ALL_YEARS
-
     def _refresh_field_list(self):
         for iid in self.field_tree.get_children():
             self.field_tree.delete(iid)
@@ -1972,6 +1983,19 @@ class BeetentApp(ctk.CTk):
     def _activate_field(self,co,yr,name):
         """Load a field and make it the active one. Called from the field list
         (double-click), from a map boundary click, and from git-pull auto-reload."""
+        if getattr(self, '_activating_field', False):
+            return
+        self._activating_field = True
+        try:
+            self._activate_field_impl(co,yr,name)
+        finally:
+            # Defer clearing the guard so the <<TreeviewSelect>> event that
+            # selection_set() queues is still blocked when it fires.  Clearing
+            # immediately caused an infinite loop: each activation queued a new
+            # event that started the next one as soon as the flag was reset.
+            self.after(0, lambda: setattr(self, '_activating_field', False))
+
+    def _activate_field_impl(self,co,yr,name):
         f=load_field(co,yr,name)
         if not f: return
         self.current_field=f
@@ -2056,7 +2080,6 @@ class BeetentApp(ctk.CTk):
             if bp and len(bp) >= 3:
                 lats=[p[0] for p in bp]; lons=[p[1] for p in bp]
                 cy=(max(lats)+min(lats))/2.0; cx=(max(lons)+min(lons))/2.0
-                self.map_widget.update_idletasks()
                 w=self.map_widget.winfo_width()  or 700
                 h=self.map_widget.winfo_height() or 600
                 R=6378137.0
@@ -2115,6 +2138,8 @@ class BeetentApp(ctk.CTk):
         # saved value (which may be False if the user manually turned it off).
         has_planter = bool(f.get("planter_passes"))
         self.use_imported_passes_var.set(has_planter and bool(f.get("use_imported_passes", True)))
+        self._planter_file_var.set(f.get("planter_file_name","") or "")
+        self._use_planter_cb.configure(state="normal" if has_planter else "disabled")
         # Pre-existing fields default to bay mode (canola). New non-canola
         # fields will save the unchecked state. Also re-sync the frame
         # visibility so the bay-only widgets show/hide with the load.
@@ -2175,7 +2200,7 @@ class BeetentApp(ctk.CTk):
         for r in (self.current_field.get("pivot_tracks") or []):
             self.track_lb.insert(tk.END,"%.1f m  (%.1f ft)"%(r,r/0.3048))
 
-    def _on_track_select(self,_=None): pass
+
 
     # ── Map ────────────────────────────────────────────────────────────────────
     def _search_lld(self):
@@ -2221,14 +2246,6 @@ class BeetentApp(ctk.CTk):
     def _mode_pivot(self):
         self._close_all_popups()
         self.click_mode="pivot"; self._status("Click pivot point on map…")
-
-    def _delete_pivot(self):
-        self._close_all_popups()
-        if self.pivot_marker:
-            self.pivot_marker.delete(); self.pivot_marker=None
-        self._unregister_drag_prefix("pivot")
-        self.fv["PP_Latitude"].set(""); self.fv["PP_Longitude"].set("")
-        self._status("Pivot deleted.")
 
     def _mode_boundary(self):
         self._close_all_popups()
@@ -2478,10 +2495,6 @@ class BeetentApp(ctk.CTk):
                 self._status(f"Boundary loaded: {len(outer)} vertices from {Path(path).name}")
         except Exception as ex:
             tkinter.messagebox.showerror("Upload Error",str(ex))
-
-    def _parse_kml_coords(self,path):
-        with open(path,encoding="utf-8") as fh: text=fh.read()
-        return self._parse_kml_coords_text(text)
 
     def _parse_kml_coords_text(self,text):
         root=ET.fromstring(text)
@@ -2768,23 +2781,6 @@ class BeetentApp(ctk.CTk):
             if self.show_tracks.get(): self._redraw_tracks(skip_shelters=True)
 
     # ── Pivot tracks ───────────────────────────────────────────────────────────
-    def _add_track_manual(self):
-        use_m=self.unit_var.get()=="Metres"
-        unit_label="metres" if use_m else "feet"
-        val=tkinter.simpledialog.askfloat("Pivot Track",f"Radius from pivot ({unit_label}):")
-        if val is None: return
-        r_m=val if use_m else val*0.3048
-        self.current_field.setdefault("pivot_tracks",[]).append(round(r_m,2))
-        self.show_tracks.set(True)   # ensure the newly-added circle is visible
-        self._refresh_track_list(); self._redraw_tracks()
-
-    def _remove_track(self):
-        sel=self.track_lb.curselection()
-        if not sel: return
-        del self.current_field["pivot_tracks"][sel[0]]
-        self._refresh_track_list(); self._redraw_tracks()
-        if self.show_shelters.get(): self._redraw_shelters()
-
     def _toggle_pivot(self):
         """Toggle the pivot point marker, pivot tracks, AND corner tracks
         together — they're all part of the same conceptual layer (pivot +
@@ -2818,13 +2814,6 @@ class BeetentApp(ctk.CTk):
         self._close_all_popups()
         self.show_tracks.set(not self.show_tracks.get())
         self._redraw_tracks()
-
-    def _mode_edit_track(self):
-        self._close_all_popups()
-        tracks=self.current_field.get("pivot_tracks") or []
-        if not tracks:
-            self._status("No pivot tracks — use Draw Circle to add one."); return
-        self._status("Click and drag the ↔ handle to resize a track.")
 
     def _mode_edit_track_measurements(self):
         """Dialog to type the length of each pivot SPAN (the segment from the
@@ -2923,38 +2912,6 @@ class BeetentApp(ctk.CTk):
         ctk.CTkButton(btn_row,text="Save",command=do_save).pack(side="left",expand=True,fill="x",padx=(0,4))
         ctk.CTkButton(btn_row,text="Cancel",fg_color="#555",command=win.destroy).pack(side="left",expand=True,fill="x")
 
-    def _mode_delete_track_ui(self):
-        self._close_all_popups()
-        tracks=self.current_field.get("pivot_tracks") or []
-        if not tracks:
-            self._status("No pivot tracks to delete."); return
-        win=ctk.CTkToplevel(self)
-        win.title("Delete Pivot Track")
-        win.geometry("320x220")
-        win.grab_set()
-        ctk.CTkLabel(win,text="Select track to delete:").pack(pady=(12,4))
-        lb=tk.Listbox(win,bg=UI_CARD,fg=UI_TEXT,selectbackground=UI_SELECT,selectforeground=UI_TEXT,
-                      relief="flat",font=(FONT_BODY,11),height=5,
-                      activestyle="none",highlightthickness=1,highlightbackground=UI_BORDER)
-        for i,r in enumerate(tracks):
-            lb.insert(tk.END,f"Track {i+1}: {r:.1f} m  ({r/0.3048:.1f} ft)")
-        lb.pack(fill="x",padx=10,pady=4)
-        def do_delete():
-            sel=lb.curselection()
-            if not sel: return
-            del self.current_field["pivot_tracks"][sel[0]]
-            self._refresh_track_list(); self._redraw_tracks()
-            if self.show_shelters.get(): self._redraw_shelters()
-            win.destroy(); self._status("Track deleted.")
-        ctk.CTkButton(win,text="Delete Selected",fg_color="#6b1a1a",command=do_delete).pack(pady=(4,2))
-        ctk.CTkButton(win,text="Cancel",command=win.destroy).pack()
-
-    def _make_resize_cb(self,idx):
-        pass  # replaced by drag system
-
-    def _on_track_resize_motion(self,event):
-        pass  # replaced by drag system
-
     def _redraw_tracks(self, skip_shelters=False):
         for o in self.track_circles:
             try: o.delete()
@@ -3052,14 +3009,6 @@ class BeetentApp(ctk.CTk):
         self._show_context_btn("✔ Done Path", self._finish_corner_path)
         self._status("Corner path — click map to place points, ✔ Done when finished")
 
-    def _mode_add_corner_circle(self):
-        self._close_all_popups()
-        self._cancel_corner_arm_drawing()
-        self.corner_arm_circle_center=None
-        self.click_mode="corner_arm_circle_center"
-        self._show_context_btn("✖ Cancel", self._cancel_corner_arm_drawing)
-        self._status("Corner circle — click map to place center")
-
     def _update_arm_path_preview(self):
         if len(self.corner_arm_pts)<2: return
         # remove old preview overlays drawn during this session
@@ -3140,16 +3089,6 @@ class BeetentApp(ctk.CTk):
             win.destroy(); self._status("Corner zone deleted.")
         ctk.CTkButton(win,text="Delete Selected",fg_color="#6b1a1a",command=do_delete).pack(pady=(4,2))
         ctk.CTkButton(win,text="Cancel",command=win.destroy).pack()
-
-    def _toggle_corner_arms(self):
-        """Show/hide corner tracks. Mirrors _toggle_tracks / _toggle_passes."""
-        self._close_all_popups()
-        self.show_corner_arms.set(not self.show_corner_arms.get())
-        self._redraw_corner_arms()
-        # Shelters depend on corner-arm exclusion zones; refresh them too.
-        if self.show_shelters.get(): self._redraw_shelters()
-        self._status("Corner tracks " +
-                     ("shown." if self.show_corner_arms.get() else "hidden."))
 
     def _offset_path_latlon(self, pts_latlon, excl_m):
         """Return (left, right) lat/lon polylines parallel to pts_latlon at
@@ -3247,37 +3186,6 @@ class BeetentApp(ctk.CTk):
         self._close_all_popups()
         self._status("Sprayer pass editing: adjust Spray Angle or Sprayer Width in Field Details, then Toggle on/off to refresh.")
 
-    def _import_jd_passes(self):
-        self._close_all_popups()
-        path=tkinter.filedialog.askopenfilename(
-            title="Open John Deere Operation GeoJSON",
-            filetypes=[("GeoJSON","*.geojson *.json"),("All","*.*")])
-        if not path: return
-        try:
-            with open(path,encoding="utf-8") as fh:
-                gj=json.load(fh)
-            self._clear_passes()
-            count=0
-            features=gj.get("features",[]) if isinstance(gj,dict) else []
-            for feat in features:
-                geom=feat.get("geometry") or {}
-                gtype=geom.get("type","")
-                coords=geom.get("coordinates",[])
-                lines=[]
-                if gtype=="LineString": lines=[coords]
-                elif gtype=="MultiLineString": lines=coords
-                for line in lines:
-                    pts=[(c[1],c[0]) for c in line if len(c)>=2]
-                    if len(pts)>=2:
-                        try:
-                            p=self.map_widget.set_path(pts,color="#FF3333",width=1)
-                            self.pass_paths.append(p); count+=1
-                        except Exception: pass
-            self.show_passes.set(True)
-            self._status(f"Loaded {count} pass lines from {Path(path).name}")
-        except Exception as ex:
-            tkinter.messagebox.showerror("Import Error",str(ex))
-
     # ── Planter passes extras ──────────────────────────────────────────────────
     def _mode_edit_bays(self):
         self._close_all_popups()
@@ -3308,17 +3216,24 @@ class BeetentApp(ctk.CTk):
         self.current_field["planter_passes"] = [
             [[lat, lon] for lat, lon in p] for p in passes
         ]
+        fname = Path(path).name
+        self.current_field["planter_file_name"] = fname
+        self._planter_file_var.set(fname)
+        self._use_planter_cb.configure(state="normal")
         self.use_imported_passes_var.set(True)
         self.show_planter_passes.set(True)
         self._redraw_planter_passes()
         n_pts = sum(len(p) for p in passes)
-        self._status(f"Imported {len(passes)} passes ({n_pts:,} samples) "
-                     f"from {Path(path).name}.")
+        self._status(f"Imported {len(passes)} passes ({n_pts:,} samples) from {fname}.")
 
     def _clear_planter_passes(self):
         """Remove the imported planter data from this field."""
         self._close_all_popups()
         self.current_field["planter_passes"] = None
+        self.current_field["planter_file_name"] = None
+        self._planter_file_var.set("")
+        self._use_planter_cb.configure(state="disabled")
+        self.use_imported_passes_var.set(False)
         self.show_planter_passes.set(False)
         self._redraw_planter_passes()
         self._status("Planter data cleared.")
@@ -3564,13 +3479,6 @@ class BeetentApp(ctk.CTk):
         overrides[str(idx)]=None
         self._redraw_shelters()
         self._status(f"Shelter #{idx+1} deleted — ↶ Reset Move to undo.")
-
-    def _make_shelter_move_cb(self,idx):
-        def cb(marker):
-            self.moving_shelter_idx=idx
-            self.click_mode=("move_shelter",idx)
-            self._status(f"Click new location for shelter #{idx+1} (or click elsewhere to cancel)")
-        return cb
 
     def _on_shelter_drag(self,idx,lat,lon):
         self._record_shelter_change(idx)
@@ -4169,12 +4077,6 @@ class BeetentApp(ctk.CTk):
 
     # ── Full overlay refresh ───────────────────────────────────────────────────
     def _redraw_all(self):
-        f=self.current_field
-        try:
-            plat=float(f.get("PP_Latitude",0) or 0); plon=float(f.get("PP_Longitude",0) or 0)
-            if plat and plon:
-                self.map_widget.set_position(plat,plon); self.map_widget.set_zoom(14)
-        except (ValueError,TypeError): pass
         self._redraw_pivot()
         self._redraw_boundary(); self._redraw_tracks(); self._redraw_passes(); self._redraw_bays(); self._redraw_corner_arms(); self._redraw_planter_passes(); self._redraw_sprayer_passes(); self._redraw_pass_buffer_overlay(); self._redraw_shelters()
 
@@ -4386,7 +4288,7 @@ class BeetentApp(ctk.CTk):
                         if _pt_in_poly(lat,lon,bp):
                             hit=(co,yr,name); break
                     if hit:
-                        self._activate_field(*hit)
+                        self.after(1, lambda h=hit: self._activate_field(*h))
                     else:
                         self._on_map_click((lat,lon))
                 except Exception: pass
@@ -4431,6 +4333,51 @@ class BeetentApp(ctk.CTk):
                         self.after(0, lambda: self._status("☁ Pulled latest data"))
             except Exception:
                 pass
+        threading.Thread(target=run, daemon=True).start()
+
+    def _manual_sync(self):
+        """Manual refresh: pull from GitHub, then always refresh all lists and
+        reload the current field from disk. Show restart button if code changed."""
+        import subprocess
+        self._sync_btn.configure(text="Syncing…", state="disabled")
+        self._status("Syncing with GitHub…")
+        repo = Path(__file__).parent
+        co  = str(self.current_field.get("company",""))
+        yr  = str(self.current_field.get("year",""))
+        nm  = str(self.current_field.get("Name",""))
+        def run():
+            pulled_new = False
+            code_changed = False
+            try:
+                before = subprocess.run(["git","rev-parse","HEAD"],
+                    cwd=repo, capture_output=True, timeout=5).stdout.strip()
+                subprocess.run(["git","pull","--rebase"],
+                    cwd=repo, capture_output=True, timeout=30)
+                after = subprocess.run(["git","rev-parse","HEAD"],
+                    cwd=repo, capture_output=True, timeout=5).stdout.strip()
+                if before != after:
+                    pulled_new = True
+                    changed = subprocess.run(
+                        ["git","diff","--name-only", before.decode(), after.decode()],
+                        cwd=repo, capture_output=True, timeout=5
+                    ).stdout.decode()
+                    code_changed = any(f in changed for f in self._CODE_FILES)
+            except Exception:
+                pass
+            # Always refresh UI from disk regardless of git outcome
+            self.after(0, self._refresh_field_list)
+            self.after(0, self._refresh_preset_list)
+            self.after(0, self._refresh_bee_preset_list)
+            self.after(0, self._refresh_field_preset_list)
+            if nm:
+                self.after(0, lambda: self._activate_field(co, yr, nm))
+            if code_changed:
+                self.after(0, self._on_update_ready)
+            elif pulled_new:
+                self.after(0, lambda: self._status("☁ Refreshed — pulled latest data."))
+            else:
+                self.after(0, lambda: self._status("☁ Refreshed."))
+            self.after(0, lambda: self._sync_btn.configure(text="☁ Refresh", state="normal"))
         threading.Thread(target=run, daemon=True).start()
 
     def _check_for_app_update(self):
@@ -4638,24 +4585,28 @@ class BeetentApp(ctk.CTk):
                     fname=str(f.get("Name") or name).strip()
                     try: buf_m=float(f.get("shelter_buffer_m") or 0)
                     except (ValueError,TypeError): buf_m=0.0
+                    outer_boundary=f.get("boundary_polygon") or None
                     maketentgrid.export_field_outputs(positions,pivotpoint,str(out_dir),fname,
                                                       include_buffers=include_buffers,
-                                                      buffer_radius_m=buf_m)
+                                                      buffer_radius_m=buf_m,
+                                                      outer_boundary=outer_boundary)
                     ok+=1
                     self.after(0,lambda n=fname,k=len(positions):self._log("  ✓ %s (%d shelters)" % (n,k)))
                 self.after(0,lambda:self._log("Done. %d/%d fields exported." % (ok,len(scope))))
                 self.after(0,lambda:tkinter.messagebox.showinfo("Done",
                     "%d field(s) written to:\n%s\n\n"
-                    "For John Deere Operations Center:\n"
-                    "  Files → Upload Files → Flags → drop\n"
-                    "    {field}_Shelter_Pins.zip\n"
-                    "  Files → Upload Files → Internal Boundaries → drop\n"
-                    "    {field}_Shelter_Buffer_Zones.zip  (if buffers are enabled)\n"
+                    "Trimble: copy AgGPS\\ folder to USB root.\n"
                     "\n"
-                    "Each zip has a README.txt with the same instructions.\n"
+                    "John Deere Operations Center (John Deere\\ folder):\n"
+                    "  Upload Files → Flags → drop\n"
+                    "    {field}_Shelter_Pins_shp.zip\n"
+                    "  Upload Files → Internal Boundaries → drop\n"
+                    "    {field}_Shelter_Buffer_Zones_shp.zip  (if buffers enabled)\n"
                     "\n"
-                    "Trimble import: copy AgGPS/ folder to USB root.\n"
-                    "Google Earth: open {field}_Shelter_Pins.kml."
+                    "Google Earth: open Shelter Pins KML\\{field}_Shelter_Pins.kml.\n"
+                    "\n"
+                    "Boundary Files\\ has the field boundary as shapefile and KML\n"
+                    "(fields without a drawn boundary are skipped)."
                     % (ok,out_dir)))
                 try: self.after(0,lambda:os.startfile(str(out_dir)))
                 except Exception: pass

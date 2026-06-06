@@ -70,23 +70,6 @@ class BeePDF(fpdf.FPDF):
         self.last_x = x
         self.last_y = y
 
-def ll_at( lon1, lat1, bearing, distance):
-    R = 6378137 #Radius of the Earth in metres
-    brng = math.radians(bearing)
-
-    #lat2  52.20444 - the lat result I'm hoping for
-    #lon2  0.36056 - the long result I'm hoping for.
-
-    lat1 = math.radians(lat1) #Current lat point converted to radians
-    lon1 = math.radians(lon1) #Current long point converted to radians
-
-    lat2 = math.asin( math.sin(lat1)*math.cos(distance/R) +
-         math.cos(lat1)*math.sin(distance/R)*math.cos(brng))
-
-    lon2 = lon1 + math.atan2(math.sin(brng)*math.sin(distance/R)*math.cos(lat1),
-                 math.cos(distance/R)-math.sin(lat1)*math.sin(lat2))
-
-    return (math.degrees(lon2), math.degrees(lat2))
 
 #name is just the date in MMDDYY format
 def make_files(myzip, field_path, name, origin):
@@ -608,7 +591,8 @@ def _make_geojson_with_buffers(lonlat_list, field_name, include_buffers=False,
 
 
 def export_field_outputs(positions_latlon, pivotpoint, out_dir, field_name,
-                         include_buffers=False, buffer_radius_m=1.524):
+                         include_buffers=False, buffer_radius_m=1.524,
+                         outer_boundary=None):
     """Write the per-field export files from already-computed shelter positions
     (so the output matches exactly what get_tent_positions drew on the map).
 
@@ -626,6 +610,13 @@ def export_field_outputs(positions_latlon, pivotpoint, out_dir, field_name,
     """
     writer = FileWriter()
 
+    # ── Sub-folder roots ────────────────────────────────────────────────────
+    kml_dir     = os.path.join(out_dir, "Shelter Pins KML")
+    jd_dir      = os.path.join(out_dir, "John Deere")
+    geojson_dir = os.path.join(out_dir, "GeoJSON Files")
+    bnd_shp_dir = os.path.join(out_dir, "Boundary Files", "shp files")
+    bnd_kml_dir = os.path.join(out_dir, "Boundary Files", "kml files")
+
     # ── Google Earth KML (points) ───────────────────────────────────────────
     # Name explicitly as "Shelter Pins" so it doesn't get confused with
     # field boundary KMLs when the user has several KMLs from different
@@ -633,7 +624,7 @@ def export_field_outputs(positions_latlon, pivotpoint, out_dir, field_name,
     kml = simplekml.Kml()
     for i, (lat, lon) in enumerate(positions_latlon):
         kml.newpoint(name="Shelter %d" % (i + 1), coords=[(lon, lat)])
-    writer.writestr(os.path.join(out_dir, "%s_Shelter_Pins.kml" % field_name), kml.kml())
+    writer.writestr(os.path.join(kml_dir, "%s_Shelter_Pins.kml" % field_name), kml.kml())
 
     # ── Trimble shapefile set: AgGPS/Data/TNTBees/{field} ───────────────────
     field_dir = os.path.join(out_dir, "AgGPS", "Data", "TNTBees", field_name)
@@ -668,7 +659,7 @@ def export_field_outputs(positions_latlon, pivotpoint, out_dir, field_name,
     jd_lonlat = [(lon, lat) for lat, lon in positions_latlon]
     jd_geojson_text = _make_geojson_with_buffers(jd_lonlat, field_name,
                                                   include_buffers, buffer_radius_m)
-    writer.writestr(os.path.join(out_dir, "%s.geojson" % field_name),
+    writer.writestr(os.path.join(geojson_dir, "%s.geojson" % field_name),
                     jd_geojson_text)
 
     # WGS84 PRJ — required by Operations Center to read the shapefile.
@@ -726,7 +717,7 @@ def export_field_outputs(positions_latlon, pivotpoint, out_dir, field_name,
             "category accepts it too and the points stay viewable on the\n"
             "field map.\n"
             % field_name)
-    writer.writestr(os.path.join(out_dir, "%s_Shelter_Pins.zip" % field_name),
+    writer.writestr(os.path.join(jd_dir, "%s_Shelter_Pins_shp.zip" % field_name),
                     pins_zip_buf.getvalue())
 
     # ── {field}_Shelter_Buffer_Zones.zip  (upload as Internal Boundaries) ────
@@ -752,8 +743,39 @@ def export_field_outputs(positions_latlon, pivotpoint, out_dir, field_name,
                 "\n"
                 "The buffer zones import as interior (passable) boundaries.\n"
                 % field_name)
-        writer.writestr(os.path.join(out_dir, "%s_Shelter_Buffer_Zones.zip" % field_name),
+        writer.writestr(os.path.join(jd_dir, "%s_Shelter_Buffer_Zones_shp.zip" % field_name),
                         bz_zip_buf.getvalue())
+
+    # ── Boundary Files ──────────────────────────────────────────────────────
+    if outer_boundary and len(outer_boundary) >= 3:
+        # KML — polygon outline of the field boundary
+        bnd_kml = simplekml.Kml()
+        pol = bnd_kml.newpolygon(name="%s Boundary" % field_name)
+        pol.outerboundaryis = [(lon, lat) for lat, lon in outer_boundary]
+        writer.writestr(os.path.join(bnd_kml_dir, "%s_Boundary.kml" % field_name),
+                        bnd_kml.kml())
+
+        # Shapefile zip — single polygon feature
+        bshp = BytesIO(); bshx = BytesIO(); bdbf = BytesIO()
+        bw = shapefile.Writer(shp=bshp, shx=bshx, dbf=bdbf,
+                              shapeType=shapefile.POLYGON)
+        bw.field('id',   'N', size=8,  decimal=0)
+        bw.field('name', 'C', size=64)
+        ring = [(lon, lat) for lat, lon in outer_boundary]
+        if ring[0] != ring[-1]:
+            ring.append(ring[0])   # ensure closed ring
+        bw.poly([ring])
+        bw.record(1, "%s Boundary" % field_name)
+        bw.close()
+        bnd_zip_buf = BytesIO()
+        with zipfile.ZipFile(bnd_zip_buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+            base = "%s_Boundary" % field_name
+            zf.writestr("%s.shp" % base, bshp.getvalue())
+            zf.writestr("%s.shx" % base, bshx.getvalue())
+            zf.writestr("%s.dbf" % base, bdbf.getvalue())
+            zf.writestr("%s.prj" % base, WGS84_PRJ)
+        writer.writestr(os.path.join(bnd_shp_dir, "%s_Boundary_shp.zip" % field_name),
+                        bnd_zip_buf.getvalue())
 
 
 def latlon_list_to_enu(latlon_list, pivot_lon, pivot_lat):
@@ -1097,31 +1119,6 @@ def _interp_at_arclen(poly, cl, target_m):
             return (lat, lon)
     return poly[-1]
 
-
-def _midpoint_polyline(a, b, n_samples=80):
-    """Midpoint polyline between two pass polylines.
-
-    Boustrophedon planters reverse direction every pass, so we first detect
-    whether `b` runs opposite to `a` (compare endpoint distances) and reverse
-    if so. Then we resample both at the same arc-length fractions and average.
-    """
-    if not a or not b: return []
-    # If a's start is closer to b's end than to b's start, b is reversed.
-    d_aligned   = _haversine_m(a[0][0], a[0][1], b[0][0], b[0][1])
-    d_reversed  = _haversine_m(a[0][0], a[0][1], b[-1][0], b[-1][1])
-    if d_reversed < d_aligned:
-        b = list(reversed(b))
-    ca = _polyline_cumlen_m(a)
-    cb = _polyline_cumlen_m(b)
-    total_a, total_b = ca[-1], cb[-1]
-    if total_a <= 0 or total_b <= 0: return []
-    out = []
-    for i in range(n_samples + 1):
-        frac = i / n_samples
-        pa = _interp_at_arclen(a, ca, frac * total_a)
-        pb = _interp_at_arclen(b, cb, frac * total_b)
-        out.append(((pa[0] + pb[0]) * 0.5, (pa[1] + pb[1]) * 0.5))
-    return out
 
 
 def mask_runs(mask, char):
@@ -2220,142 +2217,6 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
 
     except Exception:
         return ([], []) if return_rows else []
-
-
-def process_field_data(fields, dirpath, use_metric=True):
-    """
-    Process a list of field dicts (native Python types) and write output to dirpath.
-    Each dict may include the standard CSV keys plus:
-      boundary_polygon : [[lat, lon], ...]  — if present, replaces radius+limits
-      pivot_tracks     : [radius_m, ...]    — exclusion ring radii in metres
-    Returns (output_text, num_fields_ok).
-    """
-    output = StringIO()
-    conv = 1.0 if use_metric else 0.3048
-
-    if not os.path.exists(dirpath):
-        os.makedirs(dirpath)
-
-    pdfwriter = BeePDF('P', 'pt', 'Letter')
-    writer = FileWriter()
-    ok = 0
-
-    with redirect_stdout(output):
-        for field in fields:
-            try:
-                name = str(field['Name']).strip()
-                pivotpoint = (float(field['PP_Longitude']), float(field['PP_Latitude']))
-                sprayer_width = float(field['Sprayer_width']) * 0.3048
-
-                boundary_polygon = field.get('boundary_polygon') or None
-                pivot_tracks = [float(r) for r in (field.get('pivot_tracks') or [])]
-
-                if boundary_polygon:
-                    radius = max(
-                        math.sqrt((e**2 + n**2))
-                        for e, n in latlon_list_to_enu(boundary_polygon, pivotpoint[0], pivotpoint[1])
-                    ) * 1.05
-                    boundary_enu = latlon_list_to_enu(boundary_polygon, pivotpoint[0], pivotpoint[1])
-                else:
-                    radius = float(field['Radius']) * conv
-                    boundary_enu = None
-
-                # Spray_angle takes priority; fall back to Seed_angle for CSV imports
-                seed_angle = float(field.get('Spray_angle') or field.get('Seed_angle') or 0)
-
-                # When a boundary polygon is present, shelters go at wing-tips (lat_offset=0)
-                # so the first shelter row is on the pivot centre line.
-                # For legacy CSV fields that still carry Lateral_offset, honour it.
-                if boundary_enu is not None:
-                    lat_offset = 0.0
-                else:
-                    lat_offset_raw = field.get('Lateral_offset') or ''
-                    lat_offset = float(lat_offset_raw) * conv if lat_offset_raw != '' else 0.0
-                    fbpw_raw = field.get('Female_bays_per_width') or ''
-                    female_bays = float(fbpw_raw) if fbpw_raw != '' else None
-                    if female_bays and not lat_offset:
-                        lat_offset = sprayer_width / female_bays / 2 * 0.75
-
-                # Limits only used when there is no boundary polygon
-                def _lim(key):
-                    v = field.get(key) or ''
-                    return float(v) * conv if v != '' else radius
-
-                north_limit = radius if boundary_enu else _lim('North_limit')
-                east_limit  = radius if boundary_enu else _lim('East_limit')
-                south_limit = radius if boundary_enu else _lim('South_limit')
-                west_limit  = radius if boundary_enu else _lim('West_limit')
-
-                # Pie slice only used for legacy CSV fields
-                pie_slice = None
-                if boundary_enu is None:
-                    ps = field.get('Pie_start') or ''
-                    pe_v = field.get('Pie_end') or ''
-                    if ps != '' and pe_v != '':
-                        pie_slice = (int(ps), int(pe_v))
-
-                # Experimental rows (legacy CSV only)
-                exp_raw = field.get('Experimental') or ''
-                exp_rows = [int(x) for x in exp_raw.split(',') if x.strip()] if exp_raw else None
-                exp_start_odd = bool(field.get('Experimental_start_odd') or False)
-
-                ns_raw = field.get('# of Structures') or field.get('num_structures') or ''
-                num_tents = int(ns_raw) if ns_raw != '' else None
-                if num_tents and pie_slice:
-                    s, e_ = pie_slice
-                    arc = (360 - s + e_) if s > e_ else (e_ - s)
-                    num_tents = int(num_tents / (arc / 360))
-
-                sp_raw = field.get('spacing') or ''
-                spacing = float(sp_raw) * conv if sp_raw != '' else None
-
-                do_raw = field.get('directional_offset') or ''
-                directional_offset = float(do_raw) * conv if do_raw != '' else 0.0
-
-                # Pivot track exclusion in metres (from field dict, default 10 ft)
-                excl_ft = float(field.get('track_exclusion_ft') or 10)
-                excl_m  = excl_ft * 0.3048
-
-                print("Processing: %s (%.6f, %.6f)" % (name, pivotpoint[0], pivotpoint[1]))
-                pdfwriter.add_page()
-                make_pdf_circle_bays(pdfwriter, {
-                    'Name': name, 'Radius': radius, 'pie_slice': pie_slice,
-                    'North_limit': north_limit, 'East_limit': east_limit,
-                    'South_limit': south_limit, 'West_limit': west_limit,
-                    'Sprayer_width': sprayer_width, 'spacing': spacing,
-                    '# of Structures': num_tents, 'Seed_angle': seed_angle,
-                    'Lateral_offset': lat_offset, 'directional_offset': directional_offset,
-                    'Female_bays_per_width': None,
-                })
-
-                field_dir = os.path.join(dirpath, "AgGPS/Data/TNTBees/%s" % name)
-                make_files(writer, field_dir, name, pivotpoint)
-
-                count = make_tents(writer, dirpath, name,
-                                   pivotpoint=pivotpoint, radius=radius,
-                                   width=sprayer_width, lat_shift=lat_offset,
-                                   angle=seed_angle, pie_slice=pie_slice,
-                                   northlimit=north_limit, eastlimit=east_limit,
-                                   southlimit=south_limit, westlimit=west_limit,
-                                   exp_rows=exp_rows, exp_rows_start_odd=exp_start_odd,
-                                   pdf=pdfwriter, num_tents=num_tents, spacing=spacing,
-                                   directional_offset=directional_offset,
-                                   boundary_polygon_enu=boundary_enu,
-                                   pivot_tracks_m=pivot_tracks,
-                                   pivot_track_exclusion_m=excl_m)
-                print("  → %d shelters placed" % count)
-
-                make_line(writer, field_dir, pivotpoint, lat_offset, seed_angle)
-                ok += 1
-            except Exception:
-                print("ERROR processing %s:\n%s" % (field.get('Name', '?'), traceback.format_exc()))
-
-        pdfwriter.output(os.path.join(dirpath, 'TNTFields.pdf'), 'F')
-        print("\nDone. %d/%d fields processed." % (ok, len(fields)))
-
-    return output.getvalue(), ok
-
-
 def process_csvfile(csv_file, path = None, use_zip = None, timestamp = None, use_metric = False):
 
     output = StringIO()
