@@ -1199,7 +1199,7 @@ class BeetentApp(ctk.CTk):
         self._bnd_btn.pack(side="left", padx=(0,4))
 
         self._sp_btn = self._make_menu_btn(bb, "⋰⋮⋱ Sprayer", [
-            ("Edit",                            self._mode_edit_passes),
+            ("Shift",                           self._mode_shift_sprayer),
             ("Import Sprayer Data (.shp/.geojson)", self._import_sprayer_data),
             ("Toggle Uploaded Paths on/off",    self._toggle_sprayer_passes),
             ("Clear Uploaded Paths",            self._clear_sprayer_data),
@@ -4048,23 +4048,53 @@ class BeetentApp(ctk.CTk):
         self._status("Sprayer pass editing: adjust Spray Angle or Sprayer Width in Field Details, then Toggle on/off to refresh.")
 
     # ── Planter passes extras ──────────────────────────────────────────────────
-    def _mode_shift_planter(self):
-        """Shift the imported planter passes (and the bays derived from them)
-        by a chosen compass direction + distance. The bay overlay is built from
-        the pass polylines, so moving the passes moves the bays in lockstep —
-        keeping the bays tied to the planter width and the shifted position."""
+    # ── Shift dialogs / offsets ────────────────────────────────────────────────
+    def _bay_shift(self):
+        """(east, north) metres the planter bays + passes are offset by."""
+        try:
+            return (float(self.current_field.get("bay_shift_e_m") or 0),
+                    float(self.current_field.get("bay_shift_n_m") or 0))
+        except (ValueError, TypeError):
+            return (0.0, 0.0)
+
+    def _sprayer_shift(self):
+        """(east, north) metres the sprayer passes are offset by."""
+        try:
+            return (float(self.current_field.get("sprayer_shift_e_m") or 0),
+                    float(self.current_field.get("sprayer_shift_n_m") or 0))
+        except (ValueError, TypeError):
+            return (0.0, 0.0)
+
+    @staticmethod
+    def _translate_latlon(passes, d_e_m, d_n_m):
+        """Translate each [(lat,lon),...] polyline by (east, north) metres."""
+        if not d_e_m and not d_n_m:
+            return [[(float(p[0]), float(p[1])) for p in poly]
+                    for poly in passes if poly and len(poly) >= 2]
+        out = []
+        for poly in passes:
+            np = []
+            for pt in poly:
+                try:
+                    lat, lon = float(pt[0]), float(pt[1])
+                except (TypeError, ValueError, IndexError):
+                    continue
+                nlat = lat + d_n_m / 111111.0
+                nlon = lon + d_e_m / (111111.0 * math.cos(math.radians(lat)))
+                np.append((nlat, nlon))
+            if len(np) >= 2:
+                out.append(np)
+        return out
+
+    def _open_shift_dialog(self, title, heading, apply_fn):
+        """Generic N/E/S/W + distance shift dialog. apply_fn(d_e_m, d_n_m)."""
         self._close_all_popups()
-        passes = self.current_field.get("planter_passes") or []
-        if not passes:
-            self._status("Import planter data first — Shift moves the planter "
-                         "passes and their bays.")
-            return
         use_m = self.unit_var.get() == "Metres"
         unit = "m" if use_m else "ft"
         win = ctk.CTkToplevel(self)
-        win.title("Shift Planter / Bays")
+        win.title(title)
         win.grab_set()
-        ctk.CTkLabel(win, text="Shift planter passes & bays",
+        ctk.CTkLabel(win, text=heading,
                      font=ctk.CTkFont(family=FONT_HEADING, size=15)).pack(padx=24, pady=(18, 8))
         dir_var = tk.StringVar(value="N")
         drow = ctk.CTkFrame(win, fg_color="transparent"); drow.pack(padx=24, pady=2)
@@ -4091,37 +4121,46 @@ class BeetentApp(ctk.CTk):
             elif d == "S": d_n = -dist_m
             elif d == "E": d_e = dist_m
             elif d == "W": d_e = -dist_m
-            self._apply_planter_shift(d_e, d_n)
+            apply_fn(d_e, d_n)
             win.destroy()
-            self._status(f"Shifted planter passes & bays {dist:g} {unit} {d}.")
+            self._status(f"Shifted {dist:g} {unit} {d}.")
         ctk.CTkButton(win, text="Shift", height=36, command=do_shift).pack(
             fill="x", padx=24, pady=(8, 4))
         ctk.CTkButton(win, text="Cancel", height=36, fg_color="#555",
                       command=win.destroy).pack(fill="x", padx=24, pady=(0, 18))
         _center_on_parent(win, self)
 
+    def _mode_shift_planter(self):
+        """Shift the planter bays and planter pass lines by a compass direction +
+        distance. Stored as a draw-time offset, so it works whether the bays come
+        from imported passes or the synthetic bay grid."""
+        self._open_shift_dialog("Shift Planter / Bays",
+                                "Shift planter passes & bays",
+                                self._apply_planter_shift)
+
     def _apply_planter_shift(self, d_e_m, d_n_m):
-        """Translate every imported planter-pass point by (east, north) metres
-        and redraw. Bays are derived from these passes, so they follow."""
-        passes = self.current_field.get("planter_passes") or []
-        if not passes: return
-        new_passes = []
-        for poly in passes:
-            np = []
-            for pt in poly:
-                try:
-                    lat, lon = float(pt[0]), float(pt[1])
-                except (TypeError, ValueError, IndexError):
-                    continue
-                nlat = lat + d_n_m / 111111.0
-                nlon = lon + d_e_m / (111111.0 * math.cos(math.radians(lat)))
-                np.append([nlat, nlon])
-            if np: new_passes.append(np)
-        self.current_field["planter_passes"] = new_passes
-        self.show_planter_passes.set(True)
+        se, sn = self._bay_shift()
+        self.current_field["bay_shift_e_m"] = se + d_e_m
+        self.current_field["bay_shift_n_m"] = sn + d_n_m
+        if self.show_bays.get():
+            self._redraw_bays()
         self._redraw_planter_passes()
-        if self.show_bays.get():     self._redraw_bays()
-        if self.show_shelters.get(): self._redraw_shelters()
+
+    def _mode_shift_sprayer(self):
+        """Shift the sprayer pass lines by a compass direction + distance. The
+        outside sprayer pass (inset from the boundary) is NOT moved — it's tied
+        to the field boundary."""
+        self._open_shift_dialog("Shift Sprayer Passes",
+                                "Shift sprayer passes",
+                                self._apply_sprayer_shift)
+
+    def _apply_sprayer_shift(self, d_e_m, d_n_m):
+        se, sn = self._sprayer_shift()
+        self.current_field["sprayer_shift_e_m"] = se + d_e_m
+        self.current_field["sprayer_shift_n_m"] = sn + d_n_m
+        if self.show_passes.get():
+            self._redraw_passes()
+        self._redraw_sprayer_passes()
 
     # ── Imported planter passes (JD Operations Center Seeding shapefile) ─────
     def _import_planter_data(self):
@@ -4203,6 +4242,8 @@ class BeetentApp(ctk.CTk):
         self.planter_path_overlays = []
         if not self.show_planter_passes.get(): return
         passes = self.current_field.get("planter_passes") or []
+        bse, bsn = self._bay_shift()
+        passes = self._translate_latlon(passes, bse, bsn)   # honour planter Shift
         for poly in passes:
             if not poly or len(poly) < 2: continue
             try:
@@ -4272,6 +4313,8 @@ class BeetentApp(ctk.CTk):
         self.sprayer_path_overlays = []
         if not self.show_sprayer_passes.get(): return
         passes = self.current_field.get("sprayer_passes") or []
+        sse, ssn = self._sprayer_shift()
+        passes = self._translate_latlon(passes, sse, ssn)   # honour sprayer Shift
         for poly in passes:
             if not poly or len(poly) < 2: continue
             try:
@@ -4624,6 +4667,9 @@ class BeetentApp(ctk.CTk):
         rot=math.radians((0-angle+180)%360-180)
         cos_r,sin_r=math.cos(rot),math.sin(rot)
         tdx=-sin_r; tdy=cos_r
+        # Sprayer Shift offset — moves the pass lines only (the outside sprayer
+        # limit above is tied to the boundary and is intentionally not shifted).
+        sse, ssn = self._sprayer_shift()
 
         # Inner boundaries (cutouts) in ENU. When the
         # "sprayer_routes_around_inner" flag is on, every pass line is split
@@ -4641,6 +4687,7 @@ class BeetentApp(ctk.CTk):
         for r in range(-max_rows,max_rows+1):
             lat_e=r*width_m; lat_n=0
             pe=lat_e*cos_r-lat_n*sin_r; pn=lat_n*cos_r+lat_e*sin_r
+            pe+=sse; pn+=ssn   # apply sprayer Shift (lateral part moves passes)
 
             # All inside-segments of the pass line against the outer boundary.
             # On non-convex fields a single line can enter, exit, and re-enter
@@ -4976,13 +5023,16 @@ class BeetentApp(ctk.CTk):
         except (ValueError,TypeError): return
         if not bp or len(bp)<3: return
 
+        bse, bsn = self._bay_shift()   # planter Shift offset (east, north metres)
+
         # When the user has imported planter passes AND the "use uploaded
         # planter data" toggle is on, derive the male-bay bands from the
         # actual pass polylines instead of the synthetic angle-grid below.
         # Each pass contributes one band per M block in the resolved row mask.
         planter_passes = self.current_field.get("planter_passes") or []
         if planter_passes and bool(self.current_field.get("use_imported_passes", True)):
-            self._redraw_bays_from_passes(plat, plon, planter_passes,
+            shifted = self._translate_latlon(planter_passes, bse, bsn)
+            self._redraw_bays_from_passes(plat, plon, shifted,
                                           rs, nf, nm, total_rows)
             return
         row_m=rs*0.0254; female_m=(nf+1)*row_m; male_m=(nm+1)*row_m
@@ -5003,12 +5053,15 @@ class BeetentApp(ctk.CTk):
         tdx=-sin_r; tdy=cos_r
         ldx=cos_r; ldy=sin_r
         unit=female_m+male_m
+        # Lateral component of the planter Shift offset (movement along the bay
+        # travel direction is invisible, so only the perpendicular part counts).
+        bay_sh = bse*ldx + bsn*ldy
         n_units=int(max_r/unit)+2
         for i in range(-n_units,n_units+1):
             cx=i*unit
             # Female bays hidden — only male bays shown
             bands = self._band_polygon_enu(
-                cx + female_m/2, cx + female_m/2 + male_m,
+                cx + female_m/2 + bay_sh, cx + female_m/2 + male_m + bay_sh,
                 tdx, tdy, ldx, ldy, poly_enu,
                 inner_polys_enu=inner_polys_enu)
             for band in bands:
