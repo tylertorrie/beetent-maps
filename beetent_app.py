@@ -2041,7 +2041,7 @@ class BeetentApp(ctk.CTk):
                 try:
                     poly=self.map_widget.set_polygon(
                         [tuple(p) for p in bp],
-                        fill_color=None,outline_color="#607D8B",border_width=1)
+                        fill_color=None,outline_color="#FFA500",border_width=2)
                     self._overview_polys[key]=poly
                 except Exception:
                     pass
