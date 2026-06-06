@@ -882,6 +882,7 @@ class BeetentApp(ctk.CTk):
         self.moving_shelter_idx = None
         self._shelter_refresh_id= None
         self._all_popups        = []
+        self._menu_checkboxes   = []   # list of (CTkCheckBox, label_widget) per menu btn
         self.shelter_circle_var = tk.BooleanVar(value=False)
         self.field_labels       = {}
 
@@ -988,26 +989,29 @@ class BeetentApp(ctk.CTk):
 
         container = ctk.CTkFrame(bar, fg_color=color, corner_radius=6)
 
-        # Left: master toggle checkbox
-        if toggle_var is not None and toggle_fn is not None:
-            ctk.CTkCheckBox(container, variable=toggle_var, text="",
-                            width=20, checkbox_width=16, checkbox_height=16,
-                            border_color="white", fg_color="white",
-                            checkmark_color="#333333", hover_color="#ffffff33",
-                            command=lambda: toggle_fn(toggle_var.get())
-                            ).pack(side="left", padx=(7, 0), pady=5)
-
-        # Right: dropdown trigger (packed before label so it anchors right)
+        # Right: dropdown trigger (packed first so it anchors right)
         ctk.CTkButton(container, text="▾", width=26,
                       fg_color="transparent", hover_color="#ffffff22",
                       text_color="white",
                       command=lambda p=popup, c=container: self._toggle_popup(p, c)
                       ).pack(side="right", padx=(0, 2), pady=2)
 
-        # Centre: label fills the space between checkbox and ▾, text centred within it
-        ctk.CTkLabel(container, text=label, text_color="white",
-                     anchor="center", fg_color="transparent"
-                     ).pack(side="left", fill="x", expand=True, padx=2)
+        # Centre: label fills the remaining space, text centred within it
+        lbl = ctk.CTkLabel(container, text=label, text_color="white",
+                           anchor="center", fg_color="transparent")
+        lbl.pack(side="left", fill="x", expand=True, padx=8)
+
+        # Left: master toggle checkbox — starts hidden; shown only when a field
+        # is active.  Packed BEFORE the label (using before=) so layout is correct
+        # when revealed.
+        if toggle_var is not None and toggle_fn is not None:
+            cb = ctk.CTkCheckBox(container, variable=toggle_var, text="",
+                                 width=20, checkbox_width=16, checkbox_height=16,
+                                 border_color="white", fg_color="white",
+                                 checkmark_color="#333333", hover_color="#ffffff33",
+                                 command=lambda: toggle_fn(toggle_var.get()))
+            # Don't pack yet — hidden until a field is selected
+            self._menu_checkboxes.append((cb, lbl))
 
         return container
 
@@ -1026,6 +1030,15 @@ class BeetentApp(ctk.CTk):
     def _close_all_popups(self, event=None):
         for p in self._all_popups:
             if p.winfo_exists(): p.place_forget()
+
+    def _set_menu_checkboxes_visible(self, visible):
+        """Show or hide the master-toggle checkboxes on every toolbar menu button."""
+        for cb, lbl in self._menu_checkboxes:
+            if visible:
+                # Re-insert the checkbox to the left of the label so centering is preserved
+                cb.pack(side="left", padx=(7, 0), pady=5, before=lbl)
+            else:
+                cb.pack_forget()
 
     def _show_context_btn(self, text, cmd):
         self.btn_context.configure(text=text, command=cmd, state="normal", fg_color="#225588")
@@ -2261,6 +2274,7 @@ class BeetentApp(ctk.CTk):
         self.current_field=blank_field(
             "" if co==ALL_COMPANIES else co,
             "" if yr==ALL_YEARS else yr)
+        self._set_menu_checkboxes_visible(False)
         self._clear_all_overlays()
         self._form_from_field()
         self._redraw_overview_boundaries()
@@ -2312,6 +2326,7 @@ class BeetentApp(ctk.CTk):
         self._form_from_field()
         self._redraw_all()
         self._zoom_to_field()
+        self._set_menu_checkboxes_visible(True)
         # Remove this field's dim overlay (it now has the bright active boundary)
         # and restore the previously-active field's dim overlay — handled by a
         # full redraw of overview boundaries in the background.
