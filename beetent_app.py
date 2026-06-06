@@ -1224,6 +1224,7 @@ class BeetentApp(ctk.CTk):
             self.field_tree.column(col,width=w,anchor=anchor,stretch=(col=="field"))
         self.field_tree.pack(fill="x")
         self.field_tree.bind("<<TreeviewSelect>>",self._on_field_select)
+        self.field_tree.bind("<ButtonPress-1>",self._on_field_click)
         self._field_rows={}            # tree item id -> (company, year, name)
         self._field_sort_col=None; self._field_sort_rev=False
         br=ctk.CTkFrame(lf,fg_color="transparent"); br.pack(fill="x",pady=(3,0))
@@ -2206,12 +2207,30 @@ class BeetentApp(ctk.CTk):
         for i,(_,iid) in enumerate(rows):
             self.field_tree.move(iid,"",i)
 
+    def _on_field_click(self, event):
+        """Deselect the active field when the user clicks it a second time."""
+        iid = self.field_tree.identify_row(event.y)
+        if iid and iid in self.field_tree.selection():
+            self._deactivate_field()
+            return "break"   # prevent Treeview re-selecting the row
+
     def _on_field_select(self,_=None):
         sel=self.field_tree.selection()
         if not sel: return
         row=self._field_rows.get(sel[0])
         if not row: return
         self._activate_field(*row)
+
+    def _deactivate_field(self):
+        """Clear the active field and return to the overview (all dim outlines)."""
+        self.field_tree.selection_set([])
+        co=self.company_var.get(); yr=self.year_var.get()
+        self.current_field=blank_field(
+            "" if co==ALL_COMPANIES else co,
+            "" if yr==ALL_YEARS else yr)
+        self._clear_all_overlays()
+        self._form_from_field()
+        self._redraw_overview_boundaries()
 
     def _activate_field(self,co,yr,name):
         """Load a field and make it the active one. Called from the field list
