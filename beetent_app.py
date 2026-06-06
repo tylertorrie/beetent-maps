@@ -944,10 +944,27 @@ class BeetentApp(ctk.CTk):
         except Exception:
             pass
         ctk.CTkLabel(bar,text="Legal Land Description:").pack(side="left",padx=(0,4),pady=8)
-        self.lld_entry=ctk.CTkEntry(bar,width=230,placeholder_text="e.g. NW-32-14-22-W4")
-        self.lld_entry.pack(side="left",pady=8)
-        self.lld_entry.bind("<Return>",lambda e:self._search_lld())
-        ctk.CTkButton(bar,text="Go",width=48,command=self._search_lld).pack(side="left",padx=(4,4),pady=8)
+        # Structured LLD entry — one cell per part: Quarter-Section-Township-
+        # Range-Meridian. Each cell auto-advances to the next once it's full,
+        # which cuts down on mistyped legal land descriptions. The meridian
+        # defaults to W4 (the common case for this operation).
+        #   spec = (name, maxlen, kind, placeholder)
+        self._lld_specs=[("qtr",2,"alpha","NW"),("sec",2,"digit","Sec"),
+                         ("twp",2,"digit","Twp"),("rng",2,"digit","Rng"),
+                         ("mer",2,"mer","W4")]
+        self._lld_vars=[]; self._lld_entries=[]
+        lld_box=ctk.CTkFrame(bar,fg_color="transparent")
+        lld_box.pack(side="left",pady=8)
+        for i,(name,maxlen,kind,ph) in enumerate(self._lld_specs):
+            if i>0:
+                ctk.CTkLabel(lld_box,text="-",width=8).pack(side="left")
+            var=tk.StringVar(value="W4" if kind=="mer" else "")
+            ent=ctk.CTkEntry(lld_box,width=48,textvariable=var,
+                             placeholder_text=ph,justify="center")
+            ent.pack(side="left")
+            ent.bind("<KeyRelease>",lambda e,idx=i:self._on_lld_key(idx,e))
+            self._lld_vars.append(var); self._lld_entries.append(ent)
+        ctk.CTkButton(bar,text="Go",width=48,command=self._search_lld).pack(side="left",padx=(6,4),pady=8)
         # LLD highlight box toggle — the yellow rectangle around the searched
         # quarter section can get in the way once you're zoomed in working on
         # the field, so we let users hide/show it without re-searching.
@@ -2553,8 +2570,69 @@ class BeetentApp(ctk.CTk):
 
 
     # ── Map ────────────────────────────────────────────────────────────────────
+    def _lld_sanitize(self, idx):
+        """Filter/uppercase/truncate one LLD cell. Returns (text, maxlen)."""
+        name,maxlen,kind,_ = self._lld_specs[idx]
+        var=self._lld_vars[idx]
+        s=var.get().upper()
+        if kind=="digit":
+            s=re.sub(r"[^0-9]","",s)
+        elif kind=="alpha":
+            s=re.sub(r"[^NSEW]","",s)
+        elif kind=="mer":
+            s=re.sub(r"[^W0-9]","",s)
+        s=s[:maxlen]
+        if s!=var.get():
+            var.set(s)
+        return s,maxlen
+
+    def _on_lld_key(self, idx, event):
+        """Per-cell key handler: sanitize input and auto-advance to the next
+        cell once the current one is full. Backspace on an empty cell hops back."""
+        ks=event.keysym
+        if ks=="Return":
+            self._search_lld(); return
+        if ks in ("Tab","ISO_Left_Tab","Left","Right","Up","Down",
+                  "Shift_L","Shift_R","Control_L","Control_R"):
+            return
+        if ks=="BackSpace":
+            if not self._lld_vars[idx].get() and idx>0:
+                prev=self._lld_entries[idx-1]
+                prev.focus_set()
+                try: prev.icursor("end")
+                except Exception: pass
+            else:
+                self._lld_sanitize(idx)
+            return
+        s,maxlen=self._lld_sanitize(idx)
+        if len(s)>=maxlen and idx<len(self._lld_entries)-1:
+            nxt=self._lld_entries[idx+1]
+            nxt.focus_set()
+            try:
+                # Don't blow away a prefilled cell (e.g. the W4 meridian) — just
+                # park the cursor at the end. Select empty cells for fast typing.
+                if self._lld_vars[idx+1].get():
+                    nxt.icursor("end")
+                else:
+                    nxt.select_range(0,"end")
+            except Exception: pass
+
+    def _lld_query(self):
+        """Assemble the five cells into a dash-joined LLD string for geocoding.
+        Blank leading cells (e.g. no quarter) are dropped so the section-level
+        formats still parse. Meridian falls back to W4 when blank."""
+        qtr=self._lld_vars[0].get().strip().upper()
+        sec=self._lld_vars[1].get().strip()
+        twp=self._lld_vars[2].get().strip()
+        rng=self._lld_vars[3].get().strip()
+        mer=self._lld_vars[4].get().strip().upper() or "W4"
+        if not mer.startswith("W"):
+            mer="W"+re.sub(r"\D","",mer)
+        parts=[p for p in (qtr,sec,twp,rng,mer) if p]
+        return "-".join(parts)
+
     def _search_lld(self):
-        res=geocode_lld(self.lld_entry.get())
+        res=geocode_lld(self._lld_query())
         if res is None: self._status("❌ Could not parse LLD"); return
         lat,lon,label,corners=res
         self.map_widget.set_position(lat,lon)
