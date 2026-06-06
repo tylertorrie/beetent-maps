@@ -562,6 +562,16 @@ def list_fields(co,yr):
 
 # ── Export dialogs ────────────────────────────────────────────────────────────
 
+def _center_on_parent(dialog, parent):
+    """Position *dialog* at the centre of *parent* after widgets are laid out."""
+    dialog.update_idletasks()
+    dw = dialog.winfo_width();  dh = dialog.winfo_height()
+    px = parent.winfo_rootx(); py = parent.winfo_rooty()
+    pw = parent.winfo_width(); ph = parent.winfo_height()
+    x = px + (pw - dw) // 2
+    y = py + (ph - dh) // 2
+    dialog.geometry("+%d+%d" % (x, y))
+
 class _ExportFieldPicker(ctk.CTkToplevel):
     """Modal dialog — step 1 of export: choose which fields to export."""
 
@@ -616,6 +626,7 @@ class _ExportFieldPicker(ctk.CTkToplevel):
         self._ok_btn.pack(side="right")
 
         self._rebuild_list()
+        _center_on_parent(self, parent)
 
     # ── helpers ───────────────────────────────────────────────────────────
     def _on_filter_change(self):
@@ -741,6 +752,7 @@ class _ExportTypePicker(ctk.CTkToplevel):
         self._ok_btn.pack(side="right")
 
         self._update_ok()
+        _center_on_parent(self, parent)
 
     # ── helpers ───────────────────────────────────────────────────────────
     def _on_jd_toggle(self):
