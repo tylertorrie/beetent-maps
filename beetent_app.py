@@ -868,6 +868,14 @@ class BeetentApp(ctk.CTk):
         self.shelter_circle_polys = []
         self.shelter_positions  = []
         self.show_shelters      = tk.BooleanVar(value=False)
+        # Boundary visibility (was always drawn; now togglable via toolbar checkbox)
+        self.show_boundary      = tk.BooleanVar(value=True)
+        # Master checkbox BooleanVars for each toolbar menu button
+        self.pivot_visible_var    = tk.BooleanVar(value=False)
+        self.boundary_visible_var = tk.BooleanVar(value=True)
+        self.sprayer_visible_var  = tk.BooleanVar(value=False)
+        self.planter_visible_var  = tk.BooleanVar(value=False)
+        self.shelters_visible_var = tk.BooleanVar(value=False)
         self.pin_label_mode     = "off"   # "off" | "trays" | "shelters" — what each pin shows
         self._shelter_undo      = []   # stack of (override_key, prev_value) for Reset Move
         self.shelter_tray_counts= []  # parallel to shelter_positions; per-shelter int
@@ -964,19 +972,44 @@ class BeetentApp(ctk.CTk):
         self._sync_btn.pack(side="right",padx=(0,6),pady=6)
 
     # ── Popup menu helpers ─────────────────────────────────────────────────────
-    def _make_menu_btn(self, bar, label, items, color="#2b2b2b"):
-        popup = ctk.CTkFrame(self, fg_color=UI_CARD, border_width=1, border_color=UI_BORDER, corner_radius=4)
+    def _make_menu_btn(self, bar, label, items, color="#2b2b2b",
+                       toggle_var=None, toggle_fn=None):
+        """Compound toolbar button: [☐]  label centred  [▾]
+        toggle_var / toggle_fn drive the master on/off checkbox.
+        The ▾ button opens the item dropdown as before."""
+        popup = ctk.CTkFrame(self, fg_color=UI_CARD, border_width=1,
+                             border_color=UI_BORDER, corner_radius=4)
         for item_label, item_cmd in items:
             ctk.CTkButton(popup, text=item_label, anchor="w", height=30,
                           fg_color="transparent", hover_color=UI_HOVER, text_color=UI_TEXT,
                           command=lambda p=popup, c=item_cmd: (p.place_forget(), c())
                           ).pack(fill="x", padx=2, pady=1)
-        btn_ref = [None]
-        btn = ctk.CTkButton(bar, text=label+" ▾", fg_color=color,
-                            command=lambda p=popup, r=btn_ref: self._toggle_popup(p, r[0]))
-        btn_ref[0] = btn
         self._all_popups.append(popup)
-        return btn
+
+        container = ctk.CTkFrame(bar, fg_color=color, corner_radius=6)
+
+        # Left: master toggle checkbox
+        if toggle_var is not None and toggle_fn is not None:
+            ctk.CTkCheckBox(container, variable=toggle_var, text="",
+                            width=20, checkbox_width=16, checkbox_height=16,
+                            border_color="white", fg_color="white",
+                            checkmark_color="#333333", hover_color="#ffffff33",
+                            command=lambda: toggle_fn(toggle_var.get())
+                            ).pack(side="left", padx=(7, 0), pady=5)
+
+        # Right: dropdown trigger (packed before label so it anchors right)
+        ctk.CTkButton(container, text="▾", width=26,
+                      fg_color="transparent", hover_color="#ffffff22",
+                      text_color="white",
+                      command=lambda p=popup, c=container: self._toggle_popup(p, c)
+                      ).pack(side="right", padx=(0, 2), pady=2)
+
+        # Centre: label fills the space between checkbox and ▾, text centred within it
+        ctk.CTkLabel(container, text=label, text_color="white",
+                     anchor="center", fg_color="transparent"
+                     ).pack(side="left", fill="x", expand=True, padx=2)
+
+        return container
 
     def _toggle_popup(self, popup, btn):
         if popup.winfo_ismapped():
@@ -1114,14 +1147,14 @@ class BeetentApp(ctk.CTk):
         # tracks (polygon paths anchored to absolute lat/lon — stay put when
         # the pivot is moved). All share the same exclusion width.
         self._pivot_btn = self._make_menu_btn(bb, "🎯 Pivot", [
-            ("Toggle on/off",           self._toggle_pivot),
             ("Set Pivot Point",         self._mode_pivot),
             ("Draw Track Circle",       self._mode_track),
             ("Edit Track Measurements", self._mode_edit_track_measurements),
             ("Set Track Exclusion (ft)",self._edit_track_exclusion),
             ("Add Corner Path",         self._mode_add_corner_path),
             ("Delete Corner Path",      self._mode_delete_corner_ui),
-        ], color="#1a6b3a")
+        ], color="#1a6b3a",
+           toggle_var=self.pivot_visible_var, toggle_fn=self._set_pivot_visible)
         self._pivot_btn.pack(side="left", padx=(0,4))
 
         self._bnd_btn = self._make_menu_btn(bb, "◌ Boundary", [
@@ -1131,11 +1164,11 @@ class BeetentApp(ctk.CTk):
             ("Delete Outer",        self._clear_boundary),
             ("Add Inner Boundary",  self._mode_add_inner_boundary),
             ("Delete Inner",        self._mode_delete_inner_boundary),
-        ], color="#5a3a8a")
+        ], color="#5a3a8a",
+           toggle_var=self.boundary_visible_var, toggle_fn=self._set_boundary_visible)
         self._bnd_btn.pack(side="left", padx=(0,4))
 
-        self._sp_btn = self._make_menu_btn(bb, "💦 Sprayer", [
-            ("Toggle on/off",                   self._toggle_passes),
+        self._sp_btn = self._make_menu_btn(bb, "⋰⋮⋱ Sprayer", [
             ("Edit",                            self._mode_edit_passes),
             ("Import Sprayer Data (.shp/.geojson)", self._import_sprayer_data),
             ("Toggle Uploaded Paths on/off",    self._toggle_sprayer_passes),
@@ -1143,31 +1176,31 @@ class BeetentApp(ctk.CTk):
             ("Set Edge Buffer (ft)",            self._edit_pass_edge_buffer),
             ("Toggle Edge Buffer Overlay",      self._toggle_pass_buffer_overlay),
             ("Toggle Route Around Inner",       self._toggle_route_around_inner),
-        ], color="#2a5a4a")
+        ], color="#2a5a4a",
+           toggle_var=self.sprayer_visible_var, toggle_fn=self._set_sprayer_visible)
         self._sp_btn.pack(side="left", padx=(0,4))
 
         # Planter menu: synthetic bay overlay (from bay-calculator inputs) PLUS
         # imported planter passes from a John Deere Operations Center Seeding
         # shapefile (the actual path the planter took on this field).
         self._pl_btn = self._make_menu_btn(bb, "🌱 Planter", [
-            ("Toggle Bays on/off",     self._toggle_bays),
-            ("Edit",                   self._mode_edit_bays),
+            ("Edit",                      self._mode_edit_bays),
             ("Import Planter Data (.shp)", self._import_planter_data),
-            ("Toggle Paths on/off",    self._toggle_planter_passes),
-            ("Clear Planter Data",     self._clear_planter_passes),
+            ("Clear Planter Data",        self._clear_planter_passes),
             ("Toggle Bays Through Inner", self._toggle_bays_through_inner),
-        ], color="#3a5a1a")
+        ], color="#3a5a1a",
+           toggle_var=self.planter_visible_var, toggle_fn=self._set_planter_visible)
         self._pl_btn.pack(side="left", padx=(0,4))
 
         self._shelter_btn = self._make_menu_btn(bb, "🐝 Shelters", [
-            ("Toggle Pins",          self._toggle_shelters),
             ("Add Shelter Pin",      self._mode_add_shelter),
             ("Numbers: Tray count",  lambda: self._set_pin_mode("trays")),
             ("Numbers: Shelter #",   lambda: self._set_pin_mode("shelters")),
             ("Numbers: Off",         lambda: self._set_pin_mode("off")),
             ("Toggle Buffer Zone",   self._toggle_shelter_buffers),
             ("Set Buffer Size",      self._edit_shelter_buffer),
-        ], color="#5a3000")
+        ], color="#5a3000",
+           toggle_var=self.shelters_visible_var, toggle_fn=self._set_shelters_visible)
         self._shelter_btn.pack(side="left", padx=(0,4))
 
         ctk.CTkButton(bb, text="↶ Reset Move", width=110, fg_color="#4a2a00",
@@ -2269,6 +2302,13 @@ class BeetentApp(ctk.CTk):
         self.show_planter_passes.set(False)
         self.show_sprayer_passes.set(False)
         self.show_pass_buffer_overlay.set(False)
+        # Toolbar checkbox states — boundary on by default, everything else off
+        self.show_boundary.set(True)
+        self.pivot_visible_var.set(False)
+        self.boundary_visible_var.set(True)
+        self.sprayer_visible_var.set(False)
+        self.planter_visible_var.set(False)
+        self.shelters_visible_var.set(False)
         self._form_from_field()
         self._redraw_all()
         self._zoom_to_field()
@@ -2991,6 +3031,7 @@ class BeetentApp(ctk.CTk):
             try: o.delete()
             except Exception: pass
         self.boundary_inner_polys = []
+        if not self.show_boundary.get(): return
         bp=self.current_field.get("boundary_polygon")
         if bp and len(bp)>=3:
             self.boundary_poly=self.map_widget.set_polygon(
@@ -3039,13 +3080,38 @@ class BeetentApp(ctk.CTk):
         anything anchored relative to it / around its kill zone)."""
         self._close_all_popups()
         on = not self.show_pivot.get()
-        self.show_pivot.set(on)
-        self.show_tracks.set(on)
-        self.show_corner_arms.set(on)
-        self._redraw_pivot()
-        self._redraw_tracks()
-        self._redraw_corner_arms()
+        self._set_pivot_visible(on)
         self._status("Pivot " + ("shown." if on else "hidden."))
+
+    # ── Master visibility setters (called by toolbar checkboxes) ──────────────
+    def _set_pivot_visible(self, on):
+        self.pivot_visible_var.set(on)
+        self.show_pivot.set(on); self.show_tracks.set(on); self.show_corner_arms.set(on)
+        self._redraw_pivot(); self._redraw_tracks(); self._redraw_corner_arms()
+
+    def _set_boundary_visible(self, on):
+        self.boundary_visible_var.set(on)
+        self.show_boundary.set(on)
+        self._redraw_boundary()
+
+    def _set_sprayer_visible(self, on):
+        self.sprayer_visible_var.set(on)
+        self.show_passes.set(on)
+        if on: self._redraw_passes()
+        else:  self._clear_passes()
+
+    def _set_planter_visible(self, on):
+        self.planter_visible_var.set(on)
+        self.show_bays.set(on); self.show_planter_passes.set(on)
+        if on: self._redraw_bays()
+        else:  self._clear_bays()
+        self._redraw_planter_passes()
+
+    def _set_shelters_visible(self, on):
+        self.shelters_visible_var.set(on)
+        self.show_shelters.set(on)
+        if on: self._redraw_shelters()
+        else:  self._clear_shelters()
 
     def _redraw_pivot(self):
         """Draw or clear the pivot marker based on show_pivot."""
