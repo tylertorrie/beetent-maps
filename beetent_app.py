@@ -4561,6 +4561,19 @@ class BeetentApp(ctk.CTk):
             "in the John Deere Operations Center file?\n\n"
             "(Uses each field's buffer size; fields with a 0 buffer add none.\n"
             "The field's outer boundary is never included.)")
+        if include_buffers:
+            zero_buf=[]
+            for c,y,name in scope:
+                f=load_field(c,y,name)
+                if not f: continue
+                try: bm=float(f.get("shelter_buffer_m") or 0)
+                except (ValueError,TypeError): bm=0.0
+                if bm<=0: zero_buf.append(str(f.get("Name") or name))
+            if zero_buf:
+                tkinter.messagebox.showinfo("Buffer zones — note",
+                    "The following field(s) have a buffer size of 0 ft and will\n"
+                    "not have buffer zone files in the export:\n\n"
+                    + "\n".join("  • %s" % n for n in zero_buf))
         co=self.company_var.get(); yr=self.year_var.get()
         tag="%s_%s" % ("AllCompanies" if co==ALL_COMPANIES else co,
                        "AllYears" if yr==ALL_YEARS else yr)
