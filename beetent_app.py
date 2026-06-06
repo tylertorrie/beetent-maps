@@ -2920,17 +2920,14 @@ class BeetentApp(ctk.CTk):
             self.boundary_markers.append(m); self._update_bnd_preview()
 
         elif mode=="add_shelter":
-            # Append a manual shelter pin and redraw. Stays in this mode
-            # until the user clicks ✔ Done so multiple pins can be placed
-            # in one session.
+            # Append an EXTRA shelter pin and redraw. These pins are additive —
+            # they show alongside the existing algorithm/manual pins. Stays in
+            # this mode until ✔ Done so several can be placed in one session.
             pins = self.current_field.setdefault("manual_shelter_pins", [])
             pins.append([lat, lon])
-            # If the user is in "Manual pins only" mode, the engine returns
-            # these pins as the shelter set; otherwise the pin is stored
-            # but only takes effect after the user switches to manual mode.
             self.show_shelters.set(True)
             self._redraw_shelters()
-            self._status(f"Added shelter pin #{len(pins)} — keep clicking, ✔ Done when finished.")
+            self._status(f"Added extra pin #{len(pins)} — keep clicking, ✔ Done when finished.")
 
         elif mode=="inner_boundary":
             if not hasattr(self, "inner_pts"): self.inner_pts = []
@@ -3813,36 +3810,28 @@ class BeetentApp(ctk.CTk):
             self._clear_shelters(); self._status("Shelter pins hidden.")
 
     def _mode_add_shelter(self):
-        """Click-to-add-pins mode. Automatically switches to 'Manual pins only'
-        so every pin placed is immediately visible. Each click drops a manual
-        shelter pin; drag to reposition, click to delete. ✔ Done to exit."""
+        """Click-to-add-pins mode. Each click drops an EXTRA shelter pin that
+        is added on top of the existing (algorithm or manual) pins — the pins
+        already on the map are left untouched. Drag to reposition, click to
+        delete. ✔ Done to exit."""
         self._close_all_popups()
-        # Switch to manual mode so added pins show immediately on the map.
-        if self._shelter_mode_labels.get(self.shelter_mode_var.get(), "") != "manual":
-            self.shelter_mode_var.set("Manual pins only")
-            self._on_shelter_mode_change()
         self.click_mode = "add_shelter"
         self.show_shelters.set(True)
         self._redraw_shelters()
         self._show_context_btn("✔ Done Adding Pins", self._close_add_shelter)
         n = len(self.current_field.get("manual_shelter_pins") or [])
         if n:
-            self._status(f"Click map to add shelter pins ({n} already placed). "
+            self._status(f"Click map to add extra shelter pins ({n} already added). "
                          "Drag a pin to move it, click a pin to delete it. ✔ Done when finished.")
         else:
-            self._status("Click map to add shelter pins. Drag a pin to move it, "
-                         "click a pin to delete it. ✔ Done when finished.")
+            self._status("Click map to add extra shelter pins on top of the existing ones. "
+                         "Drag a pin to move it, click a pin to delete it. ✔ Done when finished.")
 
     def _close_add_shelter(self):
         self.click_mode = None
         self._hide_context_btn()
         n = len(self.current_field.get("manual_shelter_pins") or [])
-        mode = self._shelter_mode_labels.get(self.shelter_mode_var.get(), "total")
-        if n and mode != "manual":
-            self._status(f"{n} manual pins saved. Switch shelter mode to "
-                         "\"Manual pins only\" to use them.")
-        else:
-            self._status(f"{n} manual pins saved.")
+        self._status(f"{n} extra pin(s) added." if n else "Done adding pins.")
 
     def _set_pin_mode(self, mode):
         """Pin labels: 'trays' (tray count), 'shelters' (sequential #), or 'off'."""
@@ -3855,6 +3844,7 @@ class BeetentApp(ctk.CTk):
 
     def _clear_shelters(self):
         self._unregister_drag_prefix("shelter_")
+        self._unregister_drag_prefix("manualpin_")
         for m in self.shelter_markers:
             try: m.delete()
             except Exception: pass
@@ -3865,7 +3855,16 @@ class BeetentApp(ctk.CTk):
         self.shelter_circle_polys=[]
 
     def _toggle_shelter_buffers(self):
-        self.shelter_circle_var.set(not self.shelter_circle_var.get())
+        turning_on = not self.shelter_circle_var.get()
+        if turning_on:
+            try: cur=float(self.current_field.get("shelter_buffer_m") or 0)
+            except (ValueError,TypeError): cur=0.0
+            if cur<=0:
+                # No buffer size set yet — prompt for one first. _edit_shelter_buffer
+                # turns the toggle on itself once a value > 0 is entered (and redraws).
+                self._edit_shelter_buffer()
+                return
+        self.shelter_circle_var.set(turning_on)
         if self.show_shelters.get(): self._redraw_shelters()
         self._status("Buffer zone " + ("shown." if self.shelter_circle_var.get() else "hidden."))
 
@@ -3957,17 +3956,32 @@ class BeetentApp(ctk.CTk):
             self._status(f"Shelter #{idx+1} moved — ↶ Reset Move to undo.")
         self._redraw_shelters()
 
+    # ── Extra (manual) pin handlers — additive pins, mutate manual_shelter_pins ──
+    def _on_manualpin_drag(self, idx, lat, lon):
+        pins = self.current_field.get("manual_shelter_pins") or []
+        if 0 <= idx < len(pins):
+            pins[idx] = [lat, lon]
+        self._redraw_shelters()
+
+    def _delete_manualpin(self, idx):
+        pins = self.current_field.get("manual_shelter_pins") or []
+        if 0 <= idx < len(pins):
+            pins.pop(idx)
+        self._redraw_shelters()
+        self._status("Extra pin deleted.")
+
+    def _on_manualpin_tap(self, idx):
+        """Click an extra pin → confirm + delete."""
+        if tkinter.messagebox.askyesno("Delete Pin", "Delete this extra shelter pin?"):
+            self._delete_manualpin(idx)
+
     def _redraw_shelters(self):
         self._clear_shelters()
         if not self.show_shelters.get(): return
         f=self._field_from_form()
         use_m=self.unit_var.get()=="Metres"
+        mode_key=self._shelter_mode_labels.get(self.shelter_mode_var.get(),"total")
         positions, row_idxs = maketentgrid.get_tent_positions(f,use_metric=use_m,return_rows=True)
-        if not positions:
-            self._status("⚠ No shelter positions — check field details and boundary.")
-            self.shelter_positions=[]; self.shelter_tray_counts=[]
-            self._refresh_bee_summary()
-            return
         overrides=self.current_field.get("shelter_overrides") or {}
         merged=list(positions)
         deleted=set()
@@ -3980,34 +3994,57 @@ class BeetentApp(ctk.CTk):
                     else:
                         merged[idx]=tuple(v)
             except (ValueError,TypeError): pass
-        self.shelter_positions=list(merged)
-        # Compute tray distribution across only the *visible* shelters (skipping deleted)
-        kept_indices=[i for i in range(len(merged)) if i not in deleted]
-        kept_rows = [row_idxs[i] for i in kept_indices] if row_idxs else None
-        kept_positions = [merged[i] for i in kept_indices]
-        n_visible=len(kept_indices)
+
+        # Manual pins are ADDITIVE on top of the algorithm grid — they let the
+        # user drop a few extra shelters without discarding the calculated ones.
+        # In "Manual pins only" mode get_tent_positions already returned them as
+        # `positions`, so we don't add them a second time.
+        manual_pins=[] if mode_key=="manual" else list(self.current_field.get("manual_shelter_pins") or [])
+
+        # Unified visible list: (lat, lon, kind, ident, row).  kind is "algo"
+        # (ident = original merged index → shelter_overrides) or "manual"
+        # (ident = index into manual_shelter_pins).
+        visible=[]
+        for i,(lat,lon) in enumerate(merged):
+            if i in deleted: continue
+            r=row_idxs[i] if (row_idxs and i<len(row_idxs)) else 0
+            visible.append((lat,lon,"algo",i,r))
+        for j,pt in enumerate(manual_pins):
+            try: lat,lon=float(pt[0]),float(pt[1])
+            except (TypeError,ValueError,IndexError): continue
+            visible.append((lat,lon,"manual",j,-1))
+
+        if not visible:
+            self._status("⚠ No shelter positions — check field details and boundary.")
+            self.shelter_positions=[]; self.shelter_tray_counts=[]
+            self._refresh_bee_summary()
+            return
+
+        vis_positions=[(v[0],v[1]) for v in visible]
+        vis_rows=[v[4] for v in visible]
+        n_visible=len(visible)
+        self.shelter_positions=list(vis_positions)
         total_trays, per, short, _ = self._compute_bee_distribution(
-            n_visible, kept_rows, shelter_positions_latlon=kept_positions)
-        tray_count_at={}
-        if per:
-            for k_pos, tc in zip(kept_indices, per):
-                tray_count_at[k_pos] = tc
-        self.shelter_tray_counts=[tray_count_at.get(i,0) for i in range(len(merged))]
+            n_visible, vis_rows, shelter_positions_latlon=vis_positions)
+        self.shelter_tray_counts=list(per) if per else [0]*n_visible
         mode=self.pin_label_mode
         try: BUFFER_M=float(self.current_field.get("shelter_buffer_m") or 0)
         except (ValueError,TypeError): BUFFER_M=0.0
         show_circles=self.shelter_circle_var.get() and BUFFER_M>0   # 0 size = no buffer
-        shelter_num=0   # sequential 1..N among VISIBLE shelters (matches export numbering)
-        for i,(lat,lon) in enumerate(merged):
-            if i in deleted: continue
-            shelter_num+=1
+        for seq,(lat,lon,kind,ident,row) in enumerate(visible):
             cc="#FFD700"; oc="#B8860B"
             if mode=="shelters":
-                lbl=str(shelter_num)
+                lbl=str(seq+1)
             elif mode=="trays" and per:
-                lbl=str(tray_count_at[i])
+                lbl=str(per[seq])
             else:
                 lbl=""
+            if kind=="manual":
+                drag_key=f"manualpin_{ident}"
+                drag_cb=(lambda la,lo,j=ident: self._on_manualpin_drag(j,la,lo))
+            else:
+                drag_key=f"shelter_{ident}"
+                drag_cb=(lambda la,lo,i=ident: self._on_shelter_drag(i,la,lo))
             try:
                 m=self.map_widget.set_marker(lat,lon,text=lbl,
                                               marker_color_circle=cc,
@@ -4032,8 +4069,7 @@ class BeetentApp(ctk.CTk):
                     try: m.draw()
                     except Exception: pass
                 self.shelter_markers.append(m)
-                self._register_drag(f"shelter_{i}",lat,lon,lbl,cc,oc,
-                                    lambda la,lo,i=i: self._on_shelter_drag(i,la,lo),marker=m)
+                self._register_drag(drag_key,lat,lon,lbl,cc,oc,drag_cb,marker=m)
             except Exception: pass
             if show_circles:
                 try:
@@ -4726,6 +4762,10 @@ class BeetentApp(ctk.CTk):
             #   - No mode + pin tapped → offer delete.
             #   - No mode + no pin → plain map click.
             if self.click_mode == "add_shelter" and was_pin_drag and \
+               self._drag_item and self._drag_item.startswith("manualpin_"):
+                try: self._delete_manualpin(int(self._drag_item.split("_")[1]))
+                except (ValueError, IndexError): pass
+            elif self.click_mode == "add_shelter" and was_pin_drag and \
                self._drag_item and self._drag_item.startswith("shelter_"):
                 try:
                     idx = int(self._drag_item.split("_")[1])
@@ -4736,6 +4776,10 @@ class BeetentApp(ctk.CTk):
                     lat,lon=self.map_widget.convert_canvas_coords_to_decimal_coords(event.x,event.y)
                     self._on_map_click((lat,lon))
                 except Exception: pass
+            elif was_pin_drag and self._drag_item and self._drag_item.startswith("manualpin_"):
+                # No mode active and an extra pin was tapped — offer delete
+                try: self._on_manualpin_tap(int(self._drag_item.split("_")[1]))
+                except (ValueError,IndexError): pass
             elif was_pin_drag and self._drag_item and self._drag_item.startswith("shelter_"):
                 # No mode active and a shelter pin was tapped — offer delete
                 try:
@@ -5008,7 +5052,8 @@ class BeetentApp(ctk.CTk):
 
     def _final_shelter_positions(self, f, metric):
         """Shelter positions exactly as drawn on the map: get_tent_positions
-        with the field's shelter_overrides (moved/deleted) applied."""
+        with the field's shelter_overrides (moved/deleted) applied, plus any
+        additive manual pins (extra pins placed on top of the algorithm grid)."""
         positions=maketentgrid.get_tent_positions(f,use_metric=metric)
         overrides=f.get("shelter_overrides") or {}
         merged=list(positions); deleted=set()
@@ -5019,7 +5064,69 @@ class BeetentApp(ctk.CTk):
                     if v is None: deleted.add(idx)
                     else: merged[idx]=tuple(v)
             except (ValueError,TypeError): pass
-        return [p for i,p in enumerate(merged) if i not in deleted]
+        out=[p for i,p in enumerate(merged) if i not in deleted]
+        # Additive manual pins (skipped in "Manual pins only" mode where
+        # get_tent_positions already returned them).
+        mode_key=str(f.get("shelter_mode") or "").strip().lower()
+        if mode_key!="manual":
+            for pt in (f.get("manual_shelter_pins") or []):
+                try: out.append((float(pt[0]),float(pt[1])))
+                except (TypeError,ValueError,IndexError): pass
+        return out
+
+    def _prompt_zero_buffers(self, zero_fields, metric):
+        """Modal dialog letting the user set a buffer size per zero-buffer field.
+
+        zero_fields: list of (company, year, name, display_name).
+        Returns None if the user cancels (abort export); otherwise a dict
+        {(company,year,name): buffer_m} for fields given a positive size.
+        Any positive size is also persisted to that field's JSON so the
+        export reload picks it up.
+        """
+        unit = "m" if metric else "ft"
+        win = ctk.CTkToplevel(self)
+        win.title("Set Buffer Zones")
+        win.grab_set()
+        ctk.CTkLabel(win,
+            text=("These field(s) have no buffer size set. Enter a size to\n"
+                  f"include buffer zones ({unit}), or leave 0 to skip that field."),
+            justify="left").pack(padx=14, pady=(12, 8), anchor="w")
+        body = ctk.CTkFrame(win, fg_color="transparent")
+        body.pack(fill="both", expand=True, padx=14)
+        entries = {}
+        for (c, y, name, disp) in zero_fields:
+            row = ctk.CTkFrame(body, fg_color="transparent"); row.pack(fill="x", pady=2)
+            ctk.CTkLabel(row, text=disp, width=220, anchor="w").pack(side="left")
+            var = tk.StringVar(value="0")
+            ctk.CTkEntry(row, textvariable=var, width=70).pack(side="left", padx=(4, 2))
+            ctk.CTkLabel(row, text=unit, width=24, anchor="w").pack(side="left")
+            entries[(c, y, name)] = var
+        state = {"ok": False}
+        def do_ok(): state["ok"] = True; win.destroy()
+        btns = ctk.CTkFrame(win, fg_color="transparent"); btns.pack(pady=(10, 12))
+        ctk.CTkButton(btns, text="OK — Export", command=do_ok).pack(side="left", padx=4)
+        ctk.CTkButton(btns, text="Cancel", fg_color="#555", command=win.destroy).pack(side="left", padx=4)
+        _center_on_parent(win, self)
+        self.wait_window(win)
+        if not state["ok"]:
+            return None
+        result = {}
+        for key, var in entries.items():
+            try: v = float(var.get().strip())
+            except ValueError: v = 0.0
+            if v > 0:
+                buf_m = v if metric else v * 0.3048
+                result[key] = buf_m
+                c, y, name = key
+                f = load_field(c, y, name)
+                if f:
+                    f["shelter_buffer_m"] = str(buf_m)
+                    save_field(f)
+                    if (str(self.current_field.get("company")) == c and
+                            str(self.current_field.get("year")) == y and
+                            str(self.current_field.get("Name")) == name):
+                        self.current_field["shelter_buffer_m"] = str(buf_m)
+        return result
 
     def _generate(self):
         # ── Window 1: field picker ─────────────────────────────────────────
@@ -5036,20 +5143,23 @@ class BeetentApp(ctk.CTk):
             return
         opts = dlg2.result
 
-        # ── Zero-buffer warning (JD + buffers requested) ───────────────────
+        # ── Zero-buffer handling (JD + buffers requested) ──────────────────
+        # Any selected field with a 0 buffer is offered an editable size right
+        # here; entering a value saves it to that field and includes its buffer
+        # zone in the export. Leaving 0 simply skips buffer zones for that field.
         if opts["jd"] and opts["buffers"]:
-            zero_buf=[]
+            metric_now=self.unit_var.get()=="Metres"
+            zero_fields=[]
             for c,y,name in selected_fields:
                 f=load_field(c,y,name)
                 if not f: continue
                 try: bm=float(f.get("shelter_buffer_m") or 0)
                 except (ValueError,TypeError): bm=0.0
-                if bm<=0: zero_buf.append(str(f.get("Name") or name))
-            if zero_buf:
-                tkinter.messagebox.showinfo("Buffer zones — note",
-                    "The following field(s) have a buffer size of 0 ft and will\n"
-                    "not have buffer zone files in the export:\n\n"
-                    + "\n".join("  • %s" % n for n in zero_buf))
+                if bm<=0: zero_fields.append((c,y,name,str(f.get("Name") or name)))
+            if zero_fields:
+                res=self._prompt_zero_buffers(zero_fields, metric_now)
+                if res is None:
+                    self._status("Export cancelled."); return
 
         # ── Output folder name ─────────────────────────────────────────────
         cos=set(c for c,y,n in selected_fields)
