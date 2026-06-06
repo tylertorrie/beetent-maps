@@ -1782,6 +1782,18 @@ class BeetentApp(ctk.CTk):
             if p["name"]==name:
                 for k in ("gals_per_acre","gals_per_tray"):
                     if k in p and k in self.fv: self.fv[k].set(str(p[k]))
+                # Restore the shelter rule (mode + value), then the distribution.
+                s_mode = p.get("shelter_mode")
+                if s_mode and s_mode in self._shelter_mode_inverse:
+                    s_key = self._shelter_mode_key.get(s_mode)
+                    if s_key and s_key in self.fv and s_key in p:
+                        self.fv[s_key].set(str(p[s_key]))
+                    self.shelter_mode_var.set(self._shelter_mode_inverse[s_mode])
+                    self._on_shelter_mode_change()
+                dist = p.get("tray_distribution")
+                if dist and dist in self._tray_dist_inverse:
+                    self.tray_dist_var.set(self._tray_dist_inverse[dist])
+                    self._on_tray_dist_change()
                 self.bee_preset_name_var.set(name)
                 self._loaded_bee_preset_name = name
                 break
@@ -1793,9 +1805,19 @@ class BeetentApp(ctk.CTk):
         presets = self._load_bee_presets()
         loaded  = getattr(self, "_loaded_bee_preset_name", None)
         presets = [p for p in presets if p["name"] != name and p["name"] != loaded]
-        presets.append({"name":name,
-                        "gals_per_acre":self.fv["gals_per_acre"].get(),
-                        "gals_per_tray":self.fv["gals_per_tray"].get()})
+        # Capture the shelter rule (mode + its value, e.g. "Acres per shelter" =
+        # 2) and the tray distribution alongside the gallons so a bee preset
+        # restores the whole allocation, not just gals/acre + gals/tray.
+        s_mode = self._shelter_mode_labels.get(self.shelter_mode_var.get(), "total")
+        s_key  = self._shelter_mode_key.get(s_mode)
+        entry = {"name":name,
+                 "gals_per_acre":self.fv["gals_per_acre"].get(),
+                 "gals_per_tray":self.fv["gals_per_tray"].get(),
+                 "shelter_mode":s_mode,
+                 "tray_distribution":self._tray_dist_labels.get(self.tray_dist_var.get(),"even")}
+        if s_key and s_key in self.fv:
+            entry[s_key] = self.fv[s_key].get()
+        presets.append(entry)
         self._save_bee_presets(presets)
         self._refresh_bee_preset_list()
         self.bee_preset_var.set(name)
