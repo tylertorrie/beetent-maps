@@ -531,6 +531,17 @@ def load_field(company,year,name):
     p=DATA_DIR/company/str(year)/(name+".json")
     return json.load(open(p)) if p.exists() else None
 
+def _pt_in_poly(lat,lon,poly):
+    """Ray-cast point-in-polygon. poly is [[lat,lon],...] or [(lat,lon),...].
+    Returns True if (lat,lon) is inside the polygon."""
+    inside=False; n=len(poly); j=n-1
+    for i in range(n):
+        xi,yi=poly[i][0],poly[i][1]; xj,yj=poly[j][0],poly[j][1]
+        if (yi>lat)!=(yj>lat) and lon<(xj-xi)*(lat-yi)/(yj-yi)+xi:
+            inside=not inside
+        j=i
+    return inside
+
 def delete_field_file(company,year,name):
     p=DATA_DIR/company/str(year)/(name+".json")
     if p.exists(): p.unlink()
@@ -576,6 +587,9 @@ class BeetentApp(ctk.CTk):
         self.field_circle     = None
         self.boundary_poly    = None
         self.boundary_pts     = []
+        self._overview_polys  = {}   # (co,yr,name) → dim polygon overlay
+        self._overview_field_bps = {}  # (co,yr,name) → [(lat,lon),...] for hit test
+        self._overview_gen   = 0    # incremented to cancel stale background loads
         self.boundary_markers = []
         self.track_circles    = []
         self.track_handles    = []
@@ -1932,6 +1946,7 @@ class BeetentApp(ctk.CTk):
             self._field_rows[iid]=(co,yr,name)
         if self._field_sort_col:
             self._apply_field_sort()
+        self._redraw_overview_boundaries()
 
     def _sort_fields(self,col):
         if self._field_sort_col==col:
@@ -1952,10 +1967,20 @@ class BeetentApp(ctk.CTk):
         if not sel: return
         row=self._field_rows.get(sel[0])
         if not row: return
-        co,yr,name=row
+        self._activate_field(*row)
+
+    def _activate_field(self,co,yr,name):
+        """Load a field and make it the active one. Called from the field list
+        (double-click), from a map boundary click, and from git-pull auto-reload."""
         f=load_field(co,yr,name)
         if not f: return
         self.current_field=f
+        # Highlight in the list (needed when triggered from a map click)
+        for iid,row in self._field_rows.items():
+            if row==(co,yr,name):
+                self.field_tree.selection_set(iid)
+                self.field_tree.see(iid)
+                break
         # Load shows only the boundary — everything else stays off until the
         # user opts in via the toolbar menus.
         self.show_pivot.set(False)
@@ -1971,6 +1996,57 @@ class BeetentApp(ctk.CTk):
         self._form_from_field()
         self._redraw_all()
         self._zoom_to_field()
+        # Remove this field's dim overlay (it now has the bright active boundary)
+        # and restore the previously-active field's dim overlay — handled by a
+        # full redraw of overview boundaries in the background.
+        self._redraw_overview_boundaries()
+
+    def _redraw_overview_boundaries(self):
+        """Draw dim outlines for every filtered field except the active one.
+        Runs the JSON loading in a background thread; generation counter ensures
+        a stale load doesn't overwrite a newer one."""
+        # Clear existing dim overlays immediately
+        for poly in list(self._overview_polys.values()):
+            try: poly.delete()
+            except Exception: pass
+        self._overview_polys.clear()
+        self._overview_field_bps.clear()
+
+        scope=self._export_scope()
+        active_co=str(self.current_field.get("company",""))
+        active_yr=str(self.current_field.get("year",""))
+        active_name=str(self.current_field.get("Name",""))
+        self._overview_gen+=1
+        gen=self._overview_gen
+
+        def _load():
+            results=[]
+            for co,yr,name in scope:
+                try:
+                    f=load_field(co,yr,name)
+                    bp=(f or {}).get("boundary_polygon") or []
+                    if len(bp)>=3:
+                        results.append((str(co),str(yr),str(name),bp))
+                except Exception:
+                    pass
+            self.after(0,lambda: _apply(results))
+
+        def _apply(results):
+            if self._overview_gen!=gen: return  # superseded
+            for co,yr,name,bp in results:
+                key=(co,yr,name)
+                self._overview_field_bps[key]=bp
+                if co==active_co and yr==active_yr and name==active_name:
+                    continue  # active field — bright boundary drawn by _redraw_boundary
+                try:
+                    poly=self.map_widget.set_polygon(
+                        [tuple(p) for p in bp],
+                        fill_color=None,outline_color="#607D8B",border_width=1)
+                    self._overview_polys[key]=poly
+                except Exception:
+                    pass
+
+        threading.Thread(target=_load,daemon=True).start()
 
     def _zoom_to_field(self):
         """Zoom the map so the field's outer boundary just fits in the frame.
@@ -4295,10 +4371,24 @@ class BeetentApp(ctk.CTk):
                     self._on_shelter_tap(idx)
                 except (ValueError,IndexError): pass
             elif not was_pin_drag:
-                # Plain map click (no pin nearby, no mode)
+                # Plain map click (no pin nearby, no mode).
+                # First check whether the click landed inside a non-active
+                # field boundary — if so, activate that field.
                 try:
                     lat,lon=self.map_widget.convert_canvas_coords_to_decimal_coords(event.x,event.y)
-                    self._on_map_click((lat,lon))
+                    hit=None
+                    act_co=str(self.current_field.get("company",""))
+                    act_yr=str(self.current_field.get("year",""))
+                    act_nm=str(self.current_field.get("Name",""))
+                    for (co,yr,name),bp in self._overview_field_bps.items():
+                        if co==act_co and yr==act_yr and name==act_nm:
+                            continue  # don't re-load the active field
+                        if _pt_in_poly(lat,lon,bp):
+                            hit=(co,yr,name); break
+                    if hit:
+                        self._activate_field(*hit)
+                    else:
+                        self._on_map_click((lat,lon))
                 except Exception: pass
         else:
             # Pan finished — let tkintermapview run its fading animation
