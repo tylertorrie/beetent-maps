@@ -33,5 +33,10 @@
     "name": "Corteva 2026 3 gals/acre 1 shelter/1.1 acres",
     "gals_per_acre": "3",
     "gals_per_tray": "2"
+  },
+  {
+    "name": "BASF 2026 3 gals/acre",
+    "gals_per_acre": "3",
+    "gals_per_tray": "2"
   }
 ]
