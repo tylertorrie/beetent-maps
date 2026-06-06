@@ -18,5 +18,10 @@
     "name": "4 Gals/Acre",
     "gals_per_acre": "4",
     "gals_per_tray": "2"
+  },
+  {
+    "name": "Proven Seeds 2026 2.5 gal/acre",
+    "gals_per_acre": "2",
+    "gals_per_tray": "2"
   }
 ]
