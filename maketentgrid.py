@@ -457,9 +457,9 @@ def make_tents(myzip, trimble_path, field_name, pivotpoint, radius, width, lat_s
 
     myzip.writestr("%s/googleearth/%s.kml" % (trimble_path, field_name), kml.kml())
     w.close()
-    myzip.writestr('%s/AgGPS/Data/TNTBees/BeeTents/%s/PointFeature.dbf' % (trimble_path, field_name), dbf.getvalue())
-    myzip.writestr('%s/AgGPS/Data/TNTBees/BeeTents/%s/PointFeature.shp' % (trimble_path, field_name), shp.getvalue())
-    myzip.writestr('%s/AgGPS/Data/TNTBees/BeeTents/%s/PointFeature.shx' % (trimble_path, field_name), shx.getvalue())
+    myzip.writestr('%s/AgGPS/Data/TNTBees/%s/PointFeature.dbf' % (trimble_path, field_name), dbf.getvalue())
+    myzip.writestr('%s/AgGPS/Data/TNTBees/%s/PointFeature.shp' % (trimble_path, field_name), shp.getvalue())
+    myzip.writestr('%s/AgGPS/Data/TNTBees/%s/PointFeature.shx' % (trimble_path, field_name), shx.getvalue())
     myzip.writestr('%s/spreadsheets/%s.csv' % (trimble_path, field_name), csvbuffer.getvalue().encode('utf-8'))
 
     # John Deere Operations Center — GeoJSON points
@@ -614,7 +614,7 @@ def export_field_outputs(positions_latlon, pivotpoint, out_dir, field_name,
 
     Creates, under out_dir:
       {field}_Shelter_Pins.kml                                 Google Earth points
-      Trimble/AgGPS/Data/TNTBees/BeeTents/{field}/             Trimble import set
+      AgGPS/Data/TNTBees/{field}/                              Trimble import set
           PointFeature.shp / .shx / .dbf, origin.kml, *.pos, newField.ok
       {field}.geojson                                          loose GeoJSON
       {field}_Shelter_Pins.zip                                 JD Ops Center → Flags
@@ -635,8 +635,8 @@ def export_field_outputs(positions_latlon, pivotpoint, out_dir, field_name,
         kml.newpoint(name="Shelter %d" % (i + 1), coords=[(lon, lat)])
     writer.writestr(os.path.join(out_dir, "%s_Shelter_Pins.kml" % field_name), kml.kml())
 
-    # ── Trimble shapefile set: Trimble/AgGPS/Data/TNTBees/BeeTents/{field} ───
-    field_dir = os.path.join(out_dir, "Trimble", "AgGPS", "Data", "TNTBees", "BeeTents", field_name)
+    # ── Trimble shapefile set: AgGPS/Data/TNTBees/{field} ───────────────────
+    field_dir = os.path.join(out_dir, "AgGPS", "Data", "TNTBees", field_name)
     make_files(writer, field_dir, field_name, pivotpoint)
 
     shp = BytesIO(); shx = BytesIO(); dbf = BytesIO()
@@ -2328,7 +2328,7 @@ def process_field_data(fields, dirpath, use_metric=True):
                     'Female_bays_per_width': None,
                 })
 
-                field_dir = os.path.join(dirpath, "AgGPS/Data/TNTBees/BeeTents/%s" % name)
+                field_dir = os.path.join(dirpath, "AgGPS/Data/TNTBees/%s" % name)
                 make_files(writer, field_dir, name, pivotpoint)
 
                 count = make_tents(writer, dirpath, name,
@@ -2533,7 +2533,7 @@ def process_csvfile(csv_file, path = None, use_zip = None, timestamp = None, use
                 pdfwriter.add_page()
                 make_pdf_circle_bays(pdfwriter, field)
 
-                make_files(writer, os.path.join(dirpath, "AgGPS/Data/TNTBees/BeeTents/%s" % field['Name'].strip()), 
+                make_files(writer, os.path.join(dirpath, "AgGPS/Data/TNTBees/%s" % field['Name'].strip()), 
                                    field['Name'].strip(), 
                                    (float(field['PP_Longitude']), float(field['PP_Latitude'])))
 
@@ -2557,7 +2557,7 @@ def process_csvfile(csv_file, path = None, use_zip = None, timestamp = None, use
 
                                   ) 
 
-                make_line(writer, os.path.join(dirpath, "AgGPS/Data/TNTBees/BeeTents/%s" % field['Name'].strip()), 
+                make_line(writer, os.path.join(dirpath, "AgGPS/Data/TNTBees/%s" % field['Name'].strip()), 
                                  (field['PP_Longitude'], field['PP_Latitude']), 
                                  field['Lateral_offset'], field['Seed_angle'])
 
