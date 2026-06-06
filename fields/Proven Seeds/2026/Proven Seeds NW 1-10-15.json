@@ -450,5 +450,10 @@
   "sprayer_routes_around_inner": true,
   "bays_through_inner": false,
   "manual_shelter_pins": [],
-  "shelter_overrides": {}
+  "shelter_overrides": {
+    "9": [
+      49.79336496787819,
+      -111.91586424049638
+    ]
+  }
 }
