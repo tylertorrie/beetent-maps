@@ -1313,13 +1313,14 @@ class BeetentApp(ctk.CTk):
                                               values=["— Create New —"],width=150,
                                               command=self._on_field_preset_selected)
         self.field_preset_cb.pack(side="left",padx=(2,2))
+        ctk.CTkButton(fpr,text="💾",width=30,command=self._overwrite_field_preset).pack(side="left",padx=(0,2))
         ctk.CTkButton(fpr,text="🗑",width=30,command=self._delete_field_preset).pack(side="left")
         fpr2=ctk.CTkFrame(fd,fg_color="transparent"); fpr2.pack(fill="x",pady=(2,2))
         ctk.CTkLabel(fpr2,text="Name:",width=55,anchor="w").pack(side="left")
         self.field_preset_name_var=tk.StringVar()
         self._loaded_field_preset_name=None
-        ctk.CTkEntry(fpr2,textvariable=self.field_preset_name_var,width=130).pack(side="left",padx=(2,2))
-        ctk.CTkButton(fpr2,text="Save",width=60,command=self._save_field_preset_unified).pack(side="left")
+        ctk.CTkEntry(fpr2,textvariable=self.field_preset_name_var,width=110).pack(side="left",padx=(2,2))
+        ctk.CTkButton(fpr2,text="Update Name",width=90,command=self._save_field_preset_unified).pack(side="left")
 
         fs=ctk.CTkFrame(fd,fg_color="transparent"); fs.pack(fill="x",pady=(4,0))
         self.fv={}; self.hint_labels={}; self.field_labels={}
@@ -1404,15 +1405,16 @@ class BeetentApp(ctk.CTk):
                                         values=["— Create New —"],width=160,
                                         command=self._on_preset_selected)
         self.preset_cb.pack(side="left",padx=(2,2))
+        ctk.CTkButton(preset_row,text="💾",width=30,command=self._overwrite_preset).pack(side="left",padx=(0,2))
         ctk.CTkButton(preset_row,text="🗑",width=30,command=self._delete_preset).pack(side="left")
-        # Name entry + unified Save button
+        # Name entry + rename button
         preset_name_row=ctk.CTkFrame(bc,fg_color="transparent")
         preset_name_row.pack(fill="x",pady=(2,2))
         ctk.CTkLabel(preset_name_row,text="Name:",width=55,anchor="w").pack(side="left")
         self.preset_name_var=tk.StringVar()
         self._loaded_preset_name=None
-        ctk.CTkEntry(preset_name_row,textvariable=self.preset_name_var,width=130).pack(side="left",padx=(2,2))
-        ctk.CTkButton(preset_name_row,text="Save",width=60,command=self._save_preset_unified).pack(side="left")
+        ctk.CTkEntry(preset_name_row,textvariable=self.preset_name_var,width=110).pack(side="left",padx=(2,2))
+        ctk.CTkButton(preset_name_row,text="Update Name",width=90,command=self._save_preset_unified).pack(side="left")
 
         ctk.CTkFrame(bc,height=1,fg_color=UI_BORDER).pack(fill="x",pady=(2,4))
 
@@ -1519,14 +1521,15 @@ class BeetentApp(ctk.CTk):
                                             values=["— Create New —"],width=160,
                                             command=self._on_bee_preset_selected)
         self.bee_preset_cb.pack(side="left",padx=(2,2))
+        ctk.CTkButton(bp_row,text="💾",width=30,command=self._overwrite_bee_preset).pack(side="left",padx=(0,2))
         ctk.CTkButton(bp_row,text="🗑",width=30,command=self._delete_bee_preset).pack(side="left")
         bp_row2=ctk.CTkFrame(ba,fg_color="transparent")
         bp_row2.pack(fill="x",pady=(2,2))
         ctk.CTkLabel(bp_row2,text="Name:",width=55,anchor="w").pack(side="left")
         self.bee_preset_name_var=tk.StringVar()
         self._loaded_bee_preset_name=None
-        ctk.CTkEntry(bp_row2,textvariable=self.bee_preset_name_var,width=130).pack(side="left",padx=(2,2))
-        ctk.CTkButton(bp_row2,text="Save",width=60,command=self._save_bee_preset_unified).pack(side="left")
+        ctk.CTkEntry(bp_row2,textvariable=self.bee_preset_name_var,width=110).pack(side="left",padx=(2,2))
+        ctk.CTkButton(bp_row2,text="Update Name",width=90,command=self._save_bee_preset_unified).pack(side="left")
 
         ctk.CTkFrame(ba,height=1,fg_color=UI_BORDER).pack(fill="x",pady=(2,4))
 
@@ -1737,6 +1740,23 @@ class BeetentApp(ctk.CTk):
         self._loaded_preset_name = name
         self._status(f"Saved bay preset: {name}")
 
+    def _overwrite_preset(self):
+        """💾 Save — write the current bay-calc state into the selected preset,
+        keeping its name. Creates from the Name box only if nothing is selected."""
+        loaded = getattr(self, "_loaded_preset_name", None)
+        sel = self.preset_var.get()
+        name = loaded or (sel if sel and sel != "— Create New —" else self.preset_name_var.get().strip())
+        if not name:
+            self._status("Pick a preset or type a name to save."); return
+        presets = [p for p in self._load_bay_presets() if p["name"] != name]
+        presets.append(self._bay_preset_entry(name))
+        self._save_bay_presets(presets)
+        self._refresh_preset_list()
+        self.preset_var.set(name)
+        self.preset_name_var.set(name)
+        self._loaded_preset_name = name
+        self._status(f"Saved bay preset: {name}")
+
     def _delete_preset(self):
         name=self.preset_var.get()
         if not name or name=="— Create New —": return
@@ -1796,16 +1816,10 @@ class BeetentApp(ctk.CTk):
                 self._loaded_bee_preset_name = name
                 break
 
-    def _save_bee_preset_unified(self):
-        name = self.bee_preset_name_var.get().strip()
-        if not name:
-            self._status("Enter a preset name before saving."); return
-        presets = self._load_bee_presets()
-        loaded  = getattr(self, "_loaded_bee_preset_name", None)
-        presets = [p for p in presets if p["name"] != name and p["name"] != loaded]
-        # Capture the shelter rule (mode + its value, e.g. "Acres per shelter" =
-        # 2) and the tray distribution alongside the gallons so a bee preset
-        # restores the whole allocation, not just gals/acre + gals/tray.
+    def _bee_preset_entry(self, name):
+        """Build the dict written to bee_presets.json — gallons plus the shelter
+        rule (mode + its value, e.g. Acres per shelter = 2) and the tray
+        distribution, so a bee preset restores the whole allocation."""
         s_mode = self._shelter_mode_labels.get(self.shelter_mode_var.get(), "total")
         s_key  = self._shelter_mode_key.get(s_mode)
         entry = {"name":name,
@@ -1815,10 +1829,37 @@ class BeetentApp(ctk.CTk):
                  "tray_distribution":self._tray_dist_labels.get(self.tray_dist_var.get(),"even")}
         if s_key and s_key in self.fv:
             entry[s_key] = self.fv[s_key].get()
-        presets.append(entry)
+        return entry
+
+    def _save_bee_preset_unified(self):
+        name = self.bee_preset_name_var.get().strip()
+        if not name:
+            self._status("Enter a preset name before saving."); return
+        presets = self._load_bee_presets()
+        loaded  = getattr(self, "_loaded_bee_preset_name", None)
+        presets = [p for p in presets if p["name"] != name and p["name"] != loaded]
+        presets.append(self._bee_preset_entry(name))
         self._save_bee_presets(presets)
         self._refresh_bee_preset_list()
         self.bee_preset_var.set(name)
+        self._loaded_bee_preset_name = name
+        self._status(f"Saved bee preset: {name}")
+
+    def _overwrite_bee_preset(self):
+        """💾 Save — write the current allocation (incl. shelter info) into the
+        selected preset, keeping its name. Creates one from the Name box only
+        when nothing is selected."""
+        loaded = getattr(self, "_loaded_bee_preset_name", None)
+        sel = self.bee_preset_var.get()
+        name = loaded or (sel if sel and sel != "— Create New —" else self.bee_preset_name_var.get().strip())
+        if not name:
+            self._status("Pick a preset or type a name to save."); return
+        presets = [p for p in self._load_bee_presets() if p["name"] != name]
+        presets.append(self._bee_preset_entry(name))
+        self._save_bee_presets(presets)
+        self._refresh_bee_preset_list()
+        self.bee_preset_var.set(name)
+        self.bee_preset_name_var.set(name)
         self._loaded_bee_preset_name = name
         self._status(f"Saved bee preset: {name}")
 
@@ -1907,6 +1948,23 @@ class BeetentApp(ctk.CTk):
         self._save_field_presets(presets)
         self._refresh_field_preset_list()
         self.field_preset_var.set(name)
+        self._loaded_field_preset_name = name
+        self._status(f"Saved field preset: {name}")
+
+    def _overwrite_field_preset(self):
+        """💾 Save — write the current field geometry into the selected preset,
+        keeping its name. Creates from the Name box only if nothing is selected."""
+        loaded = getattr(self, "_loaded_field_preset_name", None)
+        sel = self.field_preset_var.get()
+        name = loaded or (sel if sel and sel != "— Create New —" else self.field_preset_name_var.get().strip())
+        if not name:
+            self._status("Pick a preset or type a name to save."); return
+        presets = [p for p in self._load_field_presets() if p["name"] != name]
+        presets.append(self._field_preset_entry(name))
+        self._save_field_presets(presets)
+        self._refresh_field_preset_list()
+        self.field_preset_var.set(name)
+        self.field_preset_name_var.set(name)
         self._loaded_field_preset_name = name
         self._status(f"Saved field preset: {name}")
 
