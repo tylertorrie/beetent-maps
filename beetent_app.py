@@ -384,38 +384,54 @@ def enu_to_latlon(e,n,pivot_lat,pivot_lon):
 def inset_polygon_enu(poly_enu, dist):
     """Offset every edge of poly_enu inward by dist metres.
 
-    Uses Sutherland-Hodgman clipping: the polygon is clipped against
-    the inset half-plane of each boundary edge in turn.  Every vertex
-    of the result is therefore >= dist from every boundary edge.
-    Narrow corridors (width < 2*dist) naturally shrink to nothing —
-    no corner-join artefacts or spikes.
+    Simple parallel offset: each edge shifts inward by dist, corners
+    joined by miter or bevel:
+      - Concave corners (t >= 1) and shallow convex (d <= 1.5*dist):
+        miter join — natural intersection, follows the boundary shape.
+      - Sharp convex corners (t < 1 and d > 1.5*dist): bevel join —
+        straight cut from one offset endpoint to the next, no spike.
+
+    Normal direction is determined from the polygon's signed area
+    (winding direction) rather than a per-edge centroid check, which
+    is unreliable when the centroid is close to an edge.
     """
     n=len(poly_enu)
     if n<3: return []
-    cx=sum(e for e,_ in poly_enu)/n; cn=sum(nn for _,nn in poly_enu)/n
-    result=list(poly_enu)
+    # Signed area: positive = CCW, negative = CW
+    area2=sum(poly_enu[i][0]*poly_enu[(i+1)%n][1]-
+              poly_enu[(i+1)%n][0]*poly_enu[i][1] for i in range(n))
+    # For CCW: inward normal = (-dy, dx)/L
+    # For CW:  inward normal = ( dy,-dx)/L  (flip sign)
+    wind=1 if area2>0 else -1
+    edges=[]; src_vertex=[]
     for i in range(n):
-        if len(result)<3: return []
         e1,n1=poly_enu[i]; e2,n2=poly_enu[(i+1)%n]
         dx,dy=e2-e1,n2-n1; L=math.sqrt(dx*dx+dy*dy)
         if L<1e-9: continue
-        nx,ny=-dy/L,dx/L
-        me,mn=(e1+e2)/2,(n1+n2)/2
-        if (cx-me)*nx+(cn-mn)*ny<0: nx,ny=-nx,-ny
-        # Any point on the inset line for this edge
-        px,py=e1+dist*nx,n1+dist*ny
-        clipped=[]
-        m=len(result)
-        for j in range(m):
-            cur=result[j]; nxt=result[(j+1)%m]
-            dc=(cur[0]-px)*nx+(cur[1]-py)*ny
-            dn=(nxt[0]-px)*nx+(nxt[1]-py)*ny
-            if dc>=0: clipped.append(cur)
-            if (dc>=0)!=(dn>=0):
-                t=dc/(dc-dn)
-                clipped.append((cur[0]+t*(nxt[0]-cur[0]),
-                                 cur[1]+t*(nxt[1]-cur[1])))
-        result=clipped
+        nx,ny=wind*(-dy/L),wind*(dx/L)
+        edges.append(((e1+dist*nx,n1+dist*ny),(e2+dist*nx,n2+dist*ny)))
+        src_vertex.append((e2,n2))
+    if len(edges)<3: return []
+    miter_threshold=1.5*abs(dist)
+    result=[]
+    for i in range(len(edges)):
+        a=edges[i]; b=edges[(i+1)%len(edges)]
+        ax,ay=a[1][0]-a[0][0],a[1][1]-a[0][1]
+        bx,by=b[1][0]-b[0][0],b[1][1]-b[0][1]
+        det=ax*(-by)-(-bx)*ay
+        if abs(det)<1e-9:
+            result.append(((a[1][0]+b[0][0])/2,(a[1][1]+b[0][1])/2))
+            continue
+        ddx=b[0][0]-a[0][0]; ddy=b[0][1]-a[0][1]
+        t=(ddx*(-by)-ddy*(-bx))/det
+        ix,iy=a[0][0]+t*ax,a[0][1]+t*ay
+        ovx,ovy=src_vertex[i]
+        d=math.sqrt((ix-ovx)**2+(iy-ovy)**2)
+        if t>=1.0 or d<=miter_threshold:
+            result.append((ix,iy))
+        else:
+            result.append(a[1])
+            result.append(b[0])
     return result
 
 def clip_line_to_polygon_intervals(px, py, dx, dy, polygon):
