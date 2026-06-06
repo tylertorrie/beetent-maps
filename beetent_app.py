@@ -2035,7 +2035,10 @@ class BeetentApp(ctk.CTk):
         rl = f.get("row_layout","centered")
         self.row_layout_var.set(self._row_layout_inverse.get(rl,"Centered male"))
         self.custom_mask_var.set(str(f.get("custom_row_mask","")))
-        self.use_imported_passes_var.set(bool(f.get("use_imported_passes",True)))
+        # Default OFF when no planter data has been uploaded; respect the
+        # saved value (which may be False if the user manually turned it off).
+        has_planter = bool(f.get("planter_passes"))
+        self.use_imported_passes_var.set(has_planter and bool(f.get("use_imported_passes", True)))
         # Pre-existing fields default to bay mode (canola). New non-canola
         # fields will save the unchecked state. Also re-sync the frame
         # visibility so the bay-only widgets show/hide with the load.
@@ -2450,7 +2453,15 @@ class BeetentApp(ctk.CTk):
     def _mode_track(self):
         self._close_all_popups()
         if not self.fv["PP_Latitude"].get(): self._status("Set pivot first."); return
-        self.click_mode="track"; self._status("Click on map to set track radius from pivot…")
+        self.click_mode="track"
+        self._show_context_btn("✔ Done Adding Tracks", self._close_add_track)
+        self._status("Click map to place track circles. ✔ Done when finished.")
+
+    def _close_add_track(self):
+        self.click_mode=None
+        self._hide_context_btn()
+        n=len(self.current_field.get("pivot_tracks") or [])
+        self._status(f"{n} pivot track(s) saved.")
 
     def _on_map_click(self,coords):
         lat,lon=coords
@@ -2518,10 +2529,11 @@ class BeetentApp(ctk.CTk):
             except ValueError: self._status("Set pivot first."); return
             r_m=haversine_m(plat,plon,lat,lon)
             self.current_field.setdefault("pivot_tracks",[]).append(round(r_m,2))
-            self.click_mode=None; self._status(f"Track added: {r_m:.1f} m ({r_m/0.3048:.1f} ft)")
-            # Auto-enable the tracks layer so the newly-added circle is visible
-            # without the user having to remember to toggle it on. (Field-select
-            # turns this off by default.)
+            # Stay in track mode so multiple circles can be placed without
+            # re-clicking the menu. click_mode cleared by ✔ Done.
+            n=len(self.current_field["pivot_tracks"])
+            self._status(f"Track {n} added: {r_m:.1f} m ({r_m/0.3048:.1f} ft). "
+                         "Click for another, or ✔ Done.")
             self.show_tracks.set(True)
             self._refresh_track_list(); self._redraw_tracks()
 
@@ -3220,6 +3232,7 @@ class BeetentApp(ctk.CTk):
         self.current_field["planter_passes"] = [
             [[lat, lon] for lat, lon in p] for p in passes
         ]
+        self.use_imported_passes_var.set(True)
         self.show_planter_passes.set(True)
         self._redraw_planter_passes()
         n_pts = sum(len(p) for p in passes)
@@ -4178,7 +4191,7 @@ class BeetentApp(ctk.CTk):
         try:
             lat0,lon0=self.map_widget.convert_canvas_coords_to_decimal_coords(event.x,event.y)
             mpp=self._pixel_scale()
-            threshold_m=max(50*mpp,30.0)
+            threshold_m=max(12*mpp,8.0)
             best_dist=threshold_m
             for did,info in self._drag_registry.items():
                 d=haversine_m(info['lat'],info['lon'],lat0,lon0)
