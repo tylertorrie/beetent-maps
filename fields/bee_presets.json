@@ -20,11 +20,6 @@
     "gals_per_tray": "2"
   },
   {
-    "name": "BASF 3 gals/acre 1 shelter/2 acres",
-    "gals_per_acre": "3",
-    "gals_per_tray": "2"
-  },
-  {
     "name": "Hytech 2026 4 gals/acre 1 shelter/2 acres",
     "gals_per_acre": "4",
     "gals_per_tray": "2"
