@@ -12,5 +12,16 @@
     "planter_width_ft": "36.66",
     "num_female_rows": "16",
     "num_male_rows": "4"
+  },
+  {
+    "name": "16 Row/ 4 Male Centered",
+    "row_spacing_in": "22",
+    "total_rows": "16",
+    "num_female_rows": "12",
+    "num_male_rows": "4",
+    "row_layout": "centered",
+    "custom_row_mask": "",
+    "shelter_mode": "total",
+    "num_structures": ""
   }
 ]
