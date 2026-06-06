@@ -1182,8 +1182,6 @@ class BeetentApp(ctk.CTk):
             ("Edit Span Lengths",       self._mode_edit_track_measurements),
             ("Set Buffer Zone (ft)",    self._edit_track_exclusion),
             ("Add Corner Path",         self._mode_add_corner_path),
-            ("Edit Corner Path",        self._mode_edit_corner_path),
-            ("Delete Corner Path",      self._mode_delete_corner_ui),
         ], color="#1a6b3a",
            toggle_var=self.pivot_visible_var, toggle_fn=self._set_pivot_visible)
         self._pivot_btn.pack(side="left", padx=(0,4))
@@ -5095,17 +5093,38 @@ class BeetentApp(ctk.CTk):
         # Always let tkintermapview record the press so panning works correctly
         try: self.map_widget.mouse_click(event)
         except Exception: pass
-        # Find nearest registered pin
+        # Find the pin under the cursor. Preferred: the click lands inside a
+        # pin's drawn image (teardrop body + pointer) in canvas pixels, so any
+        # part of the pin is grabbable. Fallback: nearest pin anchor within a
+        # small radius (covers pins without a live marker).
+        #
+        # The marker is drawn with its pointer tip at the anchor (cx, cy):
+        #   circle  bbox  = (cx-14, cy-45) .. (cx+14, cy-17)
+        #   pointer triangle apex at (cx, cy)
+        # so the whole image spans x∈[cx-16, cx+16], y∈[cy-48, cy+3] (padded).
         best_id=None; lat0=lon0=None
         try:
             lat0,lon0=self.map_widget.convert_canvas_coords_to_decimal_coords(event.x,event.y)
             mpp=self._pixel_scale()
-            threshold_m=max(12*mpp,8.0)
-            best_dist=threshold_m
+            ex,ey=event.x,event.y
+            best_dist=max(12*mpp,8.0)   # fallback: nearest-anchor threshold (m)
+            best_box=None               # (canvas-dist², id) for image-box hits
             for did,info in self._drag_registry.items():
+                m=info.get('marker')
+                if m is not None and not getattr(m,'deleted',False):
+                    try: cx,cy=m.get_canvas_pos(m.position)
+                    except Exception: cx=cy=None
+                    if cx is not None and (cx-16)<=ex<=(cx+16) and (cy-48)<=ey<=(cy+3):
+                        # Inside this pin's image — rank by distance to the
+                        # circle centre so overlapping pins resolve sensibly.
+                        dpx=(ex-cx)**2+(ey-(cy-31))**2
+                        if best_box is None or dpx<best_box[0]:
+                            best_box=(dpx,did)
                 d=haversine_m(info['lat'],info['lon'],lat0,lon0)
                 if d<best_dist:
                     best_dist=d; best_id=did
+            if best_box is not None:
+                best_id=best_box[1]   # an image-box hit always wins
         except Exception:
             best_id=None
         if best_id:
