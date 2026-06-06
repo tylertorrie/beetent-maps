@@ -381,21 +381,18 @@ def enu_to_latlon(e,n,pivot_lat,pivot_lon):
     lon2,lat2=utmish.to_lonlat(pe+e,pn+n,pivot_lon)
     return lat2,lon2
 
-def inset_polygon_enu(poly_enu, dist, miter_limit=1.5):
+def inset_polygon_enu(poly_enu, dist):
     """Offset every edge of poly_enu inward by dist metres.
 
-    Corner joins:
-      * Miter — natural intersection of the two offset edges. Used when
-        the spike stays within miter_limit of the original vertex.
-      * Bevel — straight cut from one offset edge's endpoint to the
-        next offset edge's startpoint. Used at sharp corners where the
-        miter would spike too far; never backtracks.
+    All corners use a bevel join: straight cut from one offset edge's
+    natural endpoint to the next edge's natural startpoint. This is
+    always the shortest possible path between them and never produces
+    a spike or backtrack at any corner angle.
     """
     n=len(poly_enu)
     if n<3: return []
     cx=sum(e for e,_ in poly_enu)/n; cn=sum(nn for _,nn in poly_enu)/n
     edges=[]
-    src_vertex=[]   # original (next) vertex paired with each edge
     for i in range(n):
         e1,n1=poly_enu[i]; e2,n2=poly_enu[(i+1)%n]
         dx2,dy2=e2-e1,n2-n1; L=math.sqrt(dx2*dx2+dy2*dy2)
@@ -404,32 +401,13 @@ def inset_polygon_enu(poly_enu, dist, miter_limit=1.5):
         me,mn=(e1+e2)/2,(n1+n2)/2
         if (cx-me)*nx+(cn-mn)*ny<0: nx,ny=-nx,-ny
         edges.append(((e1+dist*nx,n1+dist*ny),(e2+dist*nx,n2+dist*ny)))
-        src_vertex.append((e2, n2))
     if len(edges)<3: return []
     result=[]
-    miter_threshold = miter_limit * abs(dist)
     for i in range(len(edges)):
         a=edges[i]; b=edges[(i+1)%len(edges)]
-        ax,ay=a[1][0]-a[0][0],a[1][1]-a[0][1]
-        bx,by=b[1][0]-b[0][0],b[1][1]-b[0][1]
-        det=ax*(-by)-(-bx)*ay
-        if abs(det)<1e-9:
-            result.append(((a[1][0]+b[0][0])/2,(a[1][1]+b[0][1])/2))
-            continue
-        ddx=b[0][0]-a[0][0]; ddy=b[0][1]-a[0][1]
-        t=(ddx*(-by)-ddy*(-bx))/det
-        ix, iy = a[0][0]+t*ax, a[0][1]+t*ay
-        ovx, ovy = src_vertex[i]
-        d = math.sqrt((ix - ovx)**2 + (iy - ovy)**2)
-        if d <= miter_threshold:
-            result.append((ix, iy))
-            continue
-        # Bevel join — straight cut from a's natural endpoint to b's
-        # natural startpoint. Always the shortest path between them and
-        # can never backtrack, unlike an arc whose sweep direction is
-        # ambiguous at acute or near-degenerate corners.
         result.append(a[1])
-        result.append(b[0])
+        if abs(a[1][0]-b[0][0])>1e-6 or abs(a[1][1]-b[0][1])>1e-6:
+            result.append(b[0])
     return result
 
 def clip_line_to_polygon_intervals(px, py, dx, dy, polygon):
