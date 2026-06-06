@@ -560,6 +560,225 @@ def list_fields(co,yr):
     return sorted(p.stem for p in d.glob("*.json")) if d.exists() else []
 
 
+# ── Export dialogs ────────────────────────────────────────────────────────────
+
+class _ExportFieldPicker(ctk.CTkToplevel):
+    """Modal dialog — step 1 of export: choose which fields to export."""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.title("Export — Select Fields")
+        self.resizable(True, True)
+        self.grab_set()
+        self.result = None          # [(co, yr, name), ...] or None if cancelled
+        self._checkboxes = {}       # (co, yr, name) -> BooleanVar
+
+        # ── Company / Year filter row ──────────────────────────────────────
+        top = ctk.CTkFrame(self, fg_color="transparent")
+        top.pack(fill="x", padx=12, pady=(12, 4))
+
+        ctk.CTkLabel(top, text="Company:").pack(side="left")
+        self._co_var = ctk.StringVar(value=ALL_COMPANIES)
+        self._co_cb  = ctk.CTkComboBox(top, variable=self._co_var,
+                                        values=[ALL_COMPANIES]+list_companies(),
+                                        width=170,
+                                        command=lambda _: self._on_filter_change())
+        self._co_cb.pack(side="left", padx=(4,14))
+
+        ctk.CTkLabel(top, text="Year:").pack(side="left")
+        self._yr_var = ctk.StringVar(value=ALL_YEARS)
+        self._yr_cb  = ctk.CTkComboBox(top, variable=self._yr_var,
+                                        values=[ALL_YEARS],
+                                        width=110,
+                                        command=lambda _: self._on_filter_change())
+        self._yr_cb.pack(side="left", padx=(4,0))
+
+        # ── Select All / Deselect All + count ─────────────────────────────
+        btn_row = ctk.CTkFrame(self, fg_color="transparent")
+        btn_row.pack(fill="x", padx=12, pady=(6,0))
+        ctk.CTkButton(btn_row, text="Select All",   width=100,
+                      command=self._select_all).pack(side="left", padx=(0,6))
+        ctk.CTkButton(btn_row, text="Deselect All", width=110,
+                      command=self._deselect_all).pack(side="left")
+        self._count_lbl = ctk.CTkLabel(btn_row, text="")
+        self._count_lbl.pack(side="right")
+
+        # ── Scrollable field checklist ─────────────────────────────────────
+        self._scroll = ctk.CTkScrollableFrame(self, width=440, height=320)
+        self._scroll.pack(fill="both", expand=True, padx=12, pady=8)
+
+        # ── OK / Cancel ────────────────────────────────────────────────────
+        bot = ctk.CTkFrame(self, fg_color="transparent")
+        bot.pack(fill="x", padx=12, pady=(0,12))
+        ctk.CTkButton(bot, text="Cancel", width=80, fg_color="grey40",
+                      command=self._cancel).pack(side="right", padx=(6,0))
+        self._ok_btn = ctk.CTkButton(bot, text="OK", width=80, command=self._ok)
+        self._ok_btn.pack(side="right")
+
+        self._rebuild_list()
+
+    # ── helpers ───────────────────────────────────────────────────────────
+    def _on_filter_change(self):
+        co = self._co_var.get()
+        yrs = [ALL_YEARS] + (list_years(co) if co != ALL_COMPANIES else [])
+        self._yr_cb.configure(values=yrs)
+        if self._yr_var.get() not in yrs:
+            self._yr_var.set(ALL_YEARS)
+        self._rebuild_list()
+
+    def _scope(self):
+        co = self._co_var.get(); yr = self._yr_var.get()
+        companies = list_companies() if co == ALL_COMPANIES else [co]
+        out = []
+        for c in companies:
+            years = list_years(c) if yr == ALL_YEARS else [yr]
+            for y in years:
+                for name in list_fields(c, y):
+                    out.append((c, y, name))
+        return out
+
+    def _rebuild_list(self):
+        for w in self._scroll.winfo_children():
+            w.destroy()
+        self._checkboxes.clear()
+        scope = self._scope()
+        multi = (self._co_var.get() == ALL_COMPANIES or
+                 self._yr_var.get() == ALL_YEARS)
+        for co, yr, name in scope:
+            var = ctk.BooleanVar(value=True)
+            label = "%s  (%s / %s)" % (name, co, yr) if multi else name
+            ctk.CTkCheckBox(self._scroll, text=label, variable=var,
+                            command=self._update_count).pack(anchor="w", pady=2)
+            self._checkboxes[(co, yr, name)] = var
+        self._update_count()
+
+    def _select_all(self):
+        for v in self._checkboxes.values(): v.set(True)
+        self._update_count()
+
+    def _deselect_all(self):
+        for v in self._checkboxes.values(): v.set(False)
+        self._update_count()
+
+    def _update_count(self):
+        total   = len(self._checkboxes)
+        checked = sum(1 for v in self._checkboxes.values() if v.get())
+        self._count_lbl.configure(text="%d of %d selected" % (checked, total))
+        self._ok_btn.configure(state="normal" if checked > 0 else "disabled")
+
+    def _ok(self):
+        self.result = [(co, yr, name)
+                       for (co, yr, name), v in self._checkboxes.items() if v.get()]
+        self.destroy()
+
+    def _cancel(self):
+        self.destroy()          # self.result stays None
+
+
+class _ExportTypePicker(ctk.CTkToplevel):
+    """Modal dialog — step 2 of export: choose which output types to write."""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.title("Export — Select Output Types")
+        self.resizable(False, False)
+        self.grab_set()
+        self.result = None      # dict or None if cancelled
+
+        self._agps_var    = ctk.BooleanVar(value=True)
+        self._jd_var      = ctk.BooleanVar(value=True)
+        self._buffers_var = ctk.BooleanVar(value=True)
+        self._kml_var     = ctk.BooleanVar(value=True)
+        self._geojson_var = ctk.BooleanVar(value=True)
+        self._bnd_var     = ctk.BooleanVar(value=True)
+        # The five main toggles (buffer zones follow JD)
+        self._main_vars = [self._agps_var, self._jd_var,
+                           self._kml_var, self._geojson_var, self._bnd_var]
+
+        frame = ctk.CTkFrame(self, fg_color="transparent")
+        frame.pack(fill="both", expand=True, padx=16, pady=(16,4))
+
+        ctk.CTkCheckBox(frame, text="AgGPS (Trimble)",
+                        variable=self._agps_var,
+                        command=self._update_ok).pack(anchor="w", pady=4)
+
+        ctk.CTkCheckBox(frame, text="John Deere Shapefiles",
+                        variable=self._jd_var,
+                        command=self._on_jd_toggle).pack(anchor="w", pady=4)
+
+        self._buf_cb = ctk.CTkCheckBox(frame,
+                        text="      Include shelter buffer zones",
+                        variable=self._buffers_var,
+                        command=self._update_ok)
+        self._buf_cb.pack(anchor="w", pady=1)
+
+        ctk.CTkCheckBox(frame, text="Shelter Pins KML",
+                        variable=self._kml_var,
+                        command=self._update_ok).pack(anchor="w", pady=4)
+
+        ctk.CTkCheckBox(frame, text="GeoJSON Files",
+                        variable=self._geojson_var,
+                        command=self._update_ok).pack(anchor="w", pady=4)
+
+        ctk.CTkCheckBox(frame, text="Boundary Files",
+                        variable=self._bnd_var,
+                        command=self._update_ok).pack(anchor="w", pady=4)
+
+        # ── Select All / Deselect All ──────────────────────────────────────
+        btn_row = ctk.CTkFrame(self, fg_color="transparent")
+        btn_row.pack(fill="x", padx=16, pady=(4,0))
+        ctk.CTkButton(btn_row, text="Select All",   width=100,
+                      command=self._select_all).pack(side="left", padx=(0,6))
+        ctk.CTkButton(btn_row, text="Deselect All", width=110,
+                      command=self._deselect_all).pack(side="left")
+
+        # ── OK / Cancel ────────────────────────────────────────────────────
+        bot = ctk.CTkFrame(self, fg_color="transparent")
+        bot.pack(fill="x", padx=16, pady=(12,16))
+        ctk.CTkButton(bot, text="Cancel", width=80, fg_color="grey40",
+                      command=self._cancel).pack(side="right", padx=(6,0))
+        self._ok_btn = ctk.CTkButton(bot, text="OK", width=80, command=self._ok)
+        self._ok_btn.pack(side="right")
+
+        self._update_ok()
+
+    # ── helpers ───────────────────────────────────────────────────────────
+    def _on_jd_toggle(self):
+        self._buf_cb.configure(
+            state="normal" if self._jd_var.get() else "disabled")
+        self._update_ok()
+
+    def _select_all(self):
+        for v in self._main_vars: v.set(True)
+        self._buffers_var.set(True)
+        self._buf_cb.configure(state="normal")
+        self._update_ok()
+
+    def _deselect_all(self):
+        for v in self._main_vars: v.set(False)
+        self._buffers_var.set(False)
+        self._buf_cb.configure(state="disabled")
+        self._update_ok()
+
+    def _update_ok(self):
+        self._ok_btn.configure(
+            state="normal" if any(v.get() for v in self._main_vars) else "disabled")
+
+    def _ok(self):
+        self.result = {
+            "agps":     self._agps_var.get(),
+            "jd":       self._jd_var.get(),
+            "buffers":  self._buffers_var.get() and self._jd_var.get(),
+            "kml":      self._kml_var.get(),
+            "geojson":  self._geojson_var.get(),
+            "boundary": self._bnd_var.get(),
+        }
+        self.destroy()
+
+    def _cancel(self):
+        self.destroy()          # self.result stays None
+
+
 # ── Application ───────────────────────────────────────────────────────────────
 class BeetentApp(ctk.CTk):
     def __init__(self):
@@ -4552,18 +4771,24 @@ class BeetentApp(ctk.CTk):
         return [p for i,p in enumerate(merged) if i not in deleted]
 
     def _generate(self):
-        scope=self._export_scope()
-        if not scope:
-            tkinter.messagebox.showwarning("No fields",
-                "No saved fields match the current Company / Year selection."); return
-        include_buffers=tkinter.messagebox.askyesno("Buffer zones",
-            "Include each shelter's buffer zone as a passable interior boundary\n"
-            "in the John Deere Operations Center file?\n\n"
-            "(Uses each field's buffer size; fields with a 0 buffer add none.\n"
-            "The field's outer boundary is never included.)")
-        if include_buffers:
+        # ── Window 1: field picker ─────────────────────────────────────────
+        dlg1 = _ExportFieldPicker(self)
+        self.wait_window(dlg1)
+        if not dlg1.result:
+            return
+        selected_fields = dlg1.result
+
+        # ── Window 2: output type picker ───────────────────────────────────
+        dlg2 = _ExportTypePicker(self)
+        self.wait_window(dlg2)
+        if not dlg2.result:
+            return
+        opts = dlg2.result
+
+        # ── Zero-buffer warning (JD + buffers requested) ───────────────────
+        if opts["jd"] and opts["buffers"]:
             zero_buf=[]
-            for c,y,name in scope:
+            for c,y,name in selected_fields:
                 f=load_field(c,y,name)
                 if not f: continue
                 try: bm=float(f.get("shelter_buffer_m") or 0)
@@ -4574,45 +4799,56 @@ class BeetentApp(ctk.CTk):
                     "The following field(s) have a buffer size of 0 ft and will\n"
                     "not have buffer zone files in the export:\n\n"
                     + "\n".join("  • %s" % n for n in zero_buf))
-        co=self.company_var.get(); yr=self.year_var.get()
-        tag="%s_%s" % ("AllCompanies" if co==ALL_COMPANIES else co,
-                       "AllYears" if yr==ALL_YEARS else yr)
-        tag=re.sub(r"[^A-Za-z0-9_-]+","_",tag).strip("_") or "export"
+
+        # ── Output folder name ─────────────────────────────────────────────
+        cos=set(c for c,y,n in selected_fields)
+        yrs=set(y for c,y,n in selected_fields)
+        co_tag=list(cos)[0] if len(cos)==1 else "MultiCompany"
+        yr_tag=list(yrs)[0] if len(yrs)==1 else "MultiYear"
+        tag=re.sub(r"[^A-Za-z0-9_-]+","_","%s_%s"%(co_tag,yr_tag)).strip("_") or "export"
         stamp=datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
-        out_dir=Path.home()/"Downloads"/("BeeTents_%s_%s" % (tag,stamp))
+        out_dir=Path.home()/"Downloads"/("BeeTents_%s_%s"%(tag,stamp))
         metric=self.unit_var.get()=="Metres"
-        self._log("Generating %d field(s) → %s" % (len(scope),out_dir)); self.update()
+        self._log("Generating %d field(s) → %s"%(len(selected_fields),out_dir)); self.update()
+
+        # ── Export thread ──────────────────────────────────────────────────
         def run():
             try:
                 ok=0
-                for c,y,name in scope:
+                for c,y,name in selected_fields:
                     f=load_field(c,y,name)
                     if not f: continue
                     try:
                         pivotpoint=(float(f["PP_Longitude"]),float(f["PP_Latitude"]))
                     except (KeyError,ValueError,TypeError):
-                        self.after(0,lambda n=name:self._log("  skipped %s — no pivot point" % n)); continue
+                        self.after(0,lambda n=name:self._log("  skipped %s — no pivot point"%n)); continue
                     positions=self._final_shelter_positions(f,metric)
                     if not positions:
-                        self.after(0,lambda n=name:self._log("  skipped %s — no shelters" % n)); continue
+                        self.after(0,lambda n=name:self._log("  skipped %s — no shelters"%n)); continue
                     fname=str(f.get("Name") or name).strip()
                     try: buf_m=float(f.get("shelter_buffer_m") or 0)
                     except (ValueError,TypeError): buf_m=0.0
                     outer_boundary=f.get("boundary_polygon") or None
-                    maketentgrid.export_field_outputs(positions,pivotpoint,str(out_dir),fname,
-                                                      include_buffers=include_buffers,
-                                                      buffer_radius_m=buf_m,
-                                                      outer_boundary=outer_boundary)
+                    maketentgrid.export_field_outputs(
+                        positions, pivotpoint, str(out_dir), fname,
+                        include_buffers=opts["buffers"],
+                        buffer_radius_m=buf_m,
+                        outer_boundary=outer_boundary,
+                        write_agps=opts["agps"],
+                        write_jd=opts["jd"],
+                        write_kml=opts["kml"],
+                        write_geojson=opts["geojson"],
+                        write_boundary=opts["boundary"],
+                    )
                     ok+=1
-                    self.after(0,lambda n=fname,k=len(positions):self._log("  ✓ %s (%d shelters)" % (n,k)))
-                self.after(0,lambda:self._log("Done. %d/%d fields exported." % (ok,len(scope))))
+                    self.after(0,lambda n=fname,k=len(positions):self._log("  ✓ %s (%d shelters)"%(n,k)))
+                self.after(0,lambda:self._log("Done. %d/%d fields exported."%(ok,len(selected_fields))))
                 self.after(0,lambda:tkinter.messagebox.showinfo("Done",
                     "%d field(s) written to:\n%s\n\n"
                     "Trimble: copy AgGPS\\ folder to USB root.\n"
                     "\n"
                     "John Deere Operations Center (John Deere\\ folder):\n"
-                    "  Upload Files → Flags → drop\n"
-                    "    {field}_Shelter_Pins_shp.zip\n"
+                    "  Upload Files → Flags → drop {field}_Shelter_Pins_shp.zip\n"
                     "  Upload Files → Internal Boundaries → drop\n"
                     "    {field}_Shelter_Buffer_Zones_shp.zip  (if buffers enabled)\n"
                     "\n"
@@ -4620,7 +4856,7 @@ class BeetentApp(ctk.CTk):
                     "\n"
                     "Boundary Files\\ has the field boundary as shapefile and KML\n"
                     "(fields without a drawn boundary are skipped)."
-                    % (ok,out_dir)))
+                    %(ok,out_dir)))
                 try: self.after(0,lambda:os.startfile(str(out_dir)))
                 except Exception: pass
             except Exception:

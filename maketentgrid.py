@@ -592,18 +592,20 @@ def _make_geojson_with_buffers(lonlat_list, field_name, include_buffers=False,
 
 def export_field_outputs(positions_latlon, pivotpoint, out_dir, field_name,
                          include_buffers=False, buffer_radius_m=1.524,
-                         outer_boundary=None):
+                         outer_boundary=None,
+                         write_agps=True, write_jd=True, write_kml=True,
+                         write_geojson=True, write_boundary=True):
     """Write the per-field export files from already-computed shelter positions
     (so the output matches exactly what get_tent_positions drew on the map).
 
-    Creates, under out_dir:
-      {field}_Shelter_Pins.kml                                 Google Earth points
-      AgGPS/Data/TNTBees/{field}/                              Trimble import set
-          PointFeature.shp / .shx / .dbf, origin.kml, *.pos, newField.ok
-      {field}.geojson                                          loose GeoJSON
-      {field}_Shelter_Pins.zip                                 JD Ops Center → Flags
-      {field}_Shelter_Buffer_Zones.zip                         JD → Internal Boundaries
-          (only when include_buffers is True)
+    Creates, under out_dir (each section only written when its write_* flag is True):
+      Shelter Pins KML/{field}_Shelter_Pins.kml          Google Earth points
+      AgGPS/Data/TNTBees/{field}/                         Trimble import set
+      GeoJSON Files/{field}.geojson                       loose GeoJSON
+      John Deere/{field}_Shelter_Pins_shp.zip             JD Ops Center → Flags
+      John Deere/{field}_Shelter_Buffer_Zones_shp.zip     JD → Internal Boundaries
+      Boundary Files/kml files/{field}_Boundary.kml       field boundary KML
+      Boundary Files/shp files/{field}_Boundary_shp.zip   field boundary shapefile
 
     positions_latlon : [(lat, lon), ...]
     pivotpoint       : (lon, lat)
@@ -617,137 +619,133 @@ def export_field_outputs(positions_latlon, pivotpoint, out_dir, field_name,
     bnd_shp_dir = os.path.join(out_dir, "Boundary Files", "shp files")
     bnd_kml_dir = os.path.join(out_dir, "Boundary Files", "kml files")
 
-    # ── Google Earth KML (points) ───────────────────────────────────────────
-    # Name explicitly as "Shelter Pins" so it doesn't get confused with
-    # field boundary KMLs when the user has several KMLs from different
-    # tools loaded in Google Earth at once.
-    kml = simplekml.Kml()
-    for i, (lat, lon) in enumerate(positions_latlon):
-        kml.newpoint(name="Shelter %d" % (i + 1), coords=[(lon, lat)])
-    writer.writestr(os.path.join(kml_dir, "%s_Shelter_Pins.kml" % field_name), kml.kml())
-
-    # ── Trimble shapefile set: AgGPS/Data/TNTBees/{field} ───────────────────
-    field_dir = os.path.join(out_dir, "AgGPS", "Data", "TNTBees", field_name)
-    make_files(writer, field_dir, field_name, pivotpoint)
-
-    shp = BytesIO(); shx = BytesIO(); dbf = BytesIO()
-    w = shapefile.Writer(shp=shp, shx=shx, dbf=dbf, shapeType=1)
-    w.field('Date', 'D'); w.field('Time', 'C', size=10); w.field('Version', 'C', size=8)
-    w.field('Id', 'N'); w.field('Name', 'C', size=32)
-    w.field('Latitude', 'N', decimal=8); w.field('Longitude', 'N', decimal=8)
-    w.field('Height', 'N', decimal=3); w.field('AlarmRad', 'N', decimal=4)
-    w.field('WarningRad', 'N', decimal=4); w.field('Status_Text', 'C', size=8); w.field('Visible', 'N')
-    pid = 3062
-    for lat, lon in positions_latlon:
-        w.record(Date=datetime.date.today(), Time="12:00:00pm", Version="7.78.002",
-                 Id=pid, Name="Tree_%d" % pid, Latitude=lat, Longitude=lon, Height=761.064,
-                 AlarmRad=0, WarningRad=10.0, Status_Text='', Visible=1)
-        w.point(lon, lat)
-        pid += 1
-    w.close()
-    writer.writestr(os.path.join(field_dir, "PointFeature.dbf"), dbf.getvalue())
-    writer.writestr(os.path.join(field_dir, "PointFeature.shp"), shp.getvalue())
-    writer.writestr(os.path.join(field_dir, "PointFeature.shx"), shx.getvalue())
-
-    # ── John Deere Operations Center exports ────────────────────────────────
-    # JD Operations Center expects SHAPEFILES inside a zip (not GeoJSON),
-    # and the two semantic categories — flags vs internal boundaries — are
-    # uploaded separately under different JD categories. So we produce two
-    # zips: one with point shelters (JD "Flags") and one with buffer-circle
-    # polygons (JD "Internal Boundaries"). Loose .geojson also kept for
-    # other GIS tools.
-    jd_lonlat = [(lon, lat) for lat, lon in positions_latlon]
-    jd_geojson_text = _make_geojson_with_buffers(jd_lonlat, field_name,
-                                                  include_buffers, buffer_radius_m)
-    writer.writestr(os.path.join(geojson_dir, "%s.geojson" % field_name),
-                    jd_geojson_text)
-
-    # WGS84 PRJ — required by Operations Center to read the shapefile.
+    # WGS84 PRJ string — reused by JD and Boundary shapefile zips.
     WGS84_PRJ = ('GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",'
                  'SPHEROID["WGS_1984",6378137,298.257223563]],'
                  'PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]]')
 
-    def _shelter_pins_shapefile_bytes():
-        """Point shapefile of shelter markers. JD reads this as Flags."""
-        shp = BytesIO(); shx = BytesIO(); dbf = BytesIO()
-        w = shapefile.Writer(shp=shp, shx=shx, dbf=dbf, shapeType=shapefile.POINT)
-        w.field('id',   'N', size=8,  decimal=0)
-        w.field('name', 'C', size=32)
-        w.field('type', 'C', size=16)
+    # ── Google Earth KML (points) ───────────────────────────────────────────
+    if write_kml:
+        kml = simplekml.Kml()
         for i, (lat, lon) in enumerate(positions_latlon):
+            kml.newpoint(name="Shelter %d" % (i + 1), coords=[(lon, lat)])
+        writer.writestr(os.path.join(kml_dir, "%s_Shelter_Pins.kml" % field_name), kml.kml())
+
+    # ── Trimble shapefile set: AgGPS/Data/TNTBees/{field} ───────────────────
+    if write_agps:
+        field_dir = os.path.join(out_dir, "AgGPS", "Data", "TNTBees", field_name)
+        make_files(writer, field_dir, field_name, pivotpoint)
+
+        shp = BytesIO(); shx = BytesIO(); dbf = BytesIO()
+        w = shapefile.Writer(shp=shp, shx=shx, dbf=dbf, shapeType=1)
+        w.field('Date', 'D'); w.field('Time', 'C', size=10); w.field('Version', 'C', size=8)
+        w.field('Id', 'N'); w.field('Name', 'C', size=32)
+        w.field('Latitude', 'N', decimal=8); w.field('Longitude', 'N', decimal=8)
+        w.field('Height', 'N', decimal=3); w.field('AlarmRad', 'N', decimal=4)
+        w.field('WarningRad', 'N', decimal=4); w.field('Status_Text', 'C', size=8); w.field('Visible', 'N')
+        pid = 3062
+        for lat, lon in positions_latlon:
+            w.record(Date=datetime.date.today(), Time="12:00:00pm", Version="7.78.002",
+                     Id=pid, Name="Tree_%d" % pid, Latitude=lat, Longitude=lon, Height=761.064,
+                     AlarmRad=0, WarningRad=10.0, Status_Text='', Visible=1)
             w.point(lon, lat)
-            w.record(i + 1, "Shelter_%d" % (i + 1), "flag")
+            pid += 1
         w.close()
-        return shp.getvalue(), shx.getvalue(), dbf.getvalue()
+        writer.writestr(os.path.join(field_dir, "PointFeature.dbf"), dbf.getvalue())
+        writer.writestr(os.path.join(field_dir, "PointFeature.shp"), shp.getvalue())
+        writer.writestr(os.path.join(field_dir, "PointFeature.shx"), shx.getvalue())
 
-    def _buffer_zones_shapefile_bytes(radius_m):
-        """Polygon shapefile of shelter buffer circles. JD reads this as
-        Internal Boundaries (passable interior boundaries)."""
-        shp = BytesIO(); shx = BytesIO(); dbf = BytesIO()
-        w = shapefile.Writer(shp=shp, shx=shx, dbf=dbf, shapeType=shapefile.POLYGON)
-        w.field('id',   'N', size=8,  decimal=0)
-        w.field('name', 'C', size=32)
-        w.field('type', 'C', size=16)
-        for i, (lat, lon) in enumerate(positions_latlon):
-            ring = _circle_lonlat(lat, lon, radius_m, 24)
-            w.poly([ring])
-            w.record(i + 1, "Buffer_%d" % (i + 1), "interior")
-        w.close()
-        return shp.getvalue(), shx.getvalue(), dbf.getvalue()
+    # ── GeoJSON ─────────────────────────────────────────────────────────────
+    if write_geojson:
+        jd_lonlat = [(lon, lat) for lat, lon in positions_latlon]
+        jd_geojson_text = _make_geojson_with_buffers(jd_lonlat, field_name,
+                                                      include_buffers, buffer_radius_m)
+        writer.writestr(os.path.join(geojson_dir, "%s.geojson" % field_name),
+                        jd_geojson_text)
 
-    # ── {field}_Shelter_Pins.zip  (upload to JD → Flags) ─────────────────────
-    shp, shx, dbf = _shelter_pins_shapefile_bytes()
-    pins_zip_buf = BytesIO()
-    with zipfile.ZipFile(pins_zip_buf, 'w', zipfile.ZIP_DEFLATED) as zf:
-        base = "%s_Shelter_Pins" % field_name
-        zf.writestr("%s.shp" % base, shp)
-        zf.writestr("%s.shx" % base, shx)
-        zf.writestr("%s.dbf" % base, dbf)
-        zf.writestr("%s.prj" % base, WGS84_PRJ)
-        zf.writestr("README.txt",
-            "Beetent Maps — Shelter Pins for John Deere Operations Center\n"
-            "\n"
-            "This .zip is the shelter-pin layer for the field \"%s\".\n"
-            "Contains a point shapefile (one feature per shelter).\n"
-            "\n"
-            "To upload in John Deere Operations Center:\n"
-            "  Files (cloud icon) → Upload Files → Flags → drop this .zip.\n"
-            "\n"
-            "If Flags isn't available in your JD plan, the \"Other\"\n"
-            "category accepts it too and the points stay viewable on the\n"
-            "field map.\n"
-            % field_name)
-    writer.writestr(os.path.join(jd_dir, "%s_Shelter_Pins_shp.zip" % field_name),
-                    pins_zip_buf.getvalue())
+    # ── John Deere Operations Center exports ────────────────────────────────
+    if write_jd:
+        def _shelter_pins_shapefile_bytes():
+            """Point shapefile of shelter markers. JD reads this as Flags."""
+            shp = BytesIO(); shx = BytesIO(); dbf = BytesIO()
+            w = shapefile.Writer(shp=shp, shx=shx, dbf=dbf, shapeType=shapefile.POINT)
+            w.field('id',   'N', size=8,  decimal=0)
+            w.field('name', 'C', size=32)
+            w.field('type', 'C', size=16)
+            for i, (lat, lon) in enumerate(positions_latlon):
+                w.point(lon, lat)
+                w.record(i + 1, "Shelter_%d" % (i + 1), "flag")
+            w.close()
+            return shp.getvalue(), shx.getvalue(), dbf.getvalue()
 
-    # ── {field}_Shelter_Buffer_Zones.zip  (upload as Internal Boundaries) ────
-    if include_buffers and buffer_radius_m and buffer_radius_m > 0:
-        shp, shx, dbf = _buffer_zones_shapefile_bytes(buffer_radius_m)
-        bz_zip_buf = BytesIO()
-        with zipfile.ZipFile(bz_zip_buf, 'w', zipfile.ZIP_DEFLATED) as zf:
-            base = "%s_Shelter_Buffer_Zones" % field_name
+        def _buffer_zones_shapefile_bytes(radius_m):
+            """Polygon shapefile of shelter buffer circles. JD reads this as
+            Internal Boundaries (passable interior boundaries)."""
+            shp = BytesIO(); shx = BytesIO(); dbf = BytesIO()
+            w = shapefile.Writer(shp=shp, shx=shx, dbf=dbf, shapeType=shapefile.POLYGON)
+            w.field('id',   'N', size=8,  decimal=0)
+            w.field('name', 'C', size=32)
+            w.field('type', 'C', size=16)
+            for i, (lat, lon) in enumerate(positions_latlon):
+                ring = _circle_lonlat(lat, lon, radius_m, 24)
+                w.poly([ring])
+                w.record(i + 1, "Buffer_%d" % (i + 1), "interior")
+            w.close()
+            return shp.getvalue(), shx.getvalue(), dbf.getvalue()
+
+        # {field}_Shelter_Pins_shp.zip  (upload to JD → Flags)
+        shp, shx, dbf = _shelter_pins_shapefile_bytes()
+        pins_zip_buf = BytesIO()
+        with zipfile.ZipFile(pins_zip_buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+            base = "%s_Shelter_Pins" % field_name
             zf.writestr("%s.shp" % base, shp)
             zf.writestr("%s.shx" % base, shx)
             zf.writestr("%s.dbf" % base, dbf)
             zf.writestr("%s.prj" % base, WGS84_PRJ)
             zf.writestr("README.txt",
-                "Beetent Maps — Shelter Buffer Zones for John Deere Operations Center\n"
+                "Beetent Maps — Shelter Pins for John Deere Operations Center\n"
                 "\n"
-                "This .zip is the shelter-buffer layer for the field \"%s\".\n"
-                "Contains a polygon shapefile (one circle per shelter) marking\n"
-                "the passable interior zones the sprayer / planter should\n"
-                "drive around.\n"
+                "This .zip is the shelter-pin layer for the field \"%s\".\n"
+                "Contains a point shapefile (one feature per shelter).\n"
                 "\n"
                 "To upload in John Deere Operations Center:\n"
-                "  Files → Upload Files → Internal Boundaries → drop this .zip.\n"
+                "  Files (cloud icon) → Upload Files → Flags → drop this .zip.\n"
                 "\n"
-                "The buffer zones import as interior (passable) boundaries.\n"
+                "If Flags isn't available in your JD plan, the \"Other\"\n"
+                "category accepts it too and the points stay viewable on the\n"
+                "field map.\n"
                 % field_name)
-        writer.writestr(os.path.join(jd_dir, "%s_Shelter_Buffer_Zones_shp.zip" % field_name),
-                        bz_zip_buf.getvalue())
+        writer.writestr(os.path.join(jd_dir, "%s_Shelter_Pins_shp.zip" % field_name),
+                        pins_zip_buf.getvalue())
+
+        # {field}_Shelter_Buffer_Zones_shp.zip  (upload as Internal Boundaries)
+        if include_buffers and buffer_radius_m and buffer_radius_m > 0:
+            shp, shx, dbf = _buffer_zones_shapefile_bytes(buffer_radius_m)
+            bz_zip_buf = BytesIO()
+            with zipfile.ZipFile(bz_zip_buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+                base = "%s_Shelter_Buffer_Zones" % field_name
+                zf.writestr("%s.shp" % base, shp)
+                zf.writestr("%s.shx" % base, shx)
+                zf.writestr("%s.dbf" % base, dbf)
+                zf.writestr("%s.prj" % base, WGS84_PRJ)
+                zf.writestr("README.txt",
+                    "Beetent Maps — Shelter Buffer Zones for John Deere Operations Center\n"
+                    "\n"
+                    "This .zip is the shelter-buffer layer for the field \"%s\".\n"
+                    "Contains a polygon shapefile (one circle per shelter) marking\n"
+                    "the passable interior zones the sprayer / planter should\n"
+                    "drive around.\n"
+                    "\n"
+                    "To upload in John Deere Operations Center:\n"
+                    "  Files → Upload Files → Internal Boundaries → drop this .zip.\n"
+                    "\n"
+                    "The buffer zones import as interior (passable) boundaries.\n"
+                    % field_name)
+            writer.writestr(os.path.join(jd_dir, "%s_Shelter_Buffer_Zones_shp.zip" % field_name),
+                            bz_zip_buf.getvalue())
 
     # ── Boundary Files ──────────────────────────────────────────────────────
-    if outer_boundary and len(outer_boundary) >= 3:
+    if write_boundary and outer_boundary and len(outer_boundary) >= 3:
         # KML — polygon outline of the field boundary
         bnd_kml = simplekml.Kml()
         pol = bnd_kml.newpolygon(name="%s Boundary" % field_name)
