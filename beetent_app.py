@@ -891,6 +891,7 @@ class BeetentApp(ctk.CTk):
         self._drag_registry = {}
         self._drag_item = None
         self._drag_track_idx = None   # index of pivot track being resized by band-drag
+        self._pending_corner_idx = None  # corner arm clicked on press (for release popup)
         self._drag_last_latlon = None
         self._drag_start_xy = None
         self._drag_moved = False
@@ -1060,13 +1061,13 @@ class BeetentApp(ctk.CTk):
     def _edit_track_exclusion(self):
         self._close_all_popups()
         cur=self.fv["track_exclusion_ft"].get() or "10"
-        val=self._ask_string("Track Exclusion",
-                             f"Clear zone each side of pivot tracks (ft).  Current: {cur}")
+        val=self._ask_string("Buffer Zone",
+                             f"Buffer (clear) zone each side of pivot/corner tracks (ft).  Current: {cur}")
         if val is None: return
         val=val.strip()
         if val:
             self.fv["track_exclusion_ft"].set(val)   # write-trace → _redraw_tracks
-            self._status(f"Track exclusion set to {val} ft.")
+            self._status(f"Buffer zone set to {val} ft.")
 
     def _edit_pass_edge_buffer(self):
         """Adjust how far in from the edge of any sprayer pass shelters can
@@ -1161,8 +1162,8 @@ class BeetentApp(ctk.CTk):
         self._pivot_btn = self._make_menu_btn(bb, "🎯 Pivot", [
             ("Set Pivot Point",         self._mode_pivot),
             ("Draw Track Circle",       self._mode_track),
-            ("Edit Track Measurements", self._mode_edit_track_measurements),
-            ("Set Track Exclusion (ft)",self._edit_track_exclusion),
+            ("Edit Span Lengths",       self._mode_edit_track_measurements),
+            ("Set Buffer Zone (ft)",    self._edit_track_exclusion),
             ("Add Corner Path",         self._mode_add_corner_path),
             ("Edit Corner Path",        self._mode_edit_corner_path),
             ("Delete Corner Path",      self._mode_delete_corner_ui),
@@ -3372,6 +3373,140 @@ class BeetentApp(ctk.CTk):
                 best_gap=gap; best_idx=i
         return best_idx
 
+    @staticmethod
+    def _point_seg_dist_m(plat,plon,alat,alon,blat,blon):
+        """Approx distance (metres) from point P to segment A–B using a local
+        equirectangular projection centred at P."""
+        lat0=math.radians(plat)
+        mlat=111320.0; mlon=111320.0*math.cos(lat0)
+        ax=(alon-plon)*mlon; ay=(alat-plat)*mlat
+        bx=(blon-plon)*mlon; by=(blat-plat)*mlat
+        dx=bx-ax; dy=by-ay
+        seg2=dx*dx+dy*dy
+        if seg2<=0: return math.hypot(ax,ay)
+        t=-(ax*dx+ay*dy)/seg2
+        t=max(0.0,min(1.0,t))
+        cx=ax+t*dx; cy=ay+t*dy
+        return math.hypot(cx,cy)
+
+    def _corner_arm_hit(self,lat,lon,mpp):
+        """Index of the corner arm whose path/circle is near the click, else None."""
+        arms=self.current_field.get("corner_arms") or []
+        if not arms: return None
+        try:
+            excl_m=float(self.fv.get("track_exclusion_ft",self.excl_var).get() or "10")*0.3048
+        except (ValueError,AttributeError):
+            excl_m=10*0.3048
+        tol=max(excl_m,12*mpp)
+        best=None; best_gap=tol
+        for i,arm in enumerate(arms):
+            if arm.get("type")=="circle":
+                d=haversine_m(arm.get("lat",0),arm.get("lon",0),lat,lon)
+                gap=abs(d-arm.get("radius_m",0))
+            else:
+                pts=arm.get("pts") or []
+                if len(pts)<2: continue
+                gap=min(self._point_seg_dist_m(lat,lon,pts[k][0],pts[k][1],
+                                               pts[k+1][0],pts[k+1][1])
+                        for k in range(len(pts)-1))
+            if gap<=best_gap:
+                best_gap=gap; best=i
+        return best
+
+    # ── Track / corner click popups ───────────────────────────────────────────
+    def _edit_single_track(self,idx):
+        """Edit the distance-from-pivot (span measurement) of one pivot track."""
+        tracks=self.current_field.get("pivot_tracks") or []
+        if not (0<=idx<len(tracks)): return
+        use_m=self.unit_var.get()=="Metres"
+        unit="m" if use_m else "ft"
+        conv=1.0 if use_m else 1.0/0.3048
+        cur=tracks[idx]*conv
+        val=self._ask_string("Span Length",
+            f"Distance from pivot to this track ({unit}).  Current: {cur:.1f}")
+        if val is None: return
+        try: v=float(val.strip())
+        except ValueError: self._status("Enter a number."); return
+        if v<=0: self._status("Span length must be greater than 0."); return
+        tracks[idx]=round(v/conv,2)
+        self.current_field["pivot_tracks"]=sorted(tracks)
+        self.show_tracks.set(True)
+        self._refresh_track_list(); self._redraw_tracks()
+        self._status(f"Span length set to {v:.1f} {unit}.")
+
+    def _delete_single_track(self,idx):
+        tracks=self.current_field.get("pivot_tracks") or []
+        if 0<=idx<len(tracks):
+            tracks.pop(idx)
+            self.current_field["pivot_tracks"]=tracks
+            self._refresh_track_list(); self._redraw_tracks()
+            self._status(f"Track deleted ({len(tracks)} remaining).")
+
+    def _show_track_popup(self,idx):
+        """Options popup for a clicked pivot track: edit span length, edit the
+        buffer zone (exclusion), or delete the track."""
+        tracks=self.current_field.get("pivot_tracks") or []
+        if not (0<=idx<len(tracks)): return
+        self._close_all_popups()
+        use_m=self.unit_var.get()=="Metres"
+        unit="m" if use_m else "ft"
+        conv=1.0 if use_m else 1.0/0.3048
+        dist=tracks[idx]*conv
+        try: excl=float(self.fv.get("track_exclusion_ft",self.excl_var).get() or "10")
+        except (ValueError,AttributeError): excl=10.0
+        win=ctk.CTkToplevel(self)
+        win.title(f"Pivot Track {idx+1}")
+        win.grab_set()
+        ctk.CTkLabel(win,text=f"Pivot Track {idx+1}",
+                     font=ctk.CTkFont(family=FONT_HEADING,size=13)).pack(padx=18,pady=(12,2))
+        ctk.CTkLabel(win,text=f"Distance from pivot: {dist:.1f} {unit}\nBuffer zone: {excl:g} ft",
+                     text_color=UI_MUTED,font=ctk.CTkFont(size=11),justify="left").pack(padx=18,pady=(0,8))
+        def act(fn):
+            win.destroy(); fn()
+        ctk.CTkButton(win,text="Edit Span Length…",
+                      command=lambda:act(lambda:self._edit_single_track(idx))).pack(fill="x",padx=18,pady=2)
+        ctk.CTkButton(win,text="Edit Buffer Zone…",
+                      command=lambda:act(self._edit_track_exclusion)).pack(fill="x",padx=18,pady=2)
+        ctk.CTkButton(win,text="Delete Track",fg_color="#6b1a1a",
+                      command=lambda:act(lambda:self._delete_single_track(idx))).pack(fill="x",padx=18,pady=2)
+        ctk.CTkButton(win,text="Cancel",fg_color="#555",command=win.destroy).pack(fill="x",padx=18,pady=(2,12))
+        _center_on_parent(win,self)
+
+    def _show_corner_track_popup(self,idx):
+        """Options popup for a clicked corner track: edit the buffer zone or
+        delete the corner. (No span length — corner tracks are free paths.)"""
+        arms=self.current_field.get("corner_arms") or []
+        if not (0<=idx<len(arms)): return
+        self._close_all_popups()
+        try: excl=float(self.fv.get("track_exclusion_ft",self.excl_var).get() or "10")
+        except (ValueError,AttributeError): excl=10.0
+        arm=arms[idx]
+        desc=(f"{len(arm.get('pts',[]))} pts" if arm.get("type")!="circle"
+              else f"r={arm.get('radius_m',0):.1f} m")
+        win=ctk.CTkToplevel(self)
+        win.title(f"Corner Track {idx+1}")
+        win.grab_set()
+        ctk.CTkLabel(win,text=f"Corner Track {idx+1}",
+                     font=ctk.CTkFont(family=FONT_HEADING,size=13)).pack(padx=18,pady=(12,2))
+        ctk.CTkLabel(win,text=f"{desc}\nBuffer zone: {excl:g} ft",
+                     text_color=UI_MUTED,font=ctk.CTkFont(size=11),justify="left").pack(padx=18,pady=(0,8))
+        def act(fn):
+            win.destroy(); fn()
+        def do_delete():
+            if 0<=idx<len(self.current_field.get("corner_arms") or []):
+                del self.current_field["corner_arms"][idx]
+                self._redraw_corner_arms()
+                if self.show_shelters.get(): self._redraw_shelters()
+                self._status("Corner track deleted.")
+        ctk.CTkButton(win,text="Edit Buffer Zone…",
+                      command=lambda:act(self._edit_track_exclusion)).pack(fill="x",padx=18,pady=2)
+        ctk.CTkButton(win,text="Edit Path Vertices…",
+                      command=lambda:act(lambda:self._start_edit_corner_arm(idx))).pack(fill="x",padx=18,pady=2)
+        ctk.CTkButton(win,text="Delete Corner Track",fg_color="#6b1a1a",
+                      command=lambda:act(do_delete)).pack(fill="x",padx=18,pady=2)
+        ctk.CTkButton(win,text="Cancel",fg_color="#555",command=win.destroy).pack(fill="x",padx=18,pady=(2,12))
+        _center_on_parent(win,self)
+
     # ── Corner zones (paths and circles — unlimited) ──────────────────────────
     def _mode_add_corner_path(self):
         self._close_all_popups()
@@ -3478,7 +3613,7 @@ class BeetentApp(ctk.CTk):
         win = ctk.CTkToplevel(self)
         win.title("Edit Corner Path")
         win.grab_set()
-        self._center_on_parent(win, 300, 220)
+        _center_on_parent(win, self)
         ctk.CTkLabel(win, text="Select path to edit:").pack(pady=(10, 2))
         lb = tk.Listbox(win, height=min(6, len(path_arms)), bg="#2b2b2b",
                         fg="white", selectbackground="#1f6aa5")
@@ -4694,6 +4829,20 @@ class BeetentApp(ctk.CTk):
                 self._drag_track_idx=idx
                 self._drag_last_latlon=(lat0,lon0)
                 self._drag_start_xy=(event.x,event.y)
+            elif self.show_corner_arms.get():
+                # No track either — maybe a corner track was clicked. We only
+                # remember it (no drag state) so a click without movement opens
+                # the corner popup, while a drag still pans the map.
+                cidx=self._corner_arm_hit(lat0,lon0,mpp)
+                if cidx is not None:
+                    self._pending_corner_idx=cidx
+                    self._drag_start_xy=(event.x,event.y)
+        elif self.click_mode is None and lat0 is not None and self.show_corner_arms.get():
+            # Tracks hidden but corner arms shown — still allow corner clicks.
+            cidx=self._corner_arm_hit(lat0,lon0,mpp)
+            if cidx is not None:
+                self._pending_corner_idx=cidx
+                self._drag_start_xy=(event.x,event.y)
 
     def _b1_motion(self,event):
         sx,sy=self._pan_start_xy if self._pan_start_xy else (event.x,event.y)
@@ -4734,13 +4883,26 @@ class BeetentApp(ctk.CTk):
             except Exception: pass
 
     def _drag_release(self,event):
-        # Pivot-track band drag — commit the new radius
+        # Pivot-track band: drag → resize, click (no drag) → options popup
         if self._drag_track_idx is not None:
-            if self._drag_moved and self._drag_last_latlon:
+            idx=self._drag_track_idx
+            moved=self._drag_moved
+            if moved and self._drag_last_latlon:
                 lat,lon=self._drag_last_latlon
-                self._on_track_drag(self._drag_track_idx,lat,lon,final=True)
+                self._on_track_drag(idx,lat,lon,final=True)
             self._drag_track_idx=None; self._drag_moved=False
             self._drag_start_xy=None; self._drag_last_latlon=None; self._pan_start_xy=None
+            if not moved:
+                self._show_track_popup(idx)
+            return
+        # Corner-track click (no drag) → options popup. A drag that began on a
+        # corner arm just panned the map, so only act on a clean click.
+        cidx=self._pending_corner_idx
+        self._pending_corner_idx=None
+        if cidx is not None and not self._drag_moved:
+            self._drag_moved=False
+            self._drag_start_xy=None; self._drag_last_latlon=None; self._pan_start_xy=None
+            self._show_corner_track_popup(cidx)
             return
         was_pin_drag=bool(self._drag_item)
         if was_pin_drag and self._drag_moved and self._drag_last_latlon:
