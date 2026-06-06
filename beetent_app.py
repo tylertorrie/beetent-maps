@@ -384,63 +384,38 @@ def enu_to_latlon(e,n,pivot_lat,pivot_lon):
 def inset_polygon_enu(poly_enu, dist):
     """Offset every edge of poly_enu inward by dist metres.
 
-    Corner joins:
-      * Concave corners (t >= 1): always miter — natural convergence,
-        bevel would self-intersect.
-      * Convex corners, shallow miter (d <= 1.5×dist): miter — clean.
-      * Convex corners, deep miter spike (d > 1.5×dist): arc centred
-        on the original vertex at radius dist, sweeping toward the
-        polygon interior (direction picked via centroid, not the
-        shorter-arc assumption which can sweep the wrong way).
+    Uses Sutherland-Hodgman clipping: the polygon is clipped against
+    the inset half-plane of each boundary edge in turn.  Every vertex
+    of the result is therefore >= dist from every boundary edge.
+    Narrow corridors (width < 2*dist) naturally shrink to nothing —
+    no corner-join artefacts or spikes.
     """
     n=len(poly_enu)
     if n<3: return []
     cx=sum(e for e,_ in poly_enu)/n; cn=sum(nn for _,nn in poly_enu)/n
-    edges=[]; src_vertex=[]
+    result=list(poly_enu)
     for i in range(n):
+        if len(result)<3: return []
         e1,n1=poly_enu[i]; e2,n2=poly_enu[(i+1)%n]
-        dx2,dy2=e2-e1,n2-n1; L=math.sqrt(dx2*dx2+dy2*dy2)
+        dx,dy=e2-e1,n2-n1; L=math.sqrt(dx*dx+dy*dy)
         if L<1e-9: continue
-        nx,ny=-dy2/L,dx2/L
+        nx,ny=-dy/L,dx/L
         me,mn=(e1+e2)/2,(n1+n2)/2
         if (cx-me)*nx+(cn-mn)*ny<0: nx,ny=-nx,-ny
-        edges.append(((e1+dist*nx,n1+dist*ny),(e2+dist*nx,n2+dist*ny)))
-        src_vertex.append((e2,n2))
-    if len(edges)<3: return []
-    miter_threshold=1.5*abs(dist)
-    abs_dist=abs(dist)
-    arc_step=math.pi/16
-    result=[]
-    for i in range(len(edges)):
-        a=edges[i]; b=edges[(i+1)%len(edges)]
-        ax,ay=a[1][0]-a[0][0],a[1][1]-a[0][1]
-        bx,by=b[1][0]-b[0][0],b[1][1]-b[0][1]
-        det=ax*(-by)-(-bx)*ay
-        if abs(det)<1e-9:
-            result.append(((a[1][0]+b[0][0])/2,(a[1][1]+b[0][1])/2))
-            continue
-        ddx=b[0][0]-a[0][0]; ddy=b[0][1]-a[0][1]
-        t=(ddx*(-by)-ddy*(-bx))/det
-        ix,iy=a[0][0]+t*ax,a[0][1]+t*ay
-        ovx,ovy=src_vertex[i]
-        d=math.sqrt((ix-ovx)**2+(iy-ovy)**2)
-        if t>=1.0 or d<=miter_threshold:
-            result.append((ix,iy))
-            continue
-        # Sharp convex corner: arc centred on original vertex, sweeping
-        # through the polygon interior (toward centroid).
-        ang1=math.atan2(a[1][1]-ovy, a[1][0]-ovx)
-        ang2=math.atan2(b[0][1]-ovy, b[0][0]-ovx)
-        ang_c=math.atan2(cn-ovy, cx-ovx)
-        ccw_span=(ang2-ang1)%(2*math.pi)
-        ccw_c=(ang_c-ang1)%(2*math.pi)
-        delta=ccw_span if ccw_c<ccw_span else ccw_span-2*math.pi
-        result.append(a[1])
-        n_steps=max(2,int(abs(delta)/arc_step))
-        for k in range(1,n_steps):
-            ang=ang1+delta*k/n_steps
-            result.append((ovx+abs_dist*math.cos(ang),ovy+abs_dist*math.sin(ang)))
-        result.append(b[0])
+        # Any point on the inset line for this edge
+        px,py=e1+dist*nx,n1+dist*ny
+        clipped=[]
+        m=len(result)
+        for j in range(m):
+            cur=result[j]; nxt=result[(j+1)%m]
+            dc=(cur[0]-px)*nx+(cur[1]-py)*ny
+            dn=(nxt[0]-px)*nx+(nxt[1]-py)*ny
+            if dc>=0: clipped.append(cur)
+            if (dc>=0)!=(dn>=0):
+                t=dc/(dc-dn)
+                clipped.append((cur[0]+t*(nxt[0]-cur[0]),
+                                 cur[1]+t*(nxt[1]-cur[1])))
+        result=clipped
     return result
 
 def clip_line_to_polygon_intervals(px, py, dx, dy, polygon):
