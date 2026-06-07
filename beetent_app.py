@@ -1350,6 +1350,9 @@ class BeetentApp(ctk.CTk):
         # only the one matching the chosen mode is shown in the entry below.
         for k in ("num_structures","spacing","shelters_per_acre","acres_per_shelter"):
             self.fv[k]=tk.StringVar()
+        # Optional grid-row override: "" = automatic, N = aim for ~N rows of
+        # shelters (fewer lateral columns → more rows for the same count).
+        self.fv["shelter_rows"]=tk.StringVar()
         # Track exclusion lives in the Pivot menu now, but keep its backing var
         # (used by _redraw_tracks / get_tent_positions) and its write-trace.
         self.fv["track_exclusion_ft"]=tk.StringVar(value="10")
@@ -1541,7 +1544,18 @@ class BeetentApp(ctk.CTk):
         self._shelter_entry=ctk.CTkEntry(ba,textvariable=self.shelter_value_var)
         self._shelter_entry.pack(fill="x",pady=(0,2))
         self.shelter_hint_lbl=ctk.CTkLabel(ba,text="",anchor="w",text_color=UI_MUTED,font=ctk.CTkFont(size=10))
-        self.shelter_hint_lbl.pack(fill="x",pady=(0,8))
+        self.shelter_hint_lbl.pack(fill="x",pady=(0,2))
+
+        # Grid rows: −/+ stepper to add or remove rows of shelters for a more
+        # even staggered grid. "Auto" lets the algorithm decide.
+        rows_row=ctk.CTkFrame(ba,fg_color="transparent")
+        rows_row.pack(fill="x",pady=(0,8))
+        ctk.CTkLabel(rows_row,text="Grid rows:",width=70,anchor="w").pack(side="left")
+        ctk.CTkButton(rows_row,text="−",width=32,command=lambda:self._bump_shelter_rows(-1)).pack(side="left",padx=(2,2))
+        self.shelter_rows_lbl=ctk.CTkLabel(rows_row,text="Auto",width=46)
+        self.shelter_rows_lbl.pack(side="left")
+        ctk.CTkButton(rows_row,text="+",width=32,command=lambda:self._bump_shelter_rows(1)).pack(side="left",padx=(2,6))
+        ctk.CTkButton(rows_row,text="Auto",width=50,fg_color="#555",command=lambda:self._set_shelter_rows(0)).pack(side="left")
 
         bee_rows=[
             ("gals_per_acre", "Gals/acre"),
@@ -2246,6 +2260,40 @@ class BeetentApp(ctk.CTk):
         key=self._shelter_mode_key[mode]
         self.fv[key].set(self.shelter_value_var.get())   # fv trace → _on_form_change → redraw
 
+    # ── Grid-row override (−/+ stepper) ────────────────────────────────────────
+    def _refresh_shelter_rows_label(self):
+        v=(self.fv["shelter_rows"].get() or "").strip()
+        try: n=int(float(v)) if v else 0
+        except ValueError: n=0
+        self.shelter_rows_lbl.configure(text=(str(n) if n>0 else "Auto"))
+
+    def _auto_row_estimate(self):
+        """Approx number of N-S row bands in the currently drawn shelters, so
+        the first −/+ press starts from roughly what's on screen."""
+        pos=self.shelter_positions or []
+        if len(pos)<2: return 8
+        lats=sorted(p[0] for p in pos)
+        bands=1; last=lats[0]
+        for la in lats[1:]:
+            if (la-last)*111111.0 > 8.0:
+                bands+=1; last=la
+        return max(2,bands)
+
+    def _set_shelter_rows(self, n):
+        self.fv["shelter_rows"].set("" if n<=0 else str(int(n)))
+        self._refresh_shelter_rows_label()
+        if self.show_shelters.get(): self._redraw_shelters()
+        if n<=0: self._status("Shelter grid rows: Auto.")
+        else:    self._status(f"Shelter grid rows set toward {int(n)} — fewer columns, more rows.")
+
+    def _bump_shelter_rows(self, delta):
+        cur=(self.fv["shelter_rows"].get() or "").strip()
+        try: n=int(float(cur)) if cur else 0
+        except ValueError: n=0
+        if n<=0:
+            n=self._auto_row_estimate()   # seed from what's on screen
+        self._set_shelter_rows(max(1, n+delta))
+
     def _refresh_bee_summary(self):
         """Update the three computed lines under the Bee Allocation block.
 
@@ -2623,6 +2671,7 @@ class BeetentApp(ctk.CTk):
         self.shelter_value_var.set(self.fv[s_key].get())
         self._loading_shelter_value=False
         self.shelter_hint_lbl.configure(text=self._shelter_hint(s_mode))
+        self._refresh_shelter_rows_label()
         self._refresh_track_list()
         # Migrate old corner_arms [[pts],[pts]] format → new [{type,pts/lat/lon/radius_m}] format
         old = self.current_field.get("corner_arms")

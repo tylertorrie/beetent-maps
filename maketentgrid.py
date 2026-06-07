@@ -2028,6 +2028,28 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                 _seen_rows.add(key)
                 row_list.append((pre_e, k))
 
+            # Optional user override: aim for a target number of N-S shelter
+            # rows. Fewer lateral columns → the binary search packs more
+            # shelters per column → more rows (and, with the half-step stagger
+            # on alternate columns, ~2× that many distinct northing bands).
+            # Empty / 0 → automatic (use every sprayer-pass column).
+            try:
+                forced_rows = int(float(field_dict.get('shelter_rows') or 0))
+            except (ValueError, TypeError):
+                forced_rows = 0
+            if forced_rows > 0 and num_tents and len(row_list) > 1:
+                # Each column carries ~forced_rows/2 shelters once staggering
+                # interleaves alternate columns, so columns ≈ 2·N / rows.
+                want_cols = max(1, min(len(row_list),
+                                       int(round(2.0 * num_tents / forced_rows))))
+                if want_cols < len(row_list):
+                    if want_cols == 1:
+                        idxs = [len(row_list) // 2]
+                    else:
+                        stride = (len(row_list) - 1) / (want_cols - 1)
+                        idxs = sorted({int(round(i * stride)) for i in range(want_cols)})
+                    row_list = [row_list[i] for i in idxs]
+
             def _count_at_least(n_sp, target):
                 # True if at least `target` PLACEABLE cells exist at this spacing
                 # (valid as-is, or snappable out of a kill/track zone). Early-
