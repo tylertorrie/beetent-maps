@@ -440,9 +440,9 @@ def make_tents(myzip, trimble_path, field_name, pivotpoint, radius, width, lat_s
 
     myzip.writestr("%s/googleearth/%s.kml" % (trimble_path, field_name), kml.kml())
     w.close()
-    myzip.writestr('%s/AgGPS/Data/TNTBees/%s/PointFeature.dbf' % (trimble_path, field_name), dbf.getvalue())
-    myzip.writestr('%s/AgGPS/Data/TNTBees/%s/PointFeature.shp' % (trimble_path, field_name), shp.getvalue())
-    myzip.writestr('%s/AgGPS/Data/TNTBees/%s/PointFeature.shx' % (trimble_path, field_name), shx.getvalue())
+    myzip.writestr('%s/AgGPS/Data/TNTBees/BeeTents/%s/PointFeature.dbf' % (trimble_path, field_name), dbf.getvalue())
+    myzip.writestr('%s/AgGPS/Data/TNTBees/BeeTents/%s/PointFeature.shp' % (trimble_path, field_name), shp.getvalue())
+    myzip.writestr('%s/AgGPS/Data/TNTBees/BeeTents/%s/PointFeature.shx' % (trimble_path, field_name), shx.getvalue())
     myzip.writestr('%s/spreadsheets/%s.csv' % (trimble_path, field_name), csvbuffer.getvalue().encode('utf-8'))
 
     # John Deere Operations Center — GeoJSON points
@@ -600,7 +600,7 @@ def export_field_outputs(positions_latlon, pivotpoint, out_dir, field_name,
 
     Creates, under out_dir (each section only written when its write_* flag is True):
       Shelter Pins KML/{field}_Shelter_Pins.kml          Google Earth points
-      AgGPS/Data/TNTBees/{field}/                         Trimble import set
+      AgGPS/Data/TNTBees/BeeTents/{field}/                Trimble import set
       GeoJSON Files/{field}.geojson                       loose GeoJSON
       John Deere/{field}_Shelter_Pins_shp.zip             JD Ops Center → Flags
       John Deere/{field}_Shelter_Buffer_Zones_shp.zip     JD → Internal Boundaries
@@ -631,10 +631,16 @@ def export_field_outputs(positions_latlon, pivotpoint, out_dir, field_name,
             kml.newpoint(name="Shelter %d" % (i + 1), coords=[(lon, lat)])
         writer.writestr(os.path.join(kml_dir, "%s_Shelter_Pins.kml" % field_name), kml.kml())
 
-    # ── Trimble shapefile set: AgGPS/Data/TNTBees/{field} ───────────────────
+    # ── Trimble shapefile set: AgGPS/Data/TNTBees/BeeTents/{field} ──────────
+    # Trimble AgGPS uses a Client/Farm/Field hierarchy: Client = "TNTBees",
+    # Farm = "BeeTents", Field = the field name. The previous export wrote the
+    # field directly under the client (one level too shallow), which the
+    # monitor would list but refuse to import. Each field folder also needs the
+    # Swaths (AB-line) files alongside PointFeature for a valid import.
     if write_agps:
-        field_dir = os.path.join(out_dir, "AgGPS", "Data", "TNTBees", field_name)
+        field_dir = os.path.join(out_dir, "AgGPS", "Data", "TNTBees", "BeeTents", field_name)
         make_files(writer, field_dir, field_name, pivotpoint)
+        make_line(writer, field_dir, pivotpoint, 0, 0)   # north AB line from pivot
 
         shp = BytesIO(); shx = BytesIO(); dbf = BytesIO()
         w = shapefile.Writer(shp=shp, shx=shx, dbf=dbf, shapeType=1)
@@ -2392,7 +2398,7 @@ def process_csvfile(csv_file, path = None, use_zip = None, timestamp = None, use
                 pdfwriter.add_page()
                 make_pdf_circle_bays(pdfwriter, field)
 
-                make_files(writer, os.path.join(dirpath, "AgGPS/Data/TNTBees/%s" % field['Name'].strip()), 
+                make_files(writer, os.path.join(dirpath, "AgGPS/Data/TNTBees/BeeTents/%s" % field['Name'].strip()), 
                                    field['Name'].strip(), 
                                    (float(field['PP_Longitude']), float(field['PP_Latitude'])))
 
@@ -2416,7 +2422,7 @@ def process_csvfile(csv_file, path = None, use_zip = None, timestamp = None, use
 
                                   ) 
 
-                make_line(writer, os.path.join(dirpath, "AgGPS/Data/TNTBees/%s" % field['Name'].strip()), 
+                make_line(writer, os.path.join(dirpath, "AgGPS/Data/TNTBees/BeeTents/%s" % field['Name'].strip()), 
                                  (field['PP_Longitude'], field['PP_Latitude']), 
                                  field['Lateral_offset'], field['Seed_angle'])
 
