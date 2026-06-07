@@ -4102,8 +4102,22 @@ class BeetentApp(ctk.CTk):
                 out.append(np)
         return out
 
-    def _open_shift_dialog(self, title, heading, apply_fn):
-        """Generic N/E/S/W + distance shift dialog. apply_fn(d_e_m, d_n_m)."""
+    def _format_shift(self, e_m, n_m):
+        """Human string for a shift vector in the current unit, e.g. '10 ft W'
+        or '10 ft W + 5 ft N', or '0 ft' when there is no shift."""
+        use_m = self.unit_var.get() == "Metres"
+        unit = "m" if use_m else "ft"
+        conv = 1.0 if use_m else 1.0 / 0.3048
+        parts = []
+        if abs(e_m) > 1e-6:
+            parts.append(f"{round(abs(e_m)*conv,1):g} {unit} {'E' if e_m > 0 else 'W'}")
+        if abs(n_m) > 1e-6:
+            parts.append(f"{round(abs(n_m)*conv,1):g} {unit} {'N' if n_m > 0 else 'S'}")
+        return " + ".join(parts) if parts else f"0 {unit}"
+
+    def _open_shift_dialog(self, title, heading, apply_fn, current_shift=(0.0, 0.0)):
+        """Generic N/E/S/W + distance shift dialog. apply_fn(d_e_m, d_n_m).
+        current_shift = (east_m, north_m) already applied, shown at the top."""
         self._close_all_popups()
         use_m = self.unit_var.get() == "Metres"
         unit = "m" if use_m else "ft"
@@ -4111,7 +4125,10 @@ class BeetentApp(ctk.CTk):
         win.title(title)
         win.grab_set()
         ctk.CTkLabel(win, text=heading,
-                     font=ctk.CTkFont(family=FONT_HEADING, size=15)).pack(padx=24, pady=(18, 8))
+                     font=ctk.CTkFont(family=FONT_HEADING, size=15)).pack(padx=24, pady=(18, 2))
+        ctk.CTkLabel(win, text=f"Currently shifted: {self._format_shift(*current_shift)}",
+                     text_color=UI_MUTED,
+                     font=ctk.CTkFont(size=12)).pack(padx=24, pady=(0, 8))
         dir_var = tk.StringVar(value="N")
         drow = ctk.CTkFrame(win, fg_color="transparent"); drow.pack(padx=24, pady=2)
         ctk.CTkLabel(drow, text="Direction:", width=70, anchor="w").pack(side="left")
@@ -4152,15 +4169,15 @@ class BeetentApp(ctk.CTk):
         from imported passes or the synthetic bay grid."""
         self._open_shift_dialog("Shift Planter / Bays",
                                 "Shift planter passes & bays",
-                                self._apply_planter_shift)
+                                self._apply_planter_shift,
+                                current_shift=self._bay_shift())
 
     def _apply_planter_shift(self, d_e_m, d_n_m):
         se, sn = self._bay_shift()
         self.current_field["bay_shift_e_m"] = se + d_e_m
         self.current_field["bay_shift_n_m"] = sn + d_n_m
-        if self.show_bays.get():
-            self._redraw_bays()
-        self._redraw_planter_passes()
+        self._shelter_undo.append(("shift", "planter", d_e_m, d_n_m))
+        self._redraw_planter_shift_layers()
 
     def _mode_shift_sprayer(self):
         """Shift the sprayer pass lines by a compass direction + distance. The
@@ -4168,15 +4185,25 @@ class BeetentApp(ctk.CTk):
         to the field boundary."""
         self._open_shift_dialog("Shift Sprayer Passes",
                                 "Shift sprayer passes",
-                                self._apply_sprayer_shift)
+                                self._apply_sprayer_shift,
+                                current_shift=self._sprayer_shift())
 
     def _apply_sprayer_shift(self, d_e_m, d_n_m):
         se, sn = self._sprayer_shift()
         self.current_field["sprayer_shift_e_m"] = se + d_e_m
         self.current_field["sprayer_shift_n_m"] = sn + d_n_m
-        if self.show_passes.get():
-            self._redraw_passes()
+        self._shelter_undo.append(("shift", "sprayer", d_e_m, d_n_m))
+        self._redraw_sprayer_shift_layers()
+
+    def _redraw_planter_shift_layers(self):
+        if self.show_bays.get():     self._redraw_bays()
+        self._redraw_planter_passes()
+        if self.show_shelters.get(): self._redraw_shelters()
+
+    def _redraw_sprayer_shift_layers(self):
+        if self.show_passes.get():   self._redraw_passes()
         self._redraw_sprayer_passes()
+        if self.show_shelters.get(): self._redraw_shelters()
 
     # ── Imported planter passes (JD Operations Center Seeding shapefile) ─────
     def _import_planter_data(self):
@@ -4431,21 +4458,43 @@ class BeetentApp(ctk.CTk):
         overrides=self.current_field.setdefault("shelter_overrides",{})
         key=str(idx)
         prev=overrides[key] if key in overrides else _UNDO_MISSING
-        self._shelter_undo.append((key,prev))
+        self._shelter_undo.append(("shelter",key,prev))
+
+    def _undo_one_shift(self, which, d_e, d_n):
+        """Reverse a single recorded planter/sprayer shift."""
+        if which == "planter":
+            e, n = self._bay_shift()
+            self.current_field["bay_shift_e_m"] = e - d_e
+            self.current_field["bay_shift_n_m"] = n - d_n
+            self._redraw_planter_shift_layers()
+        else:  # sprayer
+            e, n = self._sprayer_shift()
+            self.current_field["sprayer_shift_e_m"] = e - d_e
+            self.current_field["sprayer_shift_n_m"] = n - d_n
+            self._redraw_sprayer_shift_layers()
 
     def _undo_shelter_move(self):
-        """Revert just the most recent move/delete; repeat to step further back."""
+        """Revert the most recent move/delete OR shift; repeat to step further back."""
         if not self._shelter_undo:
             self._status("Nothing to undo."); return
-        key,prev=self._shelter_undo.pop()
-        overrides=self.current_field.setdefault("shelter_overrides",{})
-        if prev is _UNDO_MISSING:
-            overrides.pop(key,None)
+        entry=self._shelter_undo.pop()
+        if entry[0]=="shift":
+            _,which,d_e,d_n=entry
+            self._undo_one_shift(which,d_e,d_n)
+            what=f"{which} shift"
         else:
-            overrides[key]=prev
-        if self.show_shelters.get(): self._redraw_shelters()
+            # ("shelter", key, prev)  — also tolerate the legacy (key, prev) form
+            if len(entry)==3: _,key,prev=entry
+            else: key,prev=entry
+            overrides=self.current_field.setdefault("shelter_overrides",{})
+            if prev is _UNDO_MISSING:
+                overrides.pop(key,None)
+            else:
+                overrides[key]=prev
+            if self.show_shelters.get(): self._redraw_shelters()
+            what="move"
         n=len(self._shelter_undo)
-        self._status("Reverted last change." + (f" {n} earlier change(s) remain." if n else " No more to undo."))
+        self._status(f"Reverted last {what}." + (f" {n} earlier change(s) remain." if n else " No more to undo."))
 
     def _on_shelter_tap(self, idx):
         """Called when a shelter pin is clicked without dragging — highlight then offer delete."""
