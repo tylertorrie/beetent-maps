@@ -2060,42 +2060,27 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                 _seen_rows.add(key)
                 row_list.append((pre_e, k))
 
-            # Choose how many lateral columns to actually use. Fewer columns →
-            # the spacing search packs more shelters per column → more N-S rows
-            # (and, with the half-step stagger on alternate columns, ~2× that
-            # many distinct northing bands).
-            #   shelter_rows set → aim for that many rows (columns ≈ 2·N/rows)
-            #   shelter_rows 0   → AUTO: the column count that makes the grid as
-            #                      equidistant as possible.
+            # Optional user override (the "Grid rows" −/+ stepper). When set, use
+            # FEWER lateral columns so the spacing search packs more shelters per
+            # column → more N-S rows (columns ≈ 2·N / rows, the /2 from the
+            # half-step stagger). When unset (0) AUTO keeps every in-field column,
+            # exactly the original default — no automatic re-balancing.
             try:
                 forced_rows = int(float(field_dict.get('shelter_rows') or 0))
             except (ValueError, TypeError):
                 forced_rows = 0
-            if num_tents and len(row_list) > 1:
-                # Field span in the rotated frame: W laterally (across columns),
-                # H along travel. Also drop the r_max overshoot so column
-                # selection operates on real in-field columns only.
+            _cols_reduced = False
+            if forced_rows > 0 and num_tents and len(row_list) > 1:
+                # Drop the r_max overshoot so column striding works on the real
+                # in-field columns.
                 if boundary_enu:
                     lat_c = [e*cos_r + n*sin_r for e, n in boundary_enu]
-                    trv_c = [-e*sin_r + n*cos_r for e, n in boundary_enu]
                     lat_min, lat_max = min(lat_c), max(lat_c)
-                    W = (lat_max - lat_min) or 1.0
-                    H = (max(trv_c) - min(trv_c)) or 1.0
                     infield = [rc for rc in row_list if lat_min <= rc[0] <= lat_max]
                     if len(infield) >= 2:
                         row_list = infield
-                else:
-                    W = H = 2.0 * radius
-                if forced_rows > 0:
-                    # Each column carries ~forced_rows/2 shelters once staggering
-                    # interleaves alternate columns, so columns ≈ 2·N / rows.
-                    want_cols = int(round(2.0 * num_tents / forced_rows))
-                else:
-                    # Equidistant: balance E-W column spacing (W / C) against
-                    # N-S row spacing (H · C / (2·N), the /2 from the stagger):
-                    # W/C = H·C/(2N) → C = √(2N · W/H).
-                    want_cols = int(round(math.sqrt(2.0 * num_tents * W / H))) if H > 0 else len(row_list)
-                want_cols = max(1, min(len(row_list), want_cols))
+                want_cols = max(1, min(len(row_list),
+                                       int(round(2.0 * num_tents / forced_rows))))
                 if want_cols < len(row_list):
                     if want_cols == 1:
                         idxs = [len(row_list) // 2]
@@ -2103,6 +2088,7 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                         stride = (len(row_list) - 1) / (want_cols - 1)
                         idxs = sorted({int(round(i * stride)) for i in range(want_cols)})
                     row_list = [row_list[i] for i in idxs]
+                    _cols_reduced = True
 
             def _count_at_least(n_sp, target):
                 # True if at least `target` PLACEABLE cells exist at this spacing
@@ -2192,20 +2178,24 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                 ordered.extend(pts)
                 ordered_rows.extend([i] * len(pts))
 
-            # Place EXACTLY num_tents shelters. Trim the excess by striding
-            # evenly across the snake order rather than chopping the tail — a
-            # tail-chop removes whole end columns (leaving one side of the field
-            # bare), while even striding thins every column/row uniformly so the
-            # grid stays balanced.
+            # Place EXACTLY num_tents shelters. Default: trim the small excess
+            # from the snake tail (original behaviour). Only when the column
+            # count was deliberately reduced (Grid rows override) do we stride
+            # evenly instead — there the overshoot is large and a tail-chop
+            # would leave whole end columns bare.
             if num_tents is not None and len(ordered) > num_tents > 0:
-                step = len(ordered) / num_tents
-                keep = sorted({min(len(ordered) - 1, int(round(i * step)))
-                               for i in range(num_tents)})
-                if len(keep) < num_tents:
-                    extras = [i for i in range(len(ordered)) if i not in set(keep)]
-                    keep = sorted(keep + extras[:num_tents - len(keep)])
-                ordered = [ordered[i] for i in keep]
-                ordered_rows = [ordered_rows[i] for i in keep]
+                if _cols_reduced:
+                    step = len(ordered) / num_tents
+                    keep = sorted({min(len(ordered) - 1, int(round(i * step)))
+                                   for i in range(num_tents)})
+                    if len(keep) < num_tents:
+                        extras = [i for i in range(len(ordered)) if i not in set(keep)]
+                        keep = sorted(keep + extras[:num_tents - len(keep)])
+                    ordered = [ordered[i] for i in keep]
+                    ordered_rows = [ordered_rows[i] for i in keep]
+                else:
+                    ordered = ordered[:num_tents]
+                    ordered_rows = ordered_rows[:num_tents]
 
             # Convert to lat/lon, then drop any shelter that — after the
             # ENU→latlon→ENU round-trip — no longer lands strictly inside the
