@@ -1442,7 +1442,13 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                         for p in pts:
                             pe, pn = utmish.from_lonlat(p[1], p[0], pivotpoint[0])
                             enu_pts.append((pe - easting, pn - northing))
-                        corner_excl.append(('path', enu_pts))
+                        # Bounding box (expanded by the exclusion radius) so the
+                        # per-candidate test can skip the whole multi-hundred-
+                        # segment loop when the point is nowhere near this arm.
+                        xs = [pp[0] for pp in enu_pts]; ys = [pp[1] for pp in enu_pts]
+                        bbox = (min(xs) - excl_m, max(xs) + excl_m,
+                                min(ys) - excl_m, max(ys) + excl_m)
+                        corner_excl.append(('path', enu_pts, bbox))
                     except Exception: pass
         excl_m2 = excl_m * excl_m
 
@@ -1453,8 +1459,12 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                     if (east - ce)**2 + (north - cn)**2 < cr2:
                         return True
                 elif zone[0] == 'path':
-                    for j in range(len(zone[1]) - 1):
-                        ax, ay = zone[1][j]; bx, by = zone[1][j + 1]
+                    bb = zone[2]
+                    if not (bb[0] <= east <= bb[1] and bb[2] <= north <= bb[3]):
+                        continue   # candidate far from this corner arm — skip
+                    seg_pts = zone[1]
+                    for j in range(len(seg_pts) - 1):
+                        ax, ay = seg_pts[j]; bx, by = seg_pts[j + 1]
                         dx, dy = bx - ax, by - ay; seg2 = dx*dx + dy*dy
                         if seg2 > 0:
                             t = max(0.0, min(1.0, ((east-ax)*dx + (north-ay)*dy) / seg2))
@@ -1571,10 +1581,12 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
             _inner_pivot_r2 = sprayer_width * sprayer_width
             # Pre-tuple pivot_tracks so we iterate a tuple (faster than list).
             _pivot_tracks_t = tuple(pivot_tracks) if pivot_tracks else ()
-            # Outside-pass kill zone bounds — pre-bound the comparison so the
-            # hot loop just does two compares per candidate.
-            _outpass_lo = pass_edge_buffer_m_pf
-            _outpass_hi = sprayer_width - pass_edge_buffer_m_pf
+            # Outside-pass kill zone bounds — always applied when running an
+            # outside pass so shelters land near its edges, not its driven-over
+            # middle. Edge band = user buffer if set, else a default.
+            _op_edge_pf = pass_edge_buffer_m_pf if pass_edge_buffer_m_pf > 0 else min(sprayer_width * 0.25, 9.144)
+            _outpass_lo = _op_edge_pf
+            _outpass_hi = sprayer_width - _op_edge_pf
 
             def _pf_valid(east, north):
                 # Cheapest checks first — pivot inner and main-pass kill zone
@@ -1616,7 +1628,7 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                         return False
                 # Outside-pass kill zone last (it does an O(N_outer) min
                 # distance calc and is the second-most expensive check).
-                if outside_pass and buffer_enabled_pf:
+                if outside_pass:
                     if _bnd_edges is not None:
                         min_d2 = float('inf')
                         for ax, ay, dx_, dy_, seg2 in _bnd_edges:
@@ -1864,11 +1876,21 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
             # this turns multi-minute compute into sub-second.
             _bnd_edges_sg = None
             if boundary_enu:
+                # The boundary-distance test feeds a COARSE ~sprayer-width
+                # outside-pass band, so a very dense outline (e.g. a 300-point
+                # traced boundary) is needless precision that dominates runtime.
+                # Decimate to a manageable edge count here; shelter membership
+                # still uses the FULL boundary via _inside / _point_in_polygon.
+                src = boundary_enu
+                n_b = len(src)
+                if n_b > 120:
+                    k = (n_b + 119) // 120
+                    src = [boundary_enu[i] for i in range(0, n_b, k)]
                 _bnd_edges_sg = []
-                n_b = len(boundary_enu)
-                for i in range(n_b):
-                    ax, ay = boundary_enu[i]
-                    bx, by = boundary_enu[(i + 1) % n_b]
+                m_b = len(src)
+                for i in range(m_b):
+                    ax, ay = src[i]
+                    bx, by = src[(i + 1) % m_b]
                     dx_, dy_ = bx - ax, by - ay
                     _bnd_edges_sg.append((ax, ay, dx_, dy_, dx_*dx_ + dy_*dy_))
 
@@ -1904,9 +1926,16 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                 pass_edge_buffer_m = float(field_dict.get("pass_edge_buffer_ft") or 0) * 0.3048
             except (ValueError, TypeError):
                 pass_edge_buffer_m = 30.0 * 0.3048
-            # buffer ≤ 0 → kill zones turned off.
+            # buffer ≤ 0 → INTERIOR-pass kill zones turned off (opt-in).
             buffer_enabled = pass_edge_buffer_m > 0
             pass_dead_half = max(0.0, sprayer_width / 2.0 - pass_edge_buffer_m)
+            # Outside-pass edge band — shelters in the outside round must sit
+            # within this distance of one of its EDGES, never on its driven-over
+            # middle (where the sprayer would hit them). Always enforced when an
+            # outside pass runs (even if the interior buffer is off). Uses the
+            # user's edge buffer if set, else a default that still leaves a
+            # usable band at each edge.
+            op_edge_m = pass_edge_buffer_m if pass_edge_buffer_m > 0 else min(sprayer_width * 0.25, 9.144)
             # Slide-along-bay budget for rescuing shelters that land in a forbidden
             # zone (pivot-track exclusion or sprayer kill zone).
             SNAP_MAX_M = 15.0
@@ -1935,13 +1964,16 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                         if diff < excl_m_safe:
                             return False
                 if corner_excl and _in_corner_excl(east, north): return False
-                # Outside-pass kill zone — expensive O(N_outer); do it last.
-                if outside_pass and buffer_enabled:
+                # Outside-pass kill zone — keep shelters off the driven-over
+                # middle of the outside round so they sit near its edges.
+                # Enforced whenever an outside pass runs. Expensive O(N_outer)
+                # min-distance, so it's done last.
+                if outside_pass:
                     if boundary_enu:
                         d_b = _min_dist_to_bnd(east, north)
                     else:
                         d_b = radius - math.sqrt(d_sq)
-                    if pass_edge_buffer_m < d_b < (sprayer_width - pass_edge_buffer_m):
+                    if op_edge_m < d_b < (sprayer_width - op_edge_m):
                         return False
                 return True
 
@@ -2028,20 +2060,42 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                 _seen_rows.add(key)
                 row_list.append((pre_e, k))
 
-            # Optional user override: aim for a target number of N-S shelter
-            # rows. Fewer lateral columns → the binary search packs more
-            # shelters per column → more rows (and, with the half-step stagger
-            # on alternate columns, ~2× that many distinct northing bands).
-            # Empty / 0 → automatic (use every sprayer-pass column).
+            # Choose how many lateral columns to actually use. Fewer columns →
+            # the spacing search packs more shelters per column → more N-S rows
+            # (and, with the half-step stagger on alternate columns, ~2× that
+            # many distinct northing bands).
+            #   shelter_rows set → aim for that many rows (columns ≈ 2·N/rows)
+            #   shelter_rows 0   → AUTO: the column count that makes the grid as
+            #                      equidistant as possible.
             try:
                 forced_rows = int(float(field_dict.get('shelter_rows') or 0))
             except (ValueError, TypeError):
                 forced_rows = 0
-            if forced_rows > 0 and num_tents and len(row_list) > 1:
-                # Each column carries ~forced_rows/2 shelters once staggering
-                # interleaves alternate columns, so columns ≈ 2·N / rows.
-                want_cols = max(1, min(len(row_list),
-                                       int(round(2.0 * num_tents / forced_rows))))
+            if num_tents and len(row_list) > 1:
+                # Field span in the rotated frame: W laterally (across columns),
+                # H along travel. Also drop the r_max overshoot so column
+                # selection operates on real in-field columns only.
+                if boundary_enu:
+                    lat_c = [e*cos_r + n*sin_r for e, n in boundary_enu]
+                    trv_c = [-e*sin_r + n*cos_r for e, n in boundary_enu]
+                    lat_min, lat_max = min(lat_c), max(lat_c)
+                    W = (lat_max - lat_min) or 1.0
+                    H = (max(trv_c) - min(trv_c)) or 1.0
+                    infield = [rc for rc in row_list if lat_min <= rc[0] <= lat_max]
+                    if len(infield) >= 2:
+                        row_list = infield
+                else:
+                    W = H = 2.0 * radius
+                if forced_rows > 0:
+                    # Each column carries ~forced_rows/2 shelters once staggering
+                    # interleaves alternate columns, so columns ≈ 2·N / rows.
+                    want_cols = int(round(2.0 * num_tents / forced_rows))
+                else:
+                    # Equidistant: balance E-W column spacing (W / C) against
+                    # N-S row spacing (H · C / (2·N), the /2 from the stagger):
+                    # W/C = H·C/(2N) → C = √(2N · W/H).
+                    want_cols = int(round(math.sqrt(2.0 * num_tents * W / H))) if H > 0 else len(row_list)
+                want_cols = max(1, min(len(row_list), want_cols))
                 if want_cols < len(row_list):
                     if want_cols == 1:
                         idxs = [len(row_list) // 2]
@@ -2138,11 +2192,20 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                 ordered.extend(pts)
                 ordered_rows.extend([i] * len(pts))
 
-            # Place EXACTLY num_tents shelters — the count function targets the
-            # placeable total, so any small excess is trimmed from the snake tail.
-            if num_tents is not None and len(ordered) > num_tents:
-                ordered = ordered[:num_tents]
-                ordered_rows = ordered_rows[:num_tents]
+            # Place EXACTLY num_tents shelters. Trim the excess by striding
+            # evenly across the snake order rather than chopping the tail — a
+            # tail-chop removes whole end columns (leaving one side of the field
+            # bare), while even striding thins every column/row uniformly so the
+            # grid stays balanced.
+            if num_tents is not None and len(ordered) > num_tents > 0:
+                step = len(ordered) / num_tents
+                keep = sorted({min(len(ordered) - 1, int(round(i * step)))
+                               for i in range(num_tents)})
+                if len(keep) < num_tents:
+                    extras = [i for i in range(len(ordered)) if i not in set(keep)]
+                    keep = sorted(keep + extras[:num_tents - len(keep)])
+                ordered = [ordered[i] for i in keep]
+                ordered_rows = [ordered_rows[i] for i in keep]
 
             # Convert to lat/lon, then drop any shelter that — after the
             # ENU→latlon→ENU round-trip — no longer lands strictly inside the
