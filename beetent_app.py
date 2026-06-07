@@ -4066,6 +4066,22 @@ class BeetentApp(ctk.CTk):
             return (0.0, 0.0)
 
     @staticmethod
+    def _shift_pt(lat, lon, d_e_m, d_n_m):
+        """Translate a single (lat, lon) by (east, north) metres."""
+        return (lat + d_n_m / 111111.0,
+                lon + d_e_m / (111111.0 * math.cos(math.radians(lat))))
+
+    @staticmethod
+    def _field_combined_shift(f):
+        """Total (east, north) metres shelters move by — planter (bay) shift +
+        sprayer-pass shift — read from a field dict."""
+        def _g(k):
+            try: return float(f.get(k) or 0)
+            except (ValueError, TypeError): return 0.0
+        return (_g("bay_shift_e_m") + _g("sprayer_shift_e_m"),
+                _g("bay_shift_n_m") + _g("sprayer_shift_n_m"))
+
+    @staticmethod
     def _translate_latlon(passes, d_e_m, d_n_m):
         """Translate each [(lat,lon),...] polyline by (east, north) metres."""
         if not d_e_m and not d_n_m:
@@ -4506,6 +4522,13 @@ class BeetentApp(ctk.CTk):
         use_m=self.unit_var.get()=="Metres"
         mode_key=self._shelter_mode_labels.get(self.shelter_mode_var.get(),"total")
         positions, row_idxs = maketentgrid.get_tent_positions(f,use_metric=use_m,return_rows=True)
+        # Shelters follow the planter (bay) Shift and the sprayer-pass Shift so
+        # they stay in their female bays / clear of the shifted passes. Applied
+        # to the algorithm grid only — manual pins and dragged overrides are
+        # absolute placements and stay put.
+        sse, ssn = self._field_combined_shift(self.current_field)
+        if (sse or ssn) and positions:
+            positions = [self._shift_pt(la, lo, sse, ssn) for la, lo in positions]
         overrides=self.current_field.get("shelter_overrides") or {}
         merged=list(positions)
         deleted=set()
@@ -5637,6 +5660,10 @@ class BeetentApp(ctk.CTk):
         with the field's shelter_overrides (moved/deleted) applied, plus any
         additive manual pins (extra pins placed on top of the algorithm grid)."""
         positions=maketentgrid.get_tent_positions(f,use_metric=metric)
+        # Match the map: shift the algorithm grid by the planter + sprayer Shift.
+        sse, ssn = self._field_combined_shift(f)
+        if (sse or ssn) and positions:
+            positions=[self._shift_pt(la,lo,sse,ssn) for la,lo in positions]
         overrides=f.get("shelter_overrides") or {}
         merged=list(positions); deleted=set()
         for k,v in overrides.items():
