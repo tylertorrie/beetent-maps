@@ -892,6 +892,7 @@ class BeetentApp(ctk.CTk):
         self._drag_item = None
         self._drag_track_idx = None   # index of pivot track being resized by band-drag
         self._pending_corner_idx = None  # corner arm clicked on press (for release popup)
+        self._pending_boundary_click = False  # outer boundary edge clicked (for release popup)
         self._drag_last_latlon = None
         self._drag_start_xy = None
         self._drag_moved = False
@@ -1189,9 +1190,7 @@ class BeetentApp(ctk.CTk):
         self._bnd_btn = self._make_menu_btn(bb, "◌ Boundary", [
             ("Draw Outer",                self._mode_boundary),
             ("Draw Circle Outer Boundary", self._mode_boundary_circle),
-            ("Edit Outer",            self._mode_edit_boundary),
             ("Upload File",           self._upload_boundary),
-            ("Delete Outer",          self._clear_boundary),
             ("Add Inner Boundary",    self._mode_add_inner_boundary),
             ("Delete Inner",          self._mode_delete_inner_boundary),
         ], color="#5a3a8a",
@@ -2832,7 +2831,7 @@ class BeetentApp(ctk.CTk):
     def _mode_boundary_circle(self):
         """Draw a circular outer boundary centred on the pivot point — same feel
         as placing a pivot track. The click radius is sampled into a vertex
-        every 50 ft so the user can later drag/add/delete points (Edit Outer)
+        every 100 ft so the user can later drag/add/delete points (Edit)
         to fit fields that aren't a perfect circle."""
         self._close_all_popups()
         if not self.fv["PP_Latitude"].get() or not self.fv["PP_Longitude"].get():
@@ -2840,7 +2839,7 @@ class BeetentApp(ctk.CTk):
         self.click_mode="boundary_circle"
         self._show_context_btn("✔ Done", self._close_boundary_circle)
         self._status("Click the map to set the circle radius from the pivot point "
-                     "(a boundary point every 50 ft). Click again to resize. "
+                     "(a boundary point every 100 ft). Click again to resize. "
                      "✔ Done when finished.")
 
     def _close_boundary_circle(self):
@@ -2949,7 +2948,7 @@ class BeetentApp(ctk.CTk):
         self._selected_bnd_vertex=None
         self._show_context_btn("✔ Save Boundary", self._close_boundary)
         self._status("Click a vertex to select (drag to move, 🗑 Delete to remove). "
-                     "Click the boundary line to add a vertex. Esc to deselect. ✔ Save when finished.")
+                     "Click the map to add a vertex (joins the nearest two). Esc to deselect. ✔ Save when finished.")
 
     def _make_bnd_vertex_cb(self,idx):
         def cb(marker):
@@ -2974,7 +2973,7 @@ class BeetentApp(ctk.CTk):
         self._selected_bnd_vertex=None
         self._show_context_btn("✔ Save Boundary",self._close_boundary)
         self._status("Click a vertex to select (drag to move, 🗑 Delete to remove). "
-                     "Click the boundary line to add a vertex. ✔ Save when finished.")
+                     "Click the map to add a vertex (joins the nearest two). ✔ Save when finished.")
 
     def _redraw_bnd_vertex(self,idx,selected=False):
         if idx>=len(self.boundary_pts) or idx>=len(self.boundary_markers): return
@@ -3003,20 +3002,22 @@ class BeetentApp(ctk.CTk):
         self._status(f"Vertex deleted. {len(self.boundary_pts)} vertices remain.")
 
     def _try_insert_bnd_vertex(self, lat, lon):
-        """In boundary-edit mode, a click on (near) a boundary edge inserts a new
-        draggable vertex at that point and selects it. Returns True if inserted,
-        False if the click wasn't close enough to any edge (caller deselects)."""
+        """In boundary-edit mode, clicking anywhere drops a new vertex and wires
+        it into the boundary between the two nearest adjacent pins — i.e. the
+        edge whose two endpoints are closest to the click (least added
+        perimeter). Lets the user pull the outline out to a brand-new point, not
+        just nudge an existing edge. Returns True (always inserts)."""
         pts=self.boundary_pts
         if len(pts)<2: return False
-        mpp=self._pixel_scale()
-        tol=max(14*mpp, 6.0)        # ~14 px from the line counts as a hit
-        n=len(pts); best_edge=None; best_gap=tol
+        n=len(pts); best_edge=0; best_cost=float('inf')
         for i in range(n):
             a=pts[i]; b=pts[(i+1)%n]
-            gap=self._point_seg_dist_m(lat,lon,a[0],a[1],b[0],b[1])
-            if gap<=best_gap:
-                best_gap=gap; best_edge=i
-        if best_edge is None: return False
+            # Extra perimeter from routing through the new point between a and b.
+            cost=(haversine_m(lat,lon,a[0],a[1])
+                  + haversine_m(lat,lon,b[0],b[1])
+                  - haversine_m(a[0],a[1],b[0],b[1]))
+            if cost<best_cost:
+                best_cost=cost; best_edge=i
         ins=best_edge+1
         pts.insert(ins,(lat,lon))
         self.current_field["boundary_polygon"]=[list(p) for p in pts]
@@ -3225,7 +3226,7 @@ class BeetentApp(ctk.CTk):
             r_m=haversine_m(plat,plon,lat,lon)
             if r_m<1.0:
                 self._status("Click farther from the pivot to set the radius."); return
-            spacing_m=50*0.3048                       # one vertex every 50 ft
+            spacing_m=100*0.3048                      # one vertex every 100 ft
             n=max(8,int(round(2*math.pi*r_m/spacing_m)))
             pts=circle_pts(plat,plon,r_m,n=n)
             self.current_field["boundary_polygon"]=[list(p) for p in pts]
@@ -3829,6 +3830,41 @@ class BeetentApp(ctk.CTk):
         ctk.CTkButton(win,text="Delete Corner Track",fg_color="#6b1a1a",
                       command=lambda:act(do_delete)).pack(fill="x",padx=18,pady=2)
         ctk.CTkButton(win,text="Cancel",fg_color="#555",command=win.destroy).pack(fill="x",padx=18,pady=(2,12))
+        _center_on_parent(win,self)
+
+    def _boundary_edge_hit(self, lat, lon, mpp):
+        """True if (lat,lon) is near an edge of the active field's outer boundary."""
+        bp=self.current_field.get("boundary_polygon")
+        if not bp or len(bp)<2: return False
+        tol=max(12*mpp, 6.0)
+        n=len(bp)
+        for i in range(n):
+            a=bp[i]; b=bp[(i+1)%n]
+            if self._point_seg_dist_m(lat,lon,a[0],a[1],b[0],b[1])<=tol:
+                return True
+        return False
+
+    def _show_boundary_popup(self):
+        """Options popup for a clicked outer boundary: edit or delete it."""
+        bp=self.current_field.get("boundary_polygon")
+        if not bp or len(bp)<3: return
+        self._close_all_popups()
+        win=ctk.CTkToplevel(self)
+        win.title("Field Boundary")
+        win.geometry("320x230")
+        win.grab_set()
+        ctk.CTkLabel(win,text="Field Boundary",
+                     font=ctk.CTkFont(family=FONT_HEADING,size=16)).pack(padx=24,pady=(18,4))
+        ctk.CTkLabel(win,text=f"{len(bp)} points",text_color=UI_MUTED,
+                     font=ctk.CTkFont(size=12)).pack(padx=24,pady=(0,12))
+        def act(fn): win.destroy(); fn()
+        ctk.CTkButton(win,text="Edit Boundary",height=38,font=ctk.CTkFont(size=13),
+                      command=lambda:act(self._mode_edit_boundary)).pack(fill="x",padx=24,pady=4)
+        ctk.CTkButton(win,text="Delete Boundary",height=38,fg_color="#6b1a1a",
+                      font=ctk.CTkFont(size=13),
+                      command=lambda:act(self._clear_boundary)).pack(fill="x",padx=24,pady=4)
+        ctk.CTkButton(win,text="Cancel",height=38,fg_color="#555",font=ctk.CTkFont(size=13),
+                      command=win.destroy).pack(fill="x",padx=24,pady=(4,18))
         _center_on_parent(win,self)
 
     # ── Corner zones (paths and circles — unlimited) ──────────────────────────
@@ -5322,6 +5358,8 @@ class BeetentApp(ctk.CTk):
         self._pan_start_xy=(event.x,event.y)
         self._drag_moved=False
         self._drag_track_idx=None
+        self._pending_corner_idx=None
+        self._pending_boundary_click=False
         # Always let tkintermapview record the press so panning works correctly
         try: self.map_widget.mouse_click(event)
         except Exception: pass
@@ -5384,6 +5422,16 @@ class BeetentApp(ctk.CTk):
             if cidx is not None:
                 self._pending_corner_idx=cidx
                 self._drag_start_xy=(event.x,event.y)
+        # Outer-boundary edge click (when nothing else was grabbed) → remember
+        # it so a click without movement opens the edit/delete popup, while a
+        # drag still pans the map.
+        if (self.click_mode is None and lat0 is not None
+                and not self._drag_item and self._drag_track_idx is None
+                and self._pending_corner_idx is None
+                and self.show_boundary.get()
+                and self._boundary_edge_hit(lat0, lon0, mpp)):
+            self._pending_boundary_click=True
+            self._drag_start_xy=(event.x,event.y)
 
     def _b1_motion(self,event):
         sx,sy=self._pan_start_xy if self._pan_start_xy else (event.x,event.y)
@@ -5444,6 +5492,13 @@ class BeetentApp(ctk.CTk):
             self._drag_moved=False
             self._drag_start_xy=None; self._drag_last_latlon=None; self._pan_start_xy=None
             self._show_corner_track_popup(cidx)
+            return
+        # Outer-boundary click (no drag) → edit / delete popup.
+        bnd_click=getattr(self,'_pending_boundary_click',False)
+        self._pending_boundary_click=False
+        if bnd_click and not self._drag_moved:
+            self._drag_start_xy=None; self._drag_last_latlon=None; self._pan_start_xy=None
+            self._show_boundary_popup()
             return
         was_pin_drag=bool(self._drag_item)
         if was_pin_drag and self._drag_moved and self._drag_last_latlon:
