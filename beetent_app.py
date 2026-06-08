@@ -5190,6 +5190,32 @@ class BeetentApp(ctk.CTk):
                 _draw_lateral_line(cx - dead_half)
                 _draw_lateral_line(cx + dead_half)
 
+        # ── Outside round: same zones, drawn as rings (inset from boundary) ──
+        # The round spans the field edge (boundary, d=0) to its inner edge (the
+        # red limit line at d = sprayer_width). Its machine/tire band runs down
+        # the middle (d = sprayer_width/2). Shelters belong near the inner edge,
+        # so the edge-band boundary (orange) is at d = sprayer_width − band.
+        outside_pass_on = (self.outside_pass_var.get() or "No").strip().lower() == "yes"
+        if outside_pass_on:
+            def _draw_inset_ring(dist, color, w):
+                if dist <= 0: return
+                inset = inset_polygon_enu(poly_enu, dist)
+                if len(inset) >= 3:
+                    lpts = [enu_to_latlon(e, n, plat, plon) for e, n in inset]
+                    try:
+                        self.pass_buffer_overlays.append(self.map_widget.set_polygon(
+                            lpts, fill_color=None, outline_color=color, border_width=w))
+                    except Exception:
+                        pass
+            half = width_m / 2.0
+            # 14 ft machine/tire band down the centre of the round (grey rings)
+            _draw_inset_ring(half - TIRE_HALF, TIRE_FILL, 3)
+            _draw_inset_ring(half + TIRE_HALF, TIRE_FILL, 3)
+            # Inner-edge no-shelter ↔ good-zone boundary (orange) when a band is
+            # set and the good zone reaches inside the tire band.
+            if dead_half > TIRE_HALF and (width_m - buffer_m) > (half + TIRE_HALF):
+                _draw_inset_ring(width_m - buffer_m, BAND_LINE, 2)
+
     def _redraw_bays(self):
         self._clear_bays()
         if not self.show_bays.get(): return
