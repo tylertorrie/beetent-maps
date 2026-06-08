@@ -4559,8 +4559,24 @@ class BeetentApp(ctk.CTk):
             self._redraw_sprayer_shift_layers()
 
     def _undo_shelter_move(self):
-        """Revert the most recent move/delete OR shift; repeat to step further back."""
+        """Revert the most recent move/delete OR shift; repeat to step further back.
+
+        When the in-session history is empty but the field still carries saved
+        manual moves (shelter_overrides) from a previous session, offer to clear
+        them all — otherwise stale moves (made before a placement change) can
+        leave a shelter clumped onto a neighbour and a gap where it came from."""
         if not self._shelter_undo:
+            ov = self.current_field.get("shelter_overrides") or {}
+            if ov:
+                if tkinter.messagebox.askyesno("Reset Moves",
+                        f"No in-session changes to undo, but this field has "
+                        f"{len(ov)} saved shelter move(s)/delete(s).\n\n"
+                        f"Clear them so every shelter returns to its calculated "
+                        f"position?"):
+                    self.current_field["shelter_overrides"] = {}
+                    if self.show_shelters.get(): self._redraw_shelters()
+                    self._status(f"Cleared {len(ov)} saved shelter move(s).")
+                return
             self._status("Nothing to undo."); return
         entry=self._shelter_undo.pop()
         if entry[0]=="shift":

@@ -1929,13 +1929,11 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
             # buffer ≤ 0 → INTERIOR-pass kill zones turned off (opt-in).
             buffer_enabled = pass_edge_buffer_m > 0
             pass_dead_half = max(0.0, sprayer_width / 2.0 - pass_edge_buffer_m)
-            # Outside-pass edge band — shelters in the outside round must sit
-            # within this distance of one of its EDGES, never on its driven-over
-            # middle (where the sprayer would hit them). Always enforced when an
-            # outside pass runs (even if the interior buffer is off). Uses the
-            # user's edge buffer if set, else a default that still leaves a
-            # usable band at each edge.
-            op_edge_m = pass_edge_buffer_m if pass_edge_buffer_m > 0 else min(sprayer_width * 0.25, 9.144)
+            # How far INTO the outside round a shelter may sit. Default 0 →
+            # shelters must clear the whole round (sit at or inside its inner
+            # edge), so the sprayer never drives over one. The user can opt into
+            # a small allowance via the pass edge buffer.
+            op_edge_m = pass_edge_buffer_m if pass_edge_buffer_m > 0 else 0.0
             # Slide-along-bay budget for rescuing shelters that land in a forbidden
             # zone (pivot-track exclusion or sprayer kill zone).
             SNAP_MAX_M = 15.0
