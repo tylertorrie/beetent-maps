@@ -3249,7 +3249,7 @@
   "acres": "111.43",
   "gals_per_tray": "2",
   "tray_distribution": "even",
-  "shelter_mode": "acres_per_shelter",
+  "shelter_mode": "trays_2",
   "shelters_per_acre": "1",
   "boundary_edge_shelters": true,
   "lld": "NW-35-10-16-W4",
