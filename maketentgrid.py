@@ -1969,17 +1969,20 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                 return True
 
             def _outside_ok(east, north):
-                # Outside-pass kill zone — keep shelters off the driven-over
-                # middle of the outside round so they sit near its edges. This
-                # is a SOFT reject: a cell that only fails here is DROPPED, not
-                # snapped, because sliding several boundary cells to the kill-
-                # zone edge piles them onto the same spot (visible clusters).
+                # Outside-pass exclusion — keep shelters clear of the outside
+                # round so the sprayer can't hit them. One-sided: a shelter must
+                # sit at least (sprayer_width − edge) in from the boundary, i.e.
+                # at or inside the INNER edge of the outside round. This shrinks
+                # the placeable area by that band rather than punching a ring
+                # hole, so there's no gap and the outermost row lands cleanly at
+                # the inner edge. A cell failing only this is DROPPED (not
+                # snapped — sliding it ~one pass-width inward would clump).
                 if not outside_pass: return True
                 if boundary_enu:
                     d_b = _min_dist_to_bnd(east, north)
                 else:
                     d_b = radius - math.sqrt(east*east + north*north)
-                if op_edge_m < d_b < (sprayer_width - op_edge_m):
+                if d_b < (sprayer_width - op_edge_m):
                     return False
                 return True
 
@@ -2007,15 +2010,19 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                         return False
                 return True
 
-            def _snap_along_pre_n(pre_e, pre_n_0):
+            def _snap_along_pre_n(pre_e, pre_n_0, placed_en=None, min_sep2=0.0):
                 """Slide along the planting direction (pre_n axis) to find a valid
                 spot within SNAP_MAX_M. Prefers positions closer to the outer
                 boundary (smaller d_b); tie-breaker is smaller slide distance.
-                Returns the new pre_n or None."""
+
+                When placed_en/min_sep2 are given the spot must also stay at least
+                sqrt(min_sep2) from every already-placed shelter, so several
+                cells displaced by the same kill zone spread ALONG the edge
+                instead of piling onto one spot (the boundary clusters)."""
                 steps = int(SNAP_MAX_M / SNAP_STEP_M)
                 cands = []
-                # Walk each direction; take the first valid in each, then pick
-                # whichever has the smaller distance-to-boundary.
+                # Walk each direction; take the first valid (+separated) in each,
+                # then pick whichever has the smaller distance-to-boundary.
                 for sign in (+1, -1):
                     for i in range(1, steps + 1):
                         delta = i * SNAP_STEP_M
@@ -2023,13 +2030,17 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                         east  = pre_e * cos_r - new_pre_n * sin_r
                         north = new_pre_n * cos_r + pre_e * sin_r
                         if not _inside(east, north): continue
-                        if _valid(east, north):
-                            if boundary_enu:
-                                d_b = _min_dist_to_bnd(east, north)
-                            else:
-                                d_b = radius - math.sqrt(east*east + north*north)
-                            cands.append((d_b, i, new_pre_n))
-                            break
+                        if not _valid(east, north): continue
+                        if min_sep2 > 0 and placed_en is not None:
+                            if any((east-pe)*(east-pe) + (north-pn)*(north-pn) < min_sep2
+                                   for pe, pn in placed_en):
+                                continue
+                        if boundary_enu:
+                            d_b = _min_dist_to_bnd(east, north)
+                        else:
+                            d_b = radius - math.sqrt(east*east + north*north)
+                        cands.append((d_b, i, new_pre_n))
+                        break
                 if not cands:
                     return None
                 cands.sort()  # smallest d_b first; ties go to fewer slide steps
@@ -2122,14 +2133,13 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                         north = pre_n * cos_r + pre_e * sin_r
                         if not _inside(east, north): continue
                         if _base_valid(east, north):
-                            # In the outside-pass kill zone we drop the cell
-                            # (don't snap it), so it isn't counted either.
+                            # Outside-pass band: dropped (not snapped), so not
+                            # counted either — keeps count == placement.
                             if not _outside_ok(east, north):
                                 continue
-                            placeable = True
-                        else:
-                            placeable = _snappable_coarse(pre_e, pre_n)
-                        if placeable:
+                            total += 1
+                            if total >= target: return True
+                        elif _snappable_coarse(pre_e, pre_n):
                             total += 1
                             if total >= target: return True
                 return False
@@ -2148,7 +2158,10 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                 ns_spacing = lo
 
             # Generate the final grid at the chosen spacing. Stagger and row
-            # grouping both key off the row's visual index, not k.
+            # grouping both key off the row's visual index, not k. Cells in the
+            # outside-pass band are dropped; cells in a track / pivot-inner /
+            # corner zone are slid ("snapped") just clear to the nearest valid
+            # spot.
             raw = []
             c_max = int(radius / ns_spacing) + 2
             for idx, (pre_e, _k) in enumerate(row_list):
@@ -2159,12 +2172,15 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                     north = pre_n * cos_r + pre_e * sin_r
                     if not _inside(east, north): continue
                     if _base_valid(east, north):
-                        # Directly placeable, UNLESS it's on the outside-pass
-                        # middle — those are dropped (not snapped) to avoid the
-                        # boundary clusters that sliding to the edge produced.
-                        if _outside_ok(east, north):
-                            raw.append((east, north, idx))
+                        # Drop (don't snap) cells in the outside-pass band — the
+                        # grid's outermost row already lands at its inner edge.
+                        if not _outside_ok(east, north):
+                            continue
+                        raw.append((east, north, idx))
                     else:
+                        # Track / pivot-inner / corner zones: slide the shelter
+                        # just clear to the nearest valid spot (these are thin
+                        # exclusions, so this rarely needs more than a few m).
                         snapped = _snap_along_pre_n(pre_e, pre_n)
                         if snapped is not None:
                             new_e = pre_e * cos_r - snapped * sin_r
@@ -2199,24 +2215,19 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                 ordered.extend(pts)
                 ordered_rows.extend([i] * len(pts))
 
-            # Place EXACTLY num_tents shelters. Default: trim the small excess
-            # from the snake tail (original behaviour). Only when the column
-            # count was deliberately reduced (Grid rows override) do we stride
-            # evenly instead — there the overshoot is large and a tail-chop
-            # would leave whole end columns bare.
+            # Place EXACTLY num_tents shelters. Trim the excess by FILLING FROM
+            # THE PIVOT OUTWARD: keep the num_tents shelters closest to the pivot
+            # so the covered area stays solid (no interior gaps) and any
+            # shortfall lands at the field perimeter — never as a hole in one
+            # corner (which a snake-tail chop would leave). Snake order is
+            # preserved among the kept shelters for sensible numbering.
             if num_tents is not None and len(ordered) > num_tents > 0:
-                if _cols_reduced:
-                    step = len(ordered) / num_tents
-                    keep = sorted({min(len(ordered) - 1, int(round(i * step)))
-                                   for i in range(num_tents)})
-                    if len(keep) < num_tents:
-                        extras = [i for i in range(len(ordered)) if i not in set(keep)]
-                        keep = sorted(keep + extras[:num_tents - len(keep)])
-                    ordered = [ordered[i] for i in keep]
-                    ordered_rows = [ordered_rows[i] for i in keep]
-                else:
-                    ordered = ordered[:num_tents]
-                    ordered_rows = ordered_rows[:num_tents]
+                by_radius = sorted(range(len(ordered)),
+                                   key=lambda i: ordered[i][0]*ordered[i][0]
+                                               + ordered[i][1]*ordered[i][1])
+                keep = set(by_radius[:num_tents])
+                ordered = [p for i, p in enumerate(ordered) if i in keep]
+                ordered_rows = [r for i, r in enumerate(ordered_rows) if i in keep]
 
             # Convert to lat/lon, then drop any shelter that — after the
             # ENU→latlon→ENU round-trip — no longer lands strictly inside the
