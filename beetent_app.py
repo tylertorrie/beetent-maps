@@ -1088,33 +1088,35 @@ class BeetentApp(ctk.CTk):
             self._status(f"Buffer zone set to {val} ft.")
 
     def _edit_pass_edge_buffer(self):
-        """Adjust how far in from the edge of any sprayer pass shelters can
-        sit. Middle of each pass becomes a kill zone of width
-        max(0, sprayer_width − 2 × buffer); applies to BOTH the outside pass
-        and every main pass through the field."""
+        """Set the shelter edge band: how far IN from each sprayer-pass edge a
+        shelter may sit. The middle of each pass (pass width − 2 × this) becomes
+        the no-shelter zone. 0 = no zone (shelters anywhere along a pass)."""
         self._close_all_popups()
-        cur = self.fv["pass_edge_buffer_ft"].get() or "30"
-        val = self._ask_string("Sprayer Edge Buffer",
-                                f"How far in from the edge of any sprayer pass shelters can sit (ft).\n"
-                                f"Applies to the outside pass AND every main pass.\n"
+        cur = self.fv["pass_edge_buffer_ft"].get() or "0"
+        val = self._ask_string("Shelter Edge Band",
+                                "How far IN from each sprayer-pass EDGE a shelter may sit (ft).\n"
+                                "Shelters are allowed within this band at each edge; the middle\n"
+                                "of the pass (pass width − 2 × this) becomes the no-shelter zone.\n"
+                                "0 = no zone (shelters anywhere along a pass).\n"
                                 f"Current: {cur}")
         if val is None: return
         val = val.strip()
         if val:
             self.fv["pass_edge_buffer_ft"].set(val)   # write-trace → _on_form_change
-            self._status(f"Sprayer edge buffer set to {val} ft.")
+            self._status(f"Shelter edge band set to {val} ft from each pass edge.")
             # Refresh the overlay if it's currently being shown.
             if self.show_pass_buffer_overlay.get():
                 self._redraw_pass_buffer_overlay()
 
     def _toggle_pass_buffer_overlay(self):
-        """Show/hide a red translucent overlay marking the sprayer kill zones
-        (the middle of every sprayer pass + the middle of the outside pass).
-        Lets the user visually verify where shelters can and cannot land."""
+        """Show/hide the per-pass zone overlay: the 14 ft machine/tire band down
+        the centre of every sprayer pass (grey — absolute no-shelter zone) plus,
+        when a shelter edge band is set, the no-shelter / good-zone boundary
+        lines (orange). Lets the user see where shelters can and cannot land."""
         self._close_all_popups()
         self.show_pass_buffer_overlay.set(not self.show_pass_buffer_overlay.get())
         self._redraw_pass_buffer_overlay()
-        self._status("Sprayer buffer overlay " +
+        self._status("Pass / tire zones " +
                      ("shown." if self.show_pass_buffer_overlay.get() else "hidden."))
 
     def _toggle_route_around_inner(self):
@@ -1202,8 +1204,8 @@ class BeetentApp(ctk.CTk):
             ("Import Sprayer Data (.shp/.geojson)", self._import_sprayer_data),
             ("Toggle Uploaded Paths on/off",    self._toggle_sprayer_passes),
             ("Clear Uploaded Paths",            self._clear_sprayer_data),
-            ("Set Edge Buffer (ft)",            self._edit_pass_edge_buffer),
-            ("Toggle Edge Buffer Overlay",      self._toggle_pass_buffer_overlay),
+            ("Set Shelter Edge Band (ft)",      self._edit_pass_edge_buffer),
+            ("Toggle Pass / Tire Zones",        self._toggle_pass_buffer_overlay),
             ("Toggle Route Around Inner",       self._toggle_route_around_inner),
         ], color="#2a5a4a",
            toggle_var=self.sprayer_visible_var, toggle_fn=self._set_sprayer_visible)
@@ -5109,9 +5111,17 @@ class BeetentApp(ctk.CTk):
         self.pass_buffer_overlays = []
 
     def _redraw_pass_buffer_overlay(self):
-        """Translucent red bands showing the sprayer-pass kill zones — the
-        middle of every main sprayer pass + the middle of the outside pass.
-        Helps the user visually verify where shelters can / cannot land."""
+        """Per-sprayer-pass zone overlay:
+
+          • 14 ft machine/tire band down the centre of every pass — solid GREY.
+            The wheels run here, so it's the absolute no-shelter zone (drawn
+            whether or not an edge band is set).
+          • When a shelter edge band is set, ORANGE lines at sprayer_width/2 −
+            band from each pass centre — the no-shelter / good-zone boundary.
+            Shelters may sit BETWEEN an orange line and the pass edge.
+
+        Grey fill + orange lines read clearly apart, and neither is a coloured
+        band like the planter-bay layer (dark blue)."""
         self._clear_pass_buffer_overlay()
         if not self.show_pass_buffer_overlay.get(): return
         try:
@@ -5120,65 +5130,62 @@ class BeetentApp(ctk.CTk):
             angle = float(self.fv["Spray_angle"].get() or 0)
             width_ft = float(self.fv["Sprayer_width"].get() or 133)
             width_m = width_ft * 0.3048
-            buffer_ft = float(self.fv["pass_edge_buffer_ft"].get() or 30)
+            buffer_ft = float(self.fv["pass_edge_buffer_ft"].get() or 0)
             buffer_m = buffer_ft * 0.3048
             bp = self.current_field.get("boundary_polygon")
         except (ValueError, TypeError):
             return
         if not bp or len(bp) < 3 or width_m <= 0: return
-        dead_half = max(0.0, width_m / 2.0 - buffer_m)
-        if dead_half <= 0:   # buffer ≥ half-width → no kill zone at all
-            self._status("Edge buffer ≥ half pass width — no kill zone to draw.")
-            return
         poly_enu = [latlon_to_enu(lat, lon, plat, plon) for lat, lon in bp]
         max_r = max(math.sqrt(e*e + n*n) for e, n in poly_enu) * 1.1
         rot = math.radians((0 - angle + 180) % 360 - 180)
         cos_r, sin_r = math.cos(rot), math.sin(rot)
         tdx, tdy = -sin_r, cos_r
         ldx, ldy = cos_r, sin_r
-        KILL_FILL = "#FF2233"   # translucent-looking red (no real alpha in tkintermapview)
-        # Main-pass kill zones: a band of width 2 × dead_half centred on each
-        # sprayer pass at r * sprayer_width.
+        TIRE_HALF   = 7.0 * 0.3048     # 14 ft machine band → ±7 ft from centre
+        TIRE_FILL   = "#454545"        # solid grey = where the tires run
+        BAND_LINE   = "#FF8C00"        # orange = no-shelter / good-zone boundary
         max_rows = int(max_r / width_m) + 2
-        # Inner boundaries as ENU rings (so the kill-zone bands also stop at
-        # interior cutouts when present).
+        # Inner boundaries as ENU rings (so the bands also stop at cutouts).
         inner_polys_enu = []
         for inner in (self.current_field.get("boundary_inner") or []):
             if not inner or len(inner) < 3: continue
             inner_polys_enu.append(
                 [latlon_to_enu(pt[0], pt[1], plat, plon) for pt in inner])
-        for r in range(-max_rows, max_rows + 1):
-            cx = r * width_m
-            bands = self._band_polygon_enu(cx - dead_half, cx + dead_half,
-                                            tdx, tdy, ldx, ldy, poly_enu,
-                                            inner_polys_enu=inner_polys_enu)
-            for band in bands:
-                lpts = [enu_to_latlon(e, n, plat, plon) for e, n in band]
+        # No-shelter half-width from the edge band (only when it exceeds the
+        # tire band — otherwise the tire band already covers the no-go zone).
+        dead_half = max(0.0, width_m / 2.0 - buffer_m) if buffer_m > 0 else 0.0
+
+        def _draw_lateral_line(off):
+            """Draw a clipped line at lateral offset `off` along travel dir."""
+            pe, pn = off * ldx, off * ldy
+            for (t1, t2) in clip_line_to_polygon_intervals(pe, pn, tdx, tdy, poly_enu):
+                if t2 - t1 < 0.01: continue
+                la1, lo1 = enu_to_latlon(pe + t1*tdx, pn + t1*tdy, plat, plon)
+                la2, lo2 = enu_to_latlon(pe + t2*tdx, pn + t2*tdy, plat, plon)
                 try:
-                    o = self.map_widget.set_polygon(
-                        lpts, fill_color=KILL_FILL,
-                        outline_color=KILL_FILL, border_width=0)
-                    self.pass_buffer_overlays.append(o)
+                    self.pass_buffer_overlays.append(
+                        self.map_widget.set_path([(la1, lo1), (la2, lo2)],
+                                                 color=BAND_LINE, width=2))
                 except Exception:
                     pass
-        # Outside-pass kill zone (only when running an outside pass) — drawn
-        # as the area between the boundary inset by buffer_m (outer edge of
-        # kill zone) and the boundary inset by (sprayer_width − buffer_m)
-        # (inner edge of kill zone). Since tkintermapview doesn't do
-        # polygons-with-holes, show it as two outline rings instead.
-        outside_pass_on = (self.outside_pass_var.get() or "No").strip().lower() == "yes"
-        if outside_pass_on:
-            for inset_dist in (buffer_m, width_m - buffer_m):
-                inset = inset_polygon_enu(poly_enu, inset_dist)
-                if len(inset) >= 3:
-                    lpts = [enu_to_latlon(e, n, plat, plon) for e, n in inset]
-                    try:
-                        o = self.map_widget.set_polygon(
-                            lpts, fill_color=None,
-                            outline_color=KILL_FILL, border_width=2)
-                        self.pass_buffer_overlays.append(o)
-                    except Exception:
-                        pass
+
+        for r in range(-max_rows, max_rows + 1):
+            cx = r * width_m
+            # 14 ft tire band (always)
+            for band in self._band_polygon_enu(cx - TIRE_HALF, cx + TIRE_HALF,
+                                               tdx, tdy, ldx, ldy, poly_enu,
+                                               inner_polys_enu=inner_polys_enu):
+                lpts = [enu_to_latlon(e, n, plat, plon) for e, n in band]
+                try:
+                    self.pass_buffer_overlays.append(self.map_widget.set_polygon(
+                        lpts, fill_color=TIRE_FILL, outline_color=TIRE_FILL, border_width=0))
+                except Exception:
+                    pass
+            # Edge-band boundary lines (no-shelter ↔ good zone)
+            if dead_half > TIRE_HALF:
+                _draw_lateral_line(cx - dead_half)
+                _draw_lateral_line(cx + dead_half)
 
     def _redraw_bays(self):
         self._clear_bays()
