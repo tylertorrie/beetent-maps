@@ -1923,16 +1923,7 @@
       ]
     }
   ],
-  "shelter_overrides": {
-    "98": [
-      49.89524576111862,
-      -111.93505998546078
-    ],
-    "0": [
-      49.89775899237559,
-      -111.91777403318612
-    ]
-  },
+  "shelter_overrides": {},
   "gals_per_acre": "3",
   "acres": "152.64",
   "gals_per_tray": "2",
@@ -1943,13 +1934,14 @@
   "lld": "NE-12-11-15-W4",
   "acres_per_shelter": "2",
   "shelter_rows": "",
-  "pass_edge_buffer_ft": "0",
+  "pass_edge_buffer_ft": "4",
   "total_rows": "20",
   "row_layout": "centered",
   "custom_row_mask": "",
   "use_imported_passes": false,
   "use_bays": true,
-  "Planting_angle": "",
+  "Planting_angle": "0",
   "bay_gap_in": "0",
-  "boundary_inner": []
+  "boundary_inner": [],
+  "shelters_in_outside_pass": "No"
 }
