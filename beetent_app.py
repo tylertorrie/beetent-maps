@@ -5247,17 +5247,17 @@ class BeetentApp(ctk.CTk):
         self.pass_buffer_overlays = []
 
     def _redraw_pass_buffer_overlay(self):
-        """Per-sprayer-pass zone overlay (interior passes AND the outside round):
+        """Shelter-zone overlay:
 
-          • RED stripes fill the no-shelter zone — the 14 ft machine/tire band
-            down the centre of every pass (where the wheels run), extended to the
-            whole middle when a shelter edge band is set.
-          • GREEN stripes fill the shelter edge band — the good zone near each
-            pass edge where shelters may sit (only when an edge band is set).
+          • SOLID RED 14 ft machine/tire band down the centre of every sprayer
+            pass (interior) and the outside round — the wheels run here, no
+            shelters (same size/shape as the old grey band, just red).
+          • GREEN DOTS fill the shelter edge band near each pass edge — the good
+            zone where shelters may sit (only when an edge band is set).
+          • DIAGONAL RED STRIPES fill each pivot-track buffer ring (the
+            track-exclusion zone) to flag it as no-shelter.
 
-        Pass edges themselves are the bright-green lines drawn by the sprayer-
-        pass layer. Red/green stripes read clearly apart from the dark-blue
-        planter-bay layer."""
+        Pass edges are the bright-green lines drawn by the sprayer-pass layer."""
         self._clear_pass_buffer_overlay()
         if not self.show_pass_buffer_overlay.get(): return
         try:
@@ -5279,75 +5279,110 @@ class BeetentApp(ctk.CTk):
         tdx, tdy = -sin_r, cos_r
         ldx, ldy = cos_r, sin_r
         TIRE_HALF = 7.0 * 0.3048       # 14 ft machine band → ±7 ft from centre
-        RED   = "#FF2A2A"              # no-shelter / tire zone (striped)
-        GREEN = "#28E048"             # shelter edge band — good zone (striped)
-        STRIPE_M = 2.2                # spacing between stripe lines
+        RED   = "#FF2A2A"
+        GREEN = "#22E048"
         max_rows = int(max_r / width_m) + 2
 
-        def _stripe_along(off, color):
-            """One stripe: a clipped line at lateral offset `off` along travel."""
-            pe, pn = off * ldx, off * ldy
-            for (t1, t2) in clip_line_to_polygon_intervals(pe, pn, tdx, tdy, poly_enu):
-                if t2 - t1 < 0.01: continue
-                la1, lo1 = enu_to_latlon(pe + t1*tdx, pn + t1*tdy, plat, plon)
-                la2, lo2 = enu_to_latlon(pe + t2*tdx, pn + t2*tdy, plat, plon)
-                try:
-                    self.pass_buffer_overlays.append(self.map_widget.set_path(
-                        [(la1, lo1), (la2, lo2)], color=color, width=2))
-                except Exception:
-                    pass
+        def _add(o):
+            if o is not None: self.pass_buffer_overlays.append(o)
 
-        def _striped_band(x1, x2, color):
-            """Fill lateral band [x1,x2] with evenly-spaced stripe lines."""
-            if x2 - x1 < 0.3:
-                _stripe_along((x1 + x2) / 2.0, color); return
-            n = min(25, max(1, int((x2 - x1) / STRIPE_M)))
-            for i in range(n + 1):
-                _stripe_along(x1 + (x2 - x1) * i / n, color)
-
-        # Interior passes: GREEN stripes fill the shelter edge band near each
-        # edge; RED stripes fill the no-shelter middle. With no edge band set,
-        # only the 14 ft tire band (red) is shown.
+        # ── Solid red tire band down the centre of every interior pass ──────
+        inner_polys_enu = []
+        for inner in (self.current_field.get("boundary_inner") or []):
+            if inner and len(inner) >= 3:
+                inner_polys_enu.append([latlon_to_enu(p[0], p[1], plat, plon) for p in inner])
         for r in range(-max_rows, max_rows + 1):
             cx = (r + 0.5) * width_m            # pass centre (between green edges)
-            le = r * width_m; re_ = (r + 1) * width_m
-            if buffer_m > 0:
-                dead_half = max(0.0, width_m / 2.0 - buffer_m)
-                _striped_band(le, le + buffer_m, GREEN)
-                _striped_band(re_ - buffer_m, re_, GREEN)
-                if dead_half > 0:
-                    _striped_band(cx - dead_half, cx + dead_half, RED)
-            else:
-                _striped_band(cx - TIRE_HALF, cx + TIRE_HALF, RED)
+            for band in self._band_polygon_enu(cx - TIRE_HALF, cx + TIRE_HALF,
+                                               tdx, tdy, ldx, ldy, poly_enu,
+                                               inner_polys_enu=inner_polys_enu):
+                lpts = [enu_to_latlon(e, n, plat, plon) for e, n in band]
+                try: _add(self.map_widget.set_polygon(lpts, fill_color=RED,
+                                                       outline_color=RED, border_width=0))
+                except Exception: pass
 
-        # ── Outside round: same zones, drawn as inset rings (stripes) ────────
+        # ── Green dots in the shelter edge band (good zone) near each edge ───
+        def _dots_in_band(x1, x2):
+            if x2 - x1 <= 0: return
+            DOT = 4.0; lat = x1 + DOT / 2.0
+            while lat <= x2:
+                pe, pn = lat * ldx, lat * ldy
+                for (t1, t2) in clip_line_to_polygon_intervals(pe, pn, tdx, tdy, poly_enu):
+                    tt = t1 + DOT / 2.0
+                    while tt <= t2:
+                        la, lo = enu_to_latlon(pe + tt*tdx, pn + tt*tdy, plat, plon)
+                        try: _add(self.map_widget.set_polygon(
+                            circle_pts(la, lo, 0.8, 6), fill_color=GREEN,
+                            outline_color=GREEN, border_width=0))
+                        except Exception: pass
+                        tt += DOT
+                lat += DOT
+        if buffer_m > 0:
+            for r in range(-max_rows, max_rows + 1):
+                le = r * width_m; re_ = (r + 1) * width_m
+                _dots_in_band(le, le + buffer_m)
+                _dots_in_band(re_ - buffer_m, re_)
+
+        # ── Outside round: solid red tire ring + green good-zone dots ───────
         outside_pass_on = (self.outside_pass_var.get() or "No").strip().lower() == "yes"
         if outside_pass_on:
-            def _stripe_ring(dist, color):
-                inset = inset_polygon_enu(poly_enu, max(0.3, dist))
-                if len(inset) >= 3:
-                    lpts = [enu_to_latlon(e, n, plat, plon) for e, n in inset]
-                    try:
-                        self.pass_buffer_overlays.append(self.map_widget.set_polygon(
-                            lpts, fill_color=None, outline_color=color, border_width=2))
-                    except Exception:
-                        pass
-            def _striped_rings(d1, d2, color):
-                d1 = max(0.3, d1)
-                if d2 - d1 < 0.3:
-                    _stripe_ring((d1 + d2) / 2.0, color); return
-                n = min(18, max(1, int((d2 - d1) / STRIPE_M)))
-                for i in range(n + 1):
-                    _stripe_ring(d1 + (d2 - d1) * i / n, color)
             half = width_m / 2.0
+            outer = inset_polygon_enu(poly_enu, max(0.3, half - TIRE_HALF))
+            inner = inset_polygon_enu(poly_enu, half + TIRE_HALF)
+            if len(outer) >= 3 and len(inner) >= 3:
+                ring = list(outer) + [outer[0], inner[0]] + list(reversed(inner)) + [inner[0], outer[0]]
+                lpts = [enu_to_latlon(e, n, plat, plon) for e, n in ring]
+                try: _add(self.map_widget.set_polygon(lpts, fill_color=RED,
+                                                      outline_color=RED, border_width=0))
+                except Exception: pass
             if buffer_m > 0:
-                # good zone near the inner edge (green); no-shelter from the
-                # boundary in to it (red).
-                _striped_rings(width_m - buffer_m, width_m, GREEN)
-                _striped_rings(0.3, width_m - buffer_m, RED)
-            else:
-                # just the 14 ft tire band (red) at the centre of the round
-                _striped_rings(half - TIRE_HALF, half + TIRE_HALF, RED)
+                # dotted green good zone just inside the round's inner edge
+                gdist = width_m - buffer_m / 2.0
+                gring = inset_polygon_enu(poly_enu, max(0.3, gdist))
+                for i, (e, n) in enumerate(gring):
+                    if i % 2: continue   # thin the ring samples
+                    la, lo = enu_to_latlon(e, n, plat, plon)
+                    try: _add(self.map_widget.set_polygon(
+                        circle_pts(la, lo, 0.8, 6), fill_color=GREEN,
+                        outline_color=GREEN, border_width=0))
+                    except Exception: pass
+
+        # ── Pivot-track buffer rings: diagonal red stripes ──────────────────
+        tracks = sorted(float(r) for r in (self.current_field.get("pivot_tracks") or []))
+        if tracks:
+            try: excl = float(self.fv.get("track_exclusion_ft", self.excl_var).get() or "10") * 0.3048
+            except (ValueError, AttributeError): excl = 10 * 0.3048
+            excl = max(excl, 0.5)
+            d = 0.70710678  # 45° diagonal in the ENU frame
+            STRIPE = 6.0
+            off = -max_r
+            while off <= max_r:
+                ax, ay = -off * d, off * d          # point on this diagonal line
+                ad = ax * d + ay * d
+                a2 = ax * ax + ay * ay
+                for r in tracks:
+                    r_in = max(0.0, r - excl); r_out = r + excl
+                    disc_o = ad * ad - (a2 - r_out * r_out)
+                    if disc_o <= 0: continue
+                    so = math.sqrt(disc_o)
+                    segs = [(-ad - so, -ad + so)]
+                    if r_in > 0:
+                        disc_i = ad * ad - (a2 - r_in * r_in)
+                        if disc_i > 0:
+                            si = math.sqrt(disc_i)
+                            segs = [(-ad - so, -ad - si), (-ad + si, -ad + so)]
+                    for (ta, tb) in segs:
+                        if tb - ta < 0.3: continue
+                        e1, n1 = ax + ta * d, ay + ta * d
+                        e2, n2 = ax + tb * d, ay + tb * d
+                        mla, mlo = enu_to_latlon((e1+e2)/2, (n1+n2)/2, plat, plon)
+                        if not _pt_in_poly(mla, mlo, bp): continue
+                        la1, lo1 = enu_to_latlon(e1, n1, plat, plon)
+                        la2, lo2 = enu_to_latlon(e2, n2, plat, plon)
+                        try: _add(self.map_widget.set_path(
+                            [(la1, lo1), (la2, lo2)], color=RED, width=2))
+                        except Exception: pass
+                off += STRIPE
 
     def _redraw_bays(self):
         self._clear_bays()
