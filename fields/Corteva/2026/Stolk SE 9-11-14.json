@@ -62542,7 +62542,7 @@
   "total_rows": "20",
   "use_bays": true,
   "pass_edge_buffer_ft": "0",
-  "Planting_angle": "",
+  "Planting_angle": "0",
   "shelter_rows": "",
   "bay_gap_in": "0",
   "shelters_in_outside_pass": "No"
