@@ -11,8 +11,8 @@
   "shelter_spacing": "",
   "directional_offset": "",
   "row_spacing_in": "22",
-  "num_female_rows": "4",
-  "num_male_rows": "4",
+  "num_female_rows": "6",
+  "num_male_rows": "3",
   "planter_width_ft": "36.666",
   "outside_sprayer_pass": "Yes",
   "track_exclusion_ft": "5",
@@ -135,8 +135,8 @@
   "use_imported_passes": false,
   "acres_per_shelter": "",
   "total_rows": "20",
-  "use_bays": false,
+  "use_bays": true,
   "pass_edge_buffer_ft": "0",
   "shelter_rows": "",
-  "bay_gap_in": "0"
+  "bay_gap_in": "33"
 }
