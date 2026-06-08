@@ -2112,8 +2112,16 @@
   "acres": "152.64",
   "gals_per_tray": "2",
   "tray_distribution": "even",
-  "shelter_mode": "per_acre",
+  "shelter_mode": "acres_per_shelter",
   "shelters_per_acre": "1",
   "boundary_edge_shelters": true,
-  "lld": "NW-12-11-15-W4"
+  "lld": "NW-12-11-15-W4",
+  "acres_per_shelter": "2",
+  "shelter_rows": "",
+  "pass_edge_buffer_ft": "0",
+  "total_rows": "20",
+  "row_layout": "centered",
+  "custom_row_mask": "",
+  "use_imported_passes": false,
+  "use_bays": true
 }
