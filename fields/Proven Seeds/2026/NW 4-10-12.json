@@ -267,5 +267,8 @@
       -111.57974890351535
     ]
   },
-  "shelter_rows": ""
+  "shelter_rows": "",
+  "Planting_angle": "0",
+  "bay_gap_in": "0",
+  "shelters_in_outside_pass": "No"
 }
