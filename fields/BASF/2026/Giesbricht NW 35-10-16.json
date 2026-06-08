@@ -3249,11 +3249,11 @@
   "acres": "111.43",
   "gals_per_tray": "2",
   "tray_distribution": "even",
-  "shelter_mode": "per_acre",
+  "shelter_mode": "acres_per_shelter",
   "shelters_per_acre": "1",
   "boundary_edge_shelters": true,
   "lld": "NW-35-10-16-W4",
-  "acres_per_shelter": "",
+  "acres_per_shelter": "2",
   "total_rows": "20",
   "row_layout": "centered",
   "custom_row_mask": "",
@@ -4151,5 +4151,6 @@
         -112.07197646899999
       ]
     ]
-  ]
+  ],
+  "shelter_rows": ""
 }
