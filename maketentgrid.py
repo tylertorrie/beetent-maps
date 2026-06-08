@@ -1935,9 +1935,14 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
             # a small allowance via the pass edge buffer.
             op_edge_m = pass_edge_buffer_m if pass_edge_buffer_m > 0 else 0.0
             # Slide-along-bay budget for rescuing shelters that land in a forbidden
-            # zone (pivot-track exclusion or sprayer kill zone).
-            SNAP_MAX_M = 15.0
-            SNAP_STEP_M = 0.25
+            # zone (pivot-track exclusion or sprayer kill zone). A column that
+            # runs nearly TANGENT to a pivot track grazes it for a long stretch,
+            # so the displaced cell can need a sizeable slide to reach open
+            # ground (≈√(2·R·excl); ~20 m at a 120 m track, ~34 m at a 385 m
+            # one). Give the slide enough room to clear those rather than
+            # dropping the shelter and leaving a gap.
+            SNAP_MAX_M = 40.0
+            SNAP_STEP_M = 0.5
 
             _pivot_tracks_sg = tuple(pivot_tracks) if pivot_tracks else ()
 
@@ -2009,18 +2014,18 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                 return True
 
             def _snap_along_pre_n(pre_e, pre_n_0, placed_en=None, min_sep2=0.0):
-                """Slide along the planting direction (pre_n axis) to find a valid
-                spot within SNAP_MAX_M. Prefers positions closer to the outer
-                boundary (smaller d_b); tie-breaker is smaller slide distance.
+                """Slide along the planting direction (pre_n axis) to the NEAREST
+                valid spot within SNAP_MAX_M. Primary preference is the smallest
+                slide (closest open ground, forward or back); on a tie the more
+                INTERIOR spot wins (larger distance-to-boundary) so a rescued
+                shelter stays off the field edge and fills toward the gap rather
+                than drifting outward.
 
                 When placed_en/min_sep2 are given the spot must also stay at least
-                sqrt(min_sep2) from every already-placed shelter, so several
-                cells displaced by the same kill zone spread ALONG the edge
-                instead of piling onto one spot (the boundary clusters)."""
+                sqrt(min_sep2) from every already-placed shelter."""
                 steps = int(SNAP_MAX_M / SNAP_STEP_M)
                 cands = []
-                # Walk each direction; take the first valid (+separated) in each,
-                # then pick whichever has the smaller distance-to-boundary.
+                # Walk each direction; take the first valid (+separated) in each.
                 for sign in (+1, -1):
                     for i in range(1, steps + 1):
                         delta = i * SNAP_STEP_M
@@ -2037,11 +2042,12 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                             d_b = _min_dist_to_bnd(east, north)
                         else:
                             d_b = radius - math.sqrt(east*east + north*north)
-                        cands.append((d_b, i, new_pre_n))
+                        # (slide steps, then prefer larger d_b → more interior)
+                        cands.append((i, -d_b, new_pre_n))
                         break
                 if not cands:
                     return None
-                cands.sort()  # smallest d_b first; ties go to fewer slide steps
+                cands.sort()  # fewest slide steps first; tie → most interior
                 return cands[0][2]
 
             def _snappable_coarse(pre_e, pre_n_0):
