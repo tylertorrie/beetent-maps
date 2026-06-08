@@ -1,5 +1,5 @@
 {
-  "Name": "#9 Carrots",
+  "Name": "Carrots",
   "company": "Hytech",
   "year": "2026",
   "PP_Latitude": "49.9134342",
@@ -136,5 +136,7 @@
   "acres_per_shelter": "",
   "total_rows": "20",
   "use_bays": false,
-  "pass_edge_buffer_ft": "0"
+  "pass_edge_buffer_ft": "0",
+  "shelter_rows": "",
+  "bay_gap_in": "0"
 }
