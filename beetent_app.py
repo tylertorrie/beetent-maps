@@ -491,6 +491,7 @@ def blank_field(company="",year=""):
                 acres_per_shelter="",
                 spacing="",shelter_spacing="",directional_offset="",
                 row_spacing_in="22",num_female_rows="8",num_male_rows="2",
+                bay_gap_in="0",           # extra gap (inches) at each male/female bay edge; 0 = none
                 total_rows="20",          # total rows on the planter (may > num_female + num_male if unit repeats)
                 row_layout="centered",   # "outer" | "centered" | "custom"
                 custom_row_mask="",       # only used when row_layout == "custom"
@@ -1457,6 +1458,7 @@ class BeetentApp(ctk.CTk):
         bay_only_rows=[
             ("num_female_rows",  "Female Rows (per repeat unit)"),
             ("num_male_rows",    "Male Rows (per repeat unit)"),
+            ("bay_gap_in",       "Gap between male & female bays (inches)"),
         ]
         for key,label in bay_only_rows:
             ctk.CTkLabel(self._bay_only_frame,text=label,anchor="w",
@@ -1472,6 +1474,9 @@ class BeetentApp(ctk.CTk):
         self.male_bay_lbl=ctk.CTkLabel(self._bay_only_frame,text="Male bay width: —",
                                         anchor="w",text_color=UI_ACCENT)
         self.male_bay_lbl.pack(fill="x")
+        self.bay_gap_lbl=ctk.CTkLabel(self._bay_only_frame,text="Gap: none",
+                                       anchor="w",text_color=UI_ACCENT)
+        self.bay_gap_lbl.pack(fill="x")
 
         ctk.CTkLabel(self._bay_only_frame,text="Row layout",anchor="w",
                      font=ctk.CTkFont(family=FONT_LABEL,size=11)).pack(fill="x",pady=(8,0))
@@ -1610,7 +1615,7 @@ class BeetentApp(ctk.CTk):
             v.trace_add("write", self._on_form_change)
         self.fv["track_exclusion_ft"].trace_add("write", self._on_track_excl_change)
         # Auto-recalc bays whenever a bay-calculator field changes (debounced).
-        for k in ("row_spacing_in","total_rows","num_female_rows","num_male_rows"):
+        for k in ("row_spacing_in","total_rows","num_female_rows","num_male_rows","bay_gap_in"):
             if k in self.fv:
                 self.fv[k].trace_add("write", self._on_bay_change)
         # Custom-mask writes feed into the bay redraw too (debounced via
@@ -1685,7 +1690,7 @@ class BeetentApp(ctk.CTk):
     def _on_preset_selected(self, name):
         if name == "— Create New —":
             # Blank all bay calculator fields and clear the name entry
-            for k in ("row_spacing_in","total_rows","num_female_rows","num_male_rows"):
+            for k in ("row_spacing_in","total_rows","num_female_rows","num_male_rows","bay_gap_in"):
                 if k in self.fv: self.fv[k].set("")
             self.row_layout_var.set("Centered male")
             self.custom_mask_var.set("")
@@ -1699,7 +1704,7 @@ class BeetentApp(ctk.CTk):
         presets=self._load_bay_presets()
         for p in presets:
             if p["name"]==name:
-                for k in ("row_spacing_in","total_rows","num_female_rows","num_male_rows"):
+                for k in ("row_spacing_in","total_rows","num_female_rows","num_male_rows","bay_gap_in"):
                     if k in p and k in self.fv: self.fv[k].set(str(p[k]))
                 # Row layout & custom mask are new — older presets that lack
                 # them default to "centered" (the historical implicit shape).
@@ -1731,6 +1736,7 @@ class BeetentApp(ctk.CTk):
                  "total_rows":self.fv["total_rows"].get(),
                  "num_female_rows":self.fv["num_female_rows"].get(),
                  "num_male_rows":self.fv["num_male_rows"].get(),
+                 "bay_gap_in":self.fv["bay_gap_in"].get(),
                  "row_layout":self._row_layout_labels.get(self.row_layout_var.get(),"centered"),
                  "custom_row_mask":self.custom_mask_var.get(),
                  "shelter_mode":s_mode}
@@ -5118,11 +5124,18 @@ class BeetentApp(ctk.CTk):
             nm=int(self.fv["num_male_rows"].get() or 2)
         except (ValueError,TypeError):
             nf, nm = 8, 2
+        try: gap_in=float(self.fv["bay_gap_in"].get() or 0)
+        except (ValueError,TypeError): gap_in=0.0
+        if gap_in < 0: gap_in = 0.0
         unit = max(1, nf + nm)
         repeats = total_rows // unit if unit > 0 else 0
         leftover = total_rows - repeats * unit
         f_in=(nf+1)*rs; m_in=(nm+1)*rs
         f_ft=f_in/12; m_ft=m_in/12; f_m=f_ft*0.3048; m_m=m_ft*0.3048
+        gap_ft=gap_in/12; gap_m=gap_ft*0.3048
+        # Bay repeat period = female + male + a gap at EACH male/female edge
+        # (two per period). Shown so the user can verify the spacing.
+        period_in=f_in+m_in+2*gap_in; period_ft=period_in/12; period_m=period_ft*0.3048
         layout = self._row_layout_labels.get(self.row_layout_var.get(),"centered")
         mask = self._resolve_row_mask(nf, nm, layout, self.custom_mask_var.get(),
                                        total_rows=total_rows)
@@ -5135,9 +5148,21 @@ class BeetentApp(ctk.CTk):
         if use_m:
             self.female_bay_lbl.configure(text=f'Female bay: {f_in:.1f}" = {f_m:.3f} m')
             self.male_bay_lbl.configure(text=f'Male bay:   {m_in:.1f}" = {m_m:.3f} m')
+            if gap_in > 0:
+                self.bay_gap_lbl.configure(
+                    text=f'Gap: {gap_in:.1f}" = {gap_m:.3f} m each edge  →  '
+                         f'bay repeat {period_in:.1f}" = {period_m:.3f} m')
+            else:
+                self.bay_gap_lbl.configure(text="Gap: none")
         else:
             self.female_bay_lbl.configure(text=f'Female bay: {f_in:.1f}" = {f_ft:.3f} ft')
             self.male_bay_lbl.configure(text=f'Male bay:   {m_in:.1f}" = {m_ft:.3f} ft')
+            if gap_in > 0:
+                self.bay_gap_lbl.configure(
+                    text=f'Gap: {gap_in:.1f}" = {gap_ft:.3f} ft each edge  →  '
+                         f'bay repeat {period_in:.1f}" = {period_ft:.3f} ft')
+            else:
+                self.bay_gap_lbl.configure(text="Gap: none")
         self.row_mask_lbl.configure(text=f"Mask: {mask or '—'}")
         self._status(f"Bay layout: female {f_in:.0f}\" ({f_ft:.2f} ft), male {m_in:.0f}\" ({m_ft:.2f} ft); planter {total_rows} rows")
         if self.show_bays.get(): self._redraw_bays()
@@ -5351,9 +5376,11 @@ class BeetentApp(ctk.CTk):
             nf=int(self.fv["num_female_rows"].get() or 8)
             nm=int(self.fv["num_male_rows"].get() or 2)
             total_rows=int(self.fv["total_rows"].get() or (nf + nm))
+            gap_in=float(self.fv["bay_gap_in"].get() or 0)
             bp=self.current_field.get("boundary_polygon")
         except (ValueError,TypeError): return
         if not bp or len(bp)<3: return
+        gap_m=max(0.0, gap_in)*0.0254
 
         bse, bsn = self._bay_shift()   # planter Shift offset (east, north metres)
 
@@ -5384,7 +5411,9 @@ class BeetentApp(ctk.CTk):
         cos_r,sin_r=math.cos(rot),math.sin(rot)
         tdx=-sin_r; tdy=cos_r
         ldx=cos_r; ldy=sin_r
-        unit=female_m+male_m
+        # Repeat period grows by a gap at each male/female edge (2 per period);
+        # the male band is pushed in by one gap so a gap sits on each side.
+        unit=female_m+male_m+2*gap_m
         # Lateral component of the planter Shift offset (movement along the bay
         # travel direction is invisible, so only the perpendicular part counts).
         bay_sh = bse*ldx + bsn*ldy
@@ -5393,7 +5422,8 @@ class BeetentApp(ctk.CTk):
             cx=i*unit
             # Female bays hidden — only male bays shown
             bands = self._band_polygon_enu(
-                cx + female_m/2 + bay_sh, cx + female_m/2 + male_m + bay_sh,
+                cx + female_m/2 + gap_m + bay_sh,
+                cx + female_m/2 + gap_m + male_m + bay_sh,
                 tdx, tdy, ldx, ldy, poly_enu,
                 inner_polys_enu=inner_polys_enu)
             for band in bands:

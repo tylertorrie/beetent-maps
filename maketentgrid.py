@@ -1348,9 +1348,14 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
             lat_offset = 0.0
         elif nf_raw and nm_raw and rs_in_raw:
             nf_i = int(nf_raw); nm_i = int(nm_raw); rs_m = float(rs_in_raw) * 0.0254
+            # Optional extra gap (inches) at each male/female bay edge — two per
+            # repeat unit — widening the bay period without moving the shelter's
+            # offset within the female bay.
+            try: gap_m = max(0.0, float(field_dict.get('bay_gap_in') or 0)) * 0.0254
+            except (ValueError, TypeError): gap_m = 0.0
             female_m = (nf_i + 1) * rs_m
             male_m_w = (nm_i + 1) * rs_m
-            tent_row_width = female_m + male_m_w
+            tent_row_width = female_m + male_m_w + 2.0 * gap_m
             lat_offset = 1.2192   # 4 ft east of the male/female boundary (sprayer edge)
         elif boundary_enu is not None:
             tent_row_width = sprayer_width
