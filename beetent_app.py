@@ -5318,9 +5318,22 @@ class BeetentApp(ctk.CTk):
                     except Exception:
                         pass
             half = width_m / 2.0
-            # 14 ft machine/tire band down the centre of the round (grey rings)
-            _draw_inset_ring(half - TIRE_HALF, TIRE_FILL, 3)
-            _draw_inset_ring(half + TIRE_HALF, TIRE_FILL, 3)
+            # 14 ft machine/tire band down the centre of the round — a FILLED
+            # grey annulus so it matches the interior passes' solid tire bands.
+            # tkintermapview can't fill a ring directly, so build a "keyhole"
+            # polygon: the outer ring, a seam across to the inner ring, the inner
+            # ring reversed, then a seam back — which fills the band between them.
+            outer = inset_polygon_enu(poly_enu, max(0.3, half - TIRE_HALF))
+            inner = inset_polygon_enu(poly_enu, half + TIRE_HALF)
+            if len(outer) >= 3 and len(inner) >= 3:
+                ring = (list(outer) + [outer[0], inner[0]]
+                        + list(reversed(inner)) + [inner[0], outer[0]])
+                lpts = [enu_to_latlon(e, n, plat, plon) for e, n in ring]
+                try:
+                    self.pass_buffer_overlays.append(self.map_widget.set_polygon(
+                        lpts, fill_color=TIRE_FILL, outline_color=TIRE_FILL, border_width=0))
+                except Exception:
+                    pass
             # Inner-edge no-shelter ↔ good-zone boundary (orange) when a band is
             # set and the good zone reaches inside the tire band.
             if dead_half > TIRE_HALF and (width_m - buffer_m) > (half + TIRE_HALF):
