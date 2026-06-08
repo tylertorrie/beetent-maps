@@ -1288,12 +1288,15 @@ class BeetentApp(ctk.CTk):
         for col,label,w,anchor in (("field","Field",130,"w"),("company","Company",110,"w"),("year","Year",55,"center")):
             self.field_tree.heading(col,text=label,command=lambda c=col:self._sort_fields(c))
             self.field_tree.column(col,width=w,anchor=anchor,stretch=(col=="field"))
-        _fvsb=ttk.Scrollbar(tree_wrap,orient="vertical",command=self.field_tree.yview)
+        # CTk scrollbar to match the right-hand panel's scrollbar style.
+        _fvsb=ctk.CTkScrollbar(tree_wrap,command=self.field_tree.yview)
         self.field_tree.configure(yscrollcommand=_fvsb.set)
-        _fvsb.pack(side="right",fill="y")
+        _fvsb.pack(side="right",fill="y",padx=(2,0))
         self.field_tree.pack(side="left",fill="x",expand=True)
         self.field_tree.bind("<<TreeviewSelect>>",self._on_field_select)
         self.field_tree.bind("<ButtonPress-1>",self._on_field_click)
+        self.field_tree.bind("<Double-Button-1>",self._on_field_double_click)
+        self._rename_entry=None; self._rename_ctx=None; self._last_field_press=(0,None)
         self._field_rows={}            # tree item id -> (company, year, name)
         self._field_sort_col=None; self._field_sort_rev=False
         br=ctk.CTkFrame(lf,fg_color="transparent"); br.pack(fill="x",pady=(3,0))
@@ -2457,6 +2460,13 @@ class BeetentApp(ctk.CTk):
         iid = self.field_tree.identify_row(event.y)
         if not iid:
             return
+        # If this is the 2nd press of a double-click on the same row (rename),
+        # skip the click-to-deselect so the inline editor can open cleanly.
+        now = getattr(event, "time", 0)
+        last_t, last_iid = getattr(self, "_last_field_press", (0, None))
+        self._last_field_press = (now, iid)
+        if iid == last_iid and last_t and (now - last_t) < 400:
+            return
         row = self._field_rows.get(iid)
         if not row:
             return
@@ -2635,6 +2645,106 @@ class BeetentApp(ctk.CTk):
         co,yr,name=row
         if tkinter.messagebox.askyesno("Delete",f"Delete '{name}' ({co} {yr})?"):
             delete_field_file(co,yr,name); self._refresh_field_list(); self._git_push(f"delete field: {name}")
+
+    # ── Inline field rename (double-click the Field cell) ──────────────────────
+    def _on_field_double_click(self, event):
+        """Double-click the Field-name cell to edit it inline. Commits on Enter
+        or when focus leaves the entry (renames the saved field file)."""
+        self._cancel_field_rename()
+        if self.field_tree.identify_region(event.x, event.y) != "cell":
+            return
+        if self.field_tree.identify_column(event.x) != "#1":   # Field column only
+            return
+        iid = self.field_tree.identify_row(event.y)
+        row = self._field_rows.get(iid)
+        if not row:
+            return
+        co, yr, name = row
+        bbox = self.field_tree.bbox(iid, "field")
+        if not bbox:
+            return
+        x, y, w, h = bbox
+        self._rename_ctx = (co, yr, name)
+        ent = tk.Entry(self.field_tree, font=(FONT_BODY, 10),
+                       bg=UI_CARD, fg=UI_TEXT, insertbackground=UI_TEXT,
+                       relief="solid", borderwidth=1,
+                       highlightthickness=1, highlightbackground=UI_ACCENT,
+                       highlightcolor=UI_ACCENT)
+        ent.insert(0, name)
+        ent.select_range(0, "end")
+        ent.icursor("end")
+        ent.place(x=x, y=y, width=w, height=h)
+        ent.focus_set()
+        ent.bind("<Return>",   lambda e: self._commit_field_rename())
+        ent.bind("<KP_Enter>", lambda e: self._commit_field_rename())
+        ent.bind("<Escape>",   lambda e: self._cancel_field_rename())
+        ent.bind("<FocusOut>", lambda e: self._commit_field_rename())
+        self._rename_entry = ent
+        return "break"
+
+    def _cancel_field_rename(self):
+        ent = getattr(self, "_rename_entry", None)
+        if ent is not None:
+            try: ent.destroy()
+            except Exception: pass
+        self._rename_entry = None
+        self._rename_ctx = None
+
+    def _commit_field_rename(self):
+        ent = getattr(self, "_rename_entry", None)
+        ctx = getattr(self, "_rename_ctx", None)
+        if ent is None or ctx is None:
+            self._cancel_field_rename(); return
+        new_name = ent.get().strip()
+        co, yr, old_name = ctx
+        # Tear the entry down first so the FocusOut it triggers can't re-enter.
+        self._rename_entry = None; self._rename_ctx = None
+        try: ent.destroy()
+        except Exception: pass
+        if not new_name or new_name == old_name:
+            return
+        bad = invalid_field_name_chars(new_name)
+        if bad:
+            tkinter.messagebox.showerror("Invalid field name",
+                f"A field name can't contain:  {' '.join(bad)}")
+            return
+        # Duplicate check (allow a case-only change of the same field).
+        if new_name.lower() != old_name.lower() and load_field(co, yr, new_name) is not None:
+            tkinter.messagebox.showerror("Name already in use",
+                f"A field named \"{new_name}\" already exists in {co} {yr}.")
+            return
+        # Use the live form state if the renamed field is the active one, so any
+        # unsaved edits are kept; otherwise load it from disk.
+        cur = self.current_field or {}
+        is_active = (str(cur.get("company")) == str(co) and
+                     str(cur.get("year")) == str(yr) and
+                     str(cur.get("Name")) == str(old_name))
+        f = self._field_from_form() if is_active else load_field(co, yr, old_name)
+        if not f:
+            self._status("Could not load the field to rename."); return
+        f["Name"] = new_name
+        try:
+            base = DATA_DIR / str(co) / str(yr)
+            old_p = base / (old_name + ".json")
+            new_p = base / (new_name + ".json")
+            tmp_p = base / "._rename_tmp_.json"
+            # Write updated content, then two-step rename so even a case-only
+            # change is reflected on a case-insensitive filesystem (Windows).
+            with open(old_p, "w", encoding="utf-8") as fp:
+                json.dump(f, fp, indent=2)
+            os.replace(str(old_p), str(tmp_p))
+            os.replace(str(tmp_p), str(new_p))
+        except Exception as ex:
+            tkinter.messagebox.showerror("Rename failed", str(ex)); return
+        if is_active:
+            try: self.fv["Name"].set(new_name)
+            except Exception: pass
+        self._refresh_field_list()
+        for iid, (c, y, n) in self._field_rows.items():
+            if c == co and y == yr and n == new_name:
+                self.field_tree.selection_set(iid); break
+        self._git_push(f"rename field: {old_name} -> {new_name}")
+        self._status(f'Renamed "{old_name}" to "{new_name}".')
 
     # ── Form helpers ───────────────────────────────────────────────────────────
     def _form_from_field(self):
