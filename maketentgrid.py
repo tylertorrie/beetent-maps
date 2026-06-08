@@ -1943,7 +1943,9 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
 
             _pivot_tracks_sg = tuple(pivot_tracks) if pivot_tracks else ()
 
-            def _valid(east, north):
+            def _base_valid(east, north):
+                # HARD constraints — a cell failing one of these may be slid
+                # ("snapped") along the bay to a nearby valid spot.
                 # Cheapest checks first so the hot loop bails fast.
                 d_sq = east*east + north*north
                 if d_sq < inner_r2: return False
@@ -1964,18 +1966,25 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                         if diff < excl_m_safe:
                             return False
                 if corner_excl and _in_corner_excl(east, north): return False
-                # Outside-pass kill zone — keep shelters off the driven-over
-                # middle of the outside round so they sit near its edges.
-                # Enforced whenever an outside pass runs. Expensive O(N_outer)
-                # min-distance, so it's done last.
-                if outside_pass:
-                    if boundary_enu:
-                        d_b = _min_dist_to_bnd(east, north)
-                    else:
-                        d_b = radius - math.sqrt(d_sq)
-                    if op_edge_m < d_b < (sprayer_width - op_edge_m):
-                        return False
                 return True
+
+            def _outside_ok(east, north):
+                # Outside-pass kill zone — keep shelters off the driven-over
+                # middle of the outside round so they sit near its edges. This
+                # is a SOFT reject: a cell that only fails here is DROPPED, not
+                # snapped, because sliding several boundary cells to the kill-
+                # zone edge piles them onto the same spot (visible clusters).
+                if not outside_pass: return True
+                if boundary_enu:
+                    d_b = _min_dist_to_bnd(east, north)
+                else:
+                    d_b = radius - math.sqrt(east*east + north*north)
+                if op_edge_m < d_b < (sprayer_width - op_edge_m):
+                    return False
+                return True
+
+            def _valid(east, north):
+                return _base_valid(east, north) and _outside_ok(east, north)
 
             def _inside(east, north):
                 """Is the point inside the field boundary (polygon or circle)
@@ -2112,7 +2121,15 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                         east  = pre_e * cos_r - pre_n * sin_r
                         north = pre_n * cos_r + pre_e * sin_r
                         if not _inside(east, north): continue
-                        if _valid(east, north) or _snappable_coarse(pre_e, pre_n):
+                        if _base_valid(east, north):
+                            # In the outside-pass kill zone we drop the cell
+                            # (don't snap it), so it isn't counted either.
+                            if not _outside_ok(east, north):
+                                continue
+                            placeable = True
+                        else:
+                            placeable = _snappable_coarse(pre_e, pre_n)
+                        if placeable:
                             total += 1
                             if total >= target: return True
                 return False
@@ -2141,8 +2158,12 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                     east  = pre_e * cos_r - pre_n * sin_r
                     north = pre_n * cos_r + pre_e * sin_r
                     if not _inside(east, north): continue
-                    if _valid(east, north):
-                        raw.append((east, north, idx))
+                    if _base_valid(east, north):
+                        # Directly placeable, UNLESS it's on the outside-pass
+                        # middle — those are dropped (not snapped) to avoid the
+                        # boundary clusters that sliding to the edge produced.
+                        if _outside_ok(east, north):
+                            raw.append((east, north, idx))
                     else:
                         snapped = _snap_along_pre_n(pre_e, pre_n)
                         if snapped is not None:
