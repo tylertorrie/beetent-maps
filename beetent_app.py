@@ -1110,10 +1110,11 @@ class BeetentApp(ctk.CTk):
                 self._redraw_pass_buffer_overlay()
 
     def _toggle_pass_buffer_overlay(self):
-        """Show/hide the per-pass zone overlay: the 14 ft machine/tire band down
-        the centre of every sprayer pass (grey — absolute no-shelter zone) plus,
-        when a shelter edge band is set, the no-shelter / good-zone boundary
-        lines (orange). Lets the user see where shelters can and cannot land."""
+        """Show/hide the per-pass zone overlay: RED stripes mark the no-shelter
+        zone (the 14 ft machine/tire band down each pass centre, plus the whole
+        middle when a shelter edge band is set); GREEN stripes mark the good zone
+        near each pass edge where shelters may sit. Pass edges are the bright-
+        green lines on the sprayer-pass layer."""
         self._close_all_popups()
         self.show_pass_buffer_overlay.set(not self.show_pass_buffer_overlay.get())
         self._redraw_pass_buffer_overlay()
@@ -4952,7 +4953,7 @@ class BeetentApp(ctk.CTk):
                 lpts=[enu_to_latlon(e,n,plat,plon) for e,n in inset]
                 try:
                     self.outer_sprayer_poly=self.map_widget.set_polygon(
-                        lpts,fill_color=None,outline_color="#FF3333",border_width=1)
+                        lpts,fill_color=None,outline_color="#33FF66",border_width=2)
                 except Exception: pass
 
         rot=math.radians((0-angle+180)%360-180)
@@ -5010,7 +5011,7 @@ class BeetentApp(ctk.CTk):
                 lat2, lon2 = enu_to_latlon(e2, n2, plat, plon)
                 try:
                     path = self.map_widget.set_path(
-                        [(lat1, lon1), (lat2, lon2)], color="#FF3333", width=1)
+                        [(lat1, lon1), (lat2, lon2)], color="#33FF66", width=2)
                     self.pass_paths.append(path)
                 except Exception:
                     pass
@@ -5246,17 +5247,17 @@ class BeetentApp(ctk.CTk):
         self.pass_buffer_overlays = []
 
     def _redraw_pass_buffer_overlay(self):
-        """Per-sprayer-pass zone overlay:
+        """Per-sprayer-pass zone overlay (interior passes AND the outside round):
 
-          • 14 ft machine/tire band down the centre of every pass — solid GREY.
-            The wheels run here, so it's the absolute no-shelter zone (drawn
-            whether or not an edge band is set).
-          • When a shelter edge band is set, ORANGE lines at sprayer_width/2 −
-            band from each pass centre — the no-shelter / good-zone boundary.
-            Shelters may sit BETWEEN an orange line and the pass edge.
+          • RED stripes fill the no-shelter zone — the 14 ft machine/tire band
+            down the centre of every pass (where the wheels run), extended to the
+            whole middle when a shelter edge band is set.
+          • GREEN stripes fill the shelter edge band — the good zone near each
+            pass edge where shelters may sit (only when an edge band is set).
 
-        Grey fill + orange lines read clearly apart, and neither is a coloured
-        band like the planter-bay layer (dark blue)."""
+        Pass edges themselves are the bright-green lines drawn by the sprayer-
+        pass layer. Red/green stripes read clearly apart from the dark-blue
+        planter-bay layer."""
         self._clear_pass_buffer_overlay()
         if not self.show_pass_buffer_overlay.get(): return
         try:
@@ -5277,92 +5278,76 @@ class BeetentApp(ctk.CTk):
         cos_r, sin_r = math.cos(rot), math.sin(rot)
         tdx, tdy = -sin_r, cos_r
         ldx, ldy = cos_r, sin_r
-        TIRE_HALF   = 7.0 * 0.3048     # 14 ft machine band → ±7 ft from centre
-        TIRE_FILL   = "#454545"        # solid grey = where the tires run
-        BAND_LINE   = "#FF8C00"        # orange = no-shelter / good-zone boundary
+        TIRE_HALF = 7.0 * 0.3048       # 14 ft machine band → ±7 ft from centre
+        RED   = "#FF2A2A"              # no-shelter / tire zone (striped)
+        GREEN = "#28E048"             # shelter edge band — good zone (striped)
+        STRIPE_M = 2.2                # spacing between stripe lines
         max_rows = int(max_r / width_m) + 2
-        # Inner boundaries as ENU rings (so the bands also stop at cutouts).
-        inner_polys_enu = []
-        for inner in (self.current_field.get("boundary_inner") or []):
-            if not inner or len(inner) < 3: continue
-            inner_polys_enu.append(
-                [latlon_to_enu(pt[0], pt[1], plat, plon) for pt in inner])
-        # No-shelter half-width from the edge band (only when it exceeds the
-        # tire band — otherwise the tire band already covers the no-go zone).
-        dead_half = max(0.0, width_m / 2.0 - buffer_m) if buffer_m > 0 else 0.0
 
-        def _draw_lateral_line(off):
-            """Draw a clipped line at lateral offset `off` along travel dir."""
+        def _stripe_along(off, color):
+            """One stripe: a clipped line at lateral offset `off` along travel."""
             pe, pn = off * ldx, off * ldy
             for (t1, t2) in clip_line_to_polygon_intervals(pe, pn, tdx, tdy, poly_enu):
                 if t2 - t1 < 0.01: continue
                 la1, lo1 = enu_to_latlon(pe + t1*tdx, pn + t1*tdy, plat, plon)
                 la2, lo2 = enu_to_latlon(pe + t2*tdx, pn + t2*tdy, plat, plon)
                 try:
-                    self.pass_buffer_overlays.append(
-                        self.map_widget.set_path([(la1, lo1), (la2, lo2)],
-                                                 color=BAND_LINE, width=2))
+                    self.pass_buffer_overlays.append(self.map_widget.set_path(
+                        [(la1, lo1), (la2, lo2)], color=color, width=2))
                 except Exception:
                     pass
 
+        def _striped_band(x1, x2, color):
+            """Fill lateral band [x1,x2] with evenly-spaced stripe lines."""
+            if x2 - x1 < 0.3:
+                _stripe_along((x1 + x2) / 2.0, color); return
+            n = min(25, max(1, int((x2 - x1) / STRIPE_M)))
+            for i in range(n + 1):
+                _stripe_along(x1 + (x2 - x1) * i / n, color)
+
+        # Interior passes: GREEN stripes fill the shelter edge band near each
+        # edge; RED stripes fill the no-shelter middle. With no edge band set,
+        # only the 14 ft tire band (red) is shown.
         for r in range(-max_rows, max_rows + 1):
-            # Pass CENTRES sit BETWEEN the red edge lines (which are at r×width),
-            # so the machine/tire band and the no-go zone are centred at
-            # (r+0.5)×width — i.e. exactly between two passes' edges.
-            cx = (r + 0.5) * width_m
-            # 14 ft tire band (always)
-            for band in self._band_polygon_enu(cx - TIRE_HALF, cx + TIRE_HALF,
-                                               tdx, tdy, ldx, ldy, poly_enu,
-                                               inner_polys_enu=inner_polys_enu):
-                lpts = [enu_to_latlon(e, n, plat, plon) for e, n in band]
-                try:
-                    self.pass_buffer_overlays.append(self.map_widget.set_polygon(
-                        lpts, fill_color=TIRE_FILL, outline_color=TIRE_FILL, border_width=0))
-                except Exception:
-                    pass
-            # Edge-band boundary lines (no-shelter ↔ good zone)
-            if dead_half > TIRE_HALF:
-                _draw_lateral_line(cx - dead_half)
-                _draw_lateral_line(cx + dead_half)
+            cx = (r + 0.5) * width_m            # pass centre (between green edges)
+            le = r * width_m; re_ = (r + 1) * width_m
+            if buffer_m > 0:
+                dead_half = max(0.0, width_m / 2.0 - buffer_m)
+                _striped_band(le, le + buffer_m, GREEN)
+                _striped_band(re_ - buffer_m, re_, GREEN)
+                if dead_half > 0:
+                    _striped_band(cx - dead_half, cx + dead_half, RED)
+            else:
+                _striped_band(cx - TIRE_HALF, cx + TIRE_HALF, RED)
 
-        # ── Outside round: same zones, drawn as rings (inset from boundary) ──
-        # The round spans the field edge (boundary, d=0) to its inner edge (the
-        # red limit line at d = sprayer_width). Its machine/tire band runs down
-        # the middle (d = sprayer_width/2). Shelters belong near the inner edge,
-        # so the edge-band boundary (orange) is at d = sprayer_width − band.
+        # ── Outside round: same zones, drawn as inset rings (stripes) ────────
         outside_pass_on = (self.outside_pass_var.get() or "No").strip().lower() == "yes"
         if outside_pass_on:
-            def _draw_inset_ring(dist, color, w):
-                if dist <= 0: return
-                inset = inset_polygon_enu(poly_enu, dist)
+            def _stripe_ring(dist, color):
+                inset = inset_polygon_enu(poly_enu, max(0.3, dist))
                 if len(inset) >= 3:
                     lpts = [enu_to_latlon(e, n, plat, plon) for e, n in inset]
                     try:
                         self.pass_buffer_overlays.append(self.map_widget.set_polygon(
-                            lpts, fill_color=None, outline_color=color, border_width=w))
+                            lpts, fill_color=None, outline_color=color, border_width=2))
                     except Exception:
                         pass
+            def _striped_rings(d1, d2, color):
+                d1 = max(0.3, d1)
+                if d2 - d1 < 0.3:
+                    _stripe_ring((d1 + d2) / 2.0, color); return
+                n = min(18, max(1, int((d2 - d1) / STRIPE_M)))
+                for i in range(n + 1):
+                    _stripe_ring(d1 + (d2 - d1) * i / n, color)
             half = width_m / 2.0
-            # 14 ft machine/tire band down the centre of the round — a FILLED
-            # grey annulus so it matches the interior passes' solid tire bands.
-            # tkintermapview can't fill a ring directly, so build a "keyhole"
-            # polygon: the outer ring, a seam across to the inner ring, the inner
-            # ring reversed, then a seam back — which fills the band between them.
-            outer = inset_polygon_enu(poly_enu, max(0.3, half - TIRE_HALF))
-            inner = inset_polygon_enu(poly_enu, half + TIRE_HALF)
-            if len(outer) >= 3 and len(inner) >= 3:
-                ring = (list(outer) + [outer[0], inner[0]]
-                        + list(reversed(inner)) + [inner[0], outer[0]])
-                lpts = [enu_to_latlon(e, n, plat, plon) for e, n in ring]
-                try:
-                    self.pass_buffer_overlays.append(self.map_widget.set_polygon(
-                        lpts, fill_color=TIRE_FILL, outline_color=TIRE_FILL, border_width=0))
-                except Exception:
-                    pass
-            # Inner-edge no-shelter ↔ good-zone boundary (orange) when a band is
-            # set and the good zone reaches inside the tire band.
-            if dead_half > TIRE_HALF and (width_m - buffer_m) > (half + TIRE_HALF):
-                _draw_inset_ring(width_m - buffer_m, BAND_LINE, 2)
+            if buffer_m > 0:
+                # good zone near the inner edge (green); no-shelter from the
+                # boundary in to it (red).
+                _striped_rings(width_m - buffer_m, width_m, GREEN)
+                _striped_rings(0.3, width_m - buffer_m, RED)
+            else:
+                # just the 14 ft tire band (red) at the centre of the round
+                _striped_rings(half - TIRE_HALF, half + TIRE_HALF, RED)
 
     def _redraw_bays(self):
         self._clear_bays()
