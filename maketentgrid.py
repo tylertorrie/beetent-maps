@@ -1952,14 +1952,17 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                 # Cheapest checks first so the hot loop bails fast.
                 d_sq = east*east + north*north
                 if d_sq < inner_r2: return False
-                # Main-pass kill zone — middle of every interior sprayer
-                # pass (constant-time, computed in the rotated frame).
+                # Main-pass kill zone — the MIDDLE of every interior sprayer
+                # pass (where the machine runs). Pass EDGES are at multiples of
+                # sprayer_width; the centre of a pass sits halfway between them,
+                # so we measure distance from that centre and kill within
+                # pass_dead_half of it (shelters belong out near the edges).
                 if buffer_enabled and pass_dead_half > 0 and sprayer_width > 0:
                     lat_e = east * cos_r + north * sin_r
-                    r_idx = round(lat_e / sprayer_width)
-                    d_pc = lat_e - r_idx * sprayer_width
-                    if d_pc < 0: d_pc = -d_pc
-                    if d_pc < pass_dead_half:
+                    frac = lat_e / sprayer_width
+                    frac -= math.floor(frac)                    # position in pass [0,1)
+                    d_center = abs(frac - 0.5) * sprayer_width   # dist from pass centre
+                    if d_center < pass_dead_half:
                         return False
                 if _pivot_tracks_sg:
                     d = math.sqrt(d_sq)

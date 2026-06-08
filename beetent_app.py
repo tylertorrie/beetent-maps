@@ -5171,7 +5171,10 @@ class BeetentApp(ctk.CTk):
                     pass
 
         for r in range(-max_rows, max_rows + 1):
-            cx = r * width_m
+            # Pass CENTRES sit BETWEEN the red edge lines (which are at r×width),
+            # so the machine/tire band and the no-go zone are centred at
+            # (r+0.5)×width — i.e. exactly between two passes' edges.
+            cx = (r + 0.5) * width_m
             # 14 ft tire band (always)
             for band in self._band_polygon_enu(cx - TIRE_HALF, cx + TIRE_HALF,
                                                tdx, tdy, ldx, ldy, poly_enu,
