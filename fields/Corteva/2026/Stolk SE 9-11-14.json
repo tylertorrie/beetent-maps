@@ -62534,7 +62534,7 @@
       ]
     ]
   ],
-  "lld": "",
+  "lld": "SE 9-11-14",
   "row_layout": "custom",
   "custom_row_mask": "FFFFMMFFFFFFFFMMFFFF",
   "use_imported_passes": false,
@@ -62544,5 +62544,6 @@
   "pass_edge_buffer_ft": "0",
   "Planting_angle": "",
   "shelter_rows": "",
-  "bay_gap_in": "0"
+  "bay_gap_in": "0",
+  "shelters_in_outside_pass": "No"
 }
