@@ -30,6 +30,7 @@
     "total_rows": "20",
     "num_female_rows": "6",
     "num_male_rows": "3",
+    "bay_gap_in": "33",
     "row_layout": "centered",
     "custom_row_mask": "FFFFMMFFFFFFFFMMFFFF",
     "shelter_mode": "trays_2",
