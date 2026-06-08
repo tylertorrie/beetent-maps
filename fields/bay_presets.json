@@ -23,5 +23,16 @@
     "custom_row_mask": "",
     "shelter_mode": "total",
     "num_structures": ""
+  },
+  {
+    "name": "Carrots",
+    "row_spacing_in": "22",
+    "total_rows": "20",
+    "num_female_rows": "6",
+    "num_male_rows": "3",
+    "row_layout": "centered",
+    "custom_row_mask": "FFFFMMFFFFFFFFMMFFFF",
+    "shelter_mode": "trays_2",
+    "num_structures": "33"
   }
 ]
