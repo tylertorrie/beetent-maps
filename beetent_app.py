@@ -5617,13 +5617,18 @@ class BeetentApp(ctk.CTk):
                                   (p2e + t1*tdx, p2n + t1*tdy),
                                   (p1e + t1*tdx, p1n + t1*tdy)])
             return polys
-        # Pair up matching intervals between the two edges. They should
-        # always have the same count for sane geometry; intersect the i-th
-        # interval of each edge to get the band's i-th inside-segment.
-        intervals = []
-        for (a0, a1), (b0, b1) in zip(edge_a, edge_b):
-            t0 = max(a0, b0); t1 = min(a1, b1)
-            if t1 - t0 > 1e-6: intervals.append((t0, t1))
+        # Pair up matching intervals between the two edges; intersect the i-th
+        # interval of each edge to get the band's i-th inside-segment. If the
+        # edge counts disagree (self-intersecting clip polygon), fall back to
+        # the band centreline so the fill still renders.
+        if len(edge_a) == len(edge_b):
+            intervals = []
+            for (a0, a1), (b0, b1) in zip(edge_a, edge_b):
+                t0 = max(a0, b0); t1 = min(a1, b1)
+                if t1 - t0 > 1e-6: intervals.append((t0, t1))
+        else:
+            xm_e = (p1e + p2e) / 2.0; xm_n = (p1n + p2n) / 2.0
+            intervals = list(clip_line_to_polygon_intervals(xm_e, xm_n, tdx, tdy, poly_enu))
         if not intervals: return []
         # Subtract each inner polygon's intervals from the band's intervals.
         for inner_enu in (inner_polys_enu or []):
@@ -5786,7 +5791,19 @@ class BeetentApp(ctk.CTk):
             if not draw_edges: return
             for x_lat in (x1, x2):
                 pe_e, pn_e = x_lat * ldx + off_e, x_lat * ldy + off_n
-                for (t1, t2) in clip_line_to_polygon_intervals(pe_e, pn_e, tdx, tdy, cp):
+                segs = clip_line_to_polygon_intervals(pe_e, pn_e, tdx, tdy, cp)
+                # Break the edge line out of any inner boundary too.
+                for inner in (cutouts or []):
+                    for (i0, i1) in clip_line_to_polygon_intervals(pe_e, pn_e, tdx, tdy, inner):
+                        nseg = []
+                        for (a, b) in segs:
+                            if i1 <= a or i0 >= b:
+                                nseg.append((a, b))
+                            else:
+                                if i0 > a: nseg.append((a, i0))
+                                if i1 < b: nseg.append((i1, b))
+                        segs = nseg
+                for (t1, t2) in segs:
                     la1, lo1 = enu_to_latlon(pe_e + t1*tdx, pn_e + t1*tdy, plat, plon)
                     la2, lo2 = enu_to_latlon(pe_e + t2*tdx, pn_e + t2*tdy, plat, plon)
                     try: _add(self.map_widget.set_path([(la1,lo1),(la2,lo2)], color=GREEN, width=2))
@@ -5802,11 +5819,16 @@ class BeetentApp(ctk.CTk):
             #   • Interior + inner-edge bands: clipped to safe_poly (≥ width −
             #     band in from the boundary) — fills the interior and the
             #     round's inner edge band without entering the driven middle.
+            # Inner boundaries (cutouts) — keep the green edge bands OUT of
+            # them, same as the tire pass. None when there are no inner
+            # boundaries, so simple fields keep the slanted-end / centreline
+            # path.
+            _green_cuts = inner_polys_enu or None
             for r in range(-max_rows, max_rows + 1):
                 if not _pass_covers_interior(r * width_m, (r + 1) * width_m): continue
                 le = r * width_m; re_ = (r + 1) * width_m
-                _fill_band(le, le + out_band, off_e=sse, off_n=ssn)
-                _fill_band(re_ - out_band, re_, off_e=sse, off_n=ssn)
+                _fill_band(le, le + out_band, off_e=sse, off_n=ssn, cutouts=_green_cuts)
+                _fill_band(re_ - out_band, re_, off_e=sse, off_n=ssn, cutouts=_green_cuts)
             #   • Outer edge band against the boundary: kept CONTINUOUS all the
             #     way around (override). The outside round is driven once and the
             #     operator turns before leaving the field, so a shelter on the
@@ -5814,17 +5836,21 @@ class BeetentApp(ctk.CTk):
             #     this band is NOT broken at row ends. Drawn PER BOUNDARY EDGE
             #     so it follows any field shape (a global inset would collapse on
             #     concave necks / finely-traced edges and leave gaps).
+            _ob_inner = []
             for q in perimeter_band_quads(poly_enu, 0.0, out_band):
                 lp = [enu_to_latlon(e, n, plat, plon) for e, n in q]
                 try: _add(self.map_widget.set_polygon(lp, fill_color=GREEN,
                                                       outline_color=GREEN, border_width=0))
                 except Exception: pass
-                # Bright inner-edge line of the outer band (per-edge, so it
-                # never gaps). q[3]→q[2] is the edge at depth out_band.
-                try: _add(self.map_widget.set_path(
-                    [enu_to_latlon(q[3][0], q[3][1], plat, plon),
-                     enu_to_latlon(q[2][0], q[2][1], plat, plon)],
-                    color=GREEN, width=2))
+                # Collect each quad's inner edge (q[3]→q[2], at depth out_band)
+                # into ONE polyline so it stays connected around corners — a
+                # per-segment line leaves wedge gaps at sharp corners (e.g. the
+                # NW corner).
+                _ob_inner.append(enu_to_latlon(q[3][0], q[3][1], plat, plon))
+                _ob_inner.append(enu_to_latlon(q[2][0], q[2][1], plat, plon))
+            if len(_ob_inner) >= 2:
+                _ob_inner.append(_ob_inner[0])   # close the ring
+                try: _add(self.map_widget.set_path(_ob_inner, color=GREEN, width=2))
                 except Exception: pass
 
         # ── Outside round: red tire ring ────────────────────────────────────
