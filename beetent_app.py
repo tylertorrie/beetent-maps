@@ -8,8 +8,8 @@ import tkinter.ttk as ttk
 import tkinter.font as tkfont
 import customtkinter as ctk
 import tkintermapview
-import math, os, sys, threading, json, re, csv, datetime, zipfile, struct, glob
-import subprocess
+import math, os, sys, threading, json, re, csv, datetime, zipfile, struct, glob, time
+import subprocess, shutil
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -381,6 +381,41 @@ def enu_to_latlon(e,n,pivot_lat,pivot_lon):
     lon2,lat2=utmish.to_lonlat(pe+e,pn+n,pivot_lon)
     return lat2,lon2
 
+def _seg_cross_t(ax,ay,bx,by,cx,cy,dx,dy):
+    """Parametric (t,u) of segment AB × CD intersection, or None if parallel."""
+    rx,ry=bx-ax,by-ay; sx,sy=dx-cx,dy-cy
+    den=rx*sy-ry*sx
+    if abs(den)<1e-12: return None
+    qx,qy=cx-ax,cy-ay
+    return (qx*sy-qy*sx)/den, (qx*ry-qy*rx)/den
+
+def _remove_inset_spikes(poly, _d=0):
+    """Remove self-intersecting spikes from an inset polygon by detecting
+    the first crossing of non-adjacent edges and short-cutting through it,
+    keeping the larger-area sub-polygon.  Recurses until clean or depth limit."""
+    if _d>12 or len(poly)<4: return poly
+    n=len(poly)
+    for i in range(n):
+        ax,ay=poly[i]; bx,by=poly[(i+1)%n]
+        j_end=n if i>0 else n-1
+        for j in range(i+2, j_end):
+            cx,cy=poly[j]; dx,dy=poly[(j+1)%n]
+            r=_seg_cross_t(ax,ay,bx,by,cx,cy,dx,dy)
+            if r is None: continue
+            t,u=r
+            if not(1e-8<t<1-1e-8 and 1e-8<u<1-1e-8): continue
+            px=ax+t*(bx-ax); py=ay+t*(by-ay); pt=(px,py)
+            outer=poly[:i+1]+[pt]+poly[j+1:]
+            spike=poly[i+1:j+1]+[pt]
+            def _a2(p):
+                m=len(p)
+                return abs(sum(p[k][0]*p[(k+1)%m][1]-p[(k+1)%m][0]*p[k][1]
+                               for k in range(m)))
+            keep=outer if (len(outer)>=3 and _a2(outer)>=_a2(spike)) else spike
+            if len(keep)<3: keep=outer if len(outer)>=3 else spike
+            return _remove_inset_spikes(keep, _d+1)
+    return poly
+
 def inset_polygon_enu(poly_enu, dist):
     """Offset every edge of poly_enu inward by dist metres.
 
@@ -432,7 +467,7 @@ def inset_polygon_enu(poly_enu, dist):
         else:
             result.append(a[1])
             result.append(b[0])
-    return result
+    return _remove_inset_spikes(result)
 
 def clip_line_to_polygon_intervals(px, py, dx, dy, polygon):
     """All inside-the-polygon intervals (in line-parameter t) for the
@@ -486,8 +521,8 @@ def clip_line_to_polygon(px,py,dx,dy,polygon):
 def blank_field(company="",year=""):
     return dict(Name="",company=company,year=year,
                 PP_Latitude="",PP_Longitude="",lld="",
-                Spray_angle="0",Sprayer_width="133",
-                shelter_mode="total",num_structures="",shelters_per_acre="",
+                Planting_angle="",Spray_angle="",Sprayer_width="133",
+                shelter_mode="trays_2",num_structures="",shelters_per_acre="",
                 acres_per_shelter="",
                 spacing="",shelter_spacing="",directional_offset="",
                 row_spacing_in="22",num_female_rows="8",num_male_rows="2",
@@ -496,7 +531,7 @@ def blank_field(company="",year=""):
                 row_layout="centered",   # "outer" | "centered" | "custom"
                 custom_row_mask="",       # only used when row_layout == "custom"
                 use_bays=True,            # False = blanket-planted crop, no female-bay constraint
-                outside_sprayer_pass="Yes",track_exclusion_ft="10",
+                shelters_in_outside_pass="Yes",track_exclusion_ft="10",
                 pass_edge_buffer_ft="0",    # 0 = no sprayer-pass kill zone (opt in via Sprayer → Set Edge Buffer)
                 shelter_buffer_m="1.524",
                 planter_passes=None,           # [[(lat,lon), ...], ...]  imported from JD
@@ -507,6 +542,7 @@ def blank_field(company="",year=""):
                 boundary_inner=[],            # list of inner-exclusion polygons (JD-style "interior boundaries")
                 sprayer_routes_around_inner=True,   # sprayer pass lines break around inner boundaries when True
                 bays_through_inner=False,     # when True, planter bays draw through inner boundaries instead of clipping
+                shelter_at_pivot=False,
                 manual_shelter_pins=[],       # remembered when shelter_mode="manual"; restored if user switches back
                 shelter_overrides={})
 
@@ -558,7 +594,8 @@ def list_years(co):
 
 def list_fields(co,yr):
     d=DATA_DIR/co/str(yr)
-    return sorted(p.stem for p in d.glob("*.json")) if d.exists() else []
+    return sorted(p.stem for p in d.glob("*.json")
+                  if not p.stem.endswith("_map")) if d.exists() else []
 
 
 # ── Export dialogs ────────────────────────────────────────────────────────────
@@ -597,9 +634,13 @@ class _ExportFieldPicker(ctk.CTkToplevel):
         self._co_cb.pack(side="left", padx=(4,14))
 
         ctk.CTkLabel(top, text="Year:").pack(side="left")
-        self._yr_var = ctk.StringVar(value=ALL_YEARS)
+        _cur_yr = str(datetime.date.today().year)
+        _all_yrs = sorted(set(y for c in list_companies() for y in list_years(c)), reverse=True)
+        if _cur_yr not in _all_yrs:
+            _all_yrs = [_cur_yr] + _all_yrs
+        self._yr_var = ctk.StringVar(value=_cur_yr)
         self._yr_cb  = ctk.CTkComboBox(top, variable=self._yr_var,
-                                        values=[ALL_YEARS],
+                                        values=[ALL_YEARS] + _all_yrs,
                                         width=110,
                                         command=lambda _: self._on_filter_change())
         self._yr_cb.pack(side="left", padx=(4,0))
@@ -632,7 +673,11 @@ class _ExportFieldPicker(ctk.CTkToplevel):
     # ── helpers ───────────────────────────────────────────────────────────
     def _on_filter_change(self):
         co = self._co_var.get()
-        yrs = [ALL_YEARS] + (list_years(co) if co != ALL_COMPANIES else [])
+        if co == ALL_COMPANIES:
+            avail = sorted(set(y for c in list_companies() for y in list_years(c)), reverse=True)
+        else:
+            avail = list_years(co)
+        yrs = [ALL_YEARS] + avail
         self._yr_cb.configure(values=yrs)
         if self._yr_var.get() not in yrs:
             self._yr_var.set(ALL_YEARS)
@@ -699,11 +744,9 @@ class _ExportTypePicker(ctk.CTkToplevel):
 
         self._agps_var    = ctk.BooleanVar(value=True)
         self._jd_var      = ctk.BooleanVar(value=True)
-        self._buffers_var = ctk.BooleanVar(value=True)
         self._kml_var     = ctk.BooleanVar(value=True)
         self._geojson_var = ctk.BooleanVar(value=True)
         self._bnd_var     = ctk.BooleanVar(value=True)
-        # The five main toggles (buffer zones follow JD)
         self._main_vars = [self._agps_var, self._jd_var,
                            self._kml_var, self._geojson_var, self._bnd_var]
 
@@ -714,15 +757,9 @@ class _ExportTypePicker(ctk.CTkToplevel):
                         variable=self._agps_var,
                         command=self._update_ok).pack(anchor="w", pady=4)
 
-        ctk.CTkCheckBox(frame, text="John Deere Shapefiles",
+        ctk.CTkCheckBox(frame, text="John Deere Shelter Buffer Zones",
                         variable=self._jd_var,
-                        command=self._on_jd_toggle).pack(anchor="w", pady=4)
-
-        self._buf_cb = ctk.CTkCheckBox(frame,
-                        text="      Include shelter buffer zones",
-                        variable=self._buffers_var,
-                        command=self._update_ok)
-        self._buf_cb.pack(anchor="w", pady=1)
+                        command=self._update_ok).pack(anchor="w", pady=4)
 
         ctk.CTkCheckBox(frame, text="Shelter Pins KML",
                         variable=self._kml_var,
@@ -756,23 +793,12 @@ class _ExportTypePicker(ctk.CTkToplevel):
         _center_on_parent(self, parent)
 
     # ── helpers ───────────────────────────────────────────────────────────
-    def _on_jd_toggle(self):
-        if not self._jd_var.get():
-            self._buffers_var.set(False)
-        self._buf_cb.configure(
-            state="normal" if self._jd_var.get() else "disabled")
-        self._update_ok()
-
     def _select_all(self):
         for v in self._main_vars: v.set(True)
-        self._buffers_var.set(True)
-        self._buf_cb.configure(state="normal")
         self._update_ok()
 
     def _deselect_all(self):
         for v in self._main_vars: v.set(False)
-        self._buffers_var.set(False)
-        self._buf_cb.configure(state="disabled")
         self._update_ok()
 
     def _update_ok(self):
@@ -783,7 +809,6 @@ class _ExportTypePicker(ctk.CTkToplevel):
         self.result = {
             "agps":     self._agps_var.get(),
             "jd":       self._jd_var.get(),
-            "buffers":  self._buffers_var.get() and self._jd_var.get(),
             "kml":      self._kml_var.get(),
             "geojson":  self._geojson_var.get(),
             "boundary": self._bnd_var.get(),
@@ -812,7 +837,7 @@ class BeetentApp(ctk.CTk):
         _apply_typography(self)   # Inter as the default UI font (headings use Inter Medium)
         self.title("Bee Tent Maps")
         self.geometry("1340x840")
-        self.minsize(1000,650)
+        self.minsize(1160,650)
         self._set_window_icon()
 
         self.current_field = blank_field()
@@ -914,6 +939,7 @@ class BeetentApp(ctk.CTk):
         for key in ("<Left>","<Right>","<Up>","<Down>",
                     "<Shift-Left>","<Shift-Right>","<Shift-Up>","<Shift-Down>"):
             self.bind(key, self._on_arrow_key)
+        self.bind("<ButtonRelease-1>", self._on_global_popup_click, add="+")
         self.after(300, self._bind_drag_system)
         self.after(1000, self._git_pull)            # pull latest on startup
         self.after(300_000, self._check_for_app_update)  # then check every 5 min
@@ -974,21 +1000,27 @@ class BeetentApp(ctk.CTk):
                       command=self._toggle_lld_box,
                       font=ctk.CTkFont(family=FONT_LABEL,size=11)
                       ).pack(side="left",padx=(0,20),pady=8)
-        self.status_lbl=ctk.CTkLabel(bar,text="",text_color=UI_MUTED,width=340,anchor="w")
-        self.status_lbl.pack(side="left",padx=16)
+        # ── Right-side items packed FIRST so they always secure their space ──
+        # Pack order within side="right": last packed = leftmost (closest to centre).
+        # Units combo → Units label → Generate → PDF (PDF ends up leftmost = nearest centre)
+        self.unit_var=tk.StringVar(value="Imperial")
+        ctk.CTkComboBox(bar,variable=self.unit_var,values=["Imperial","Metric"],
+                        width=100,command=self._on_unit_change).pack(side="right",padx=(0,12))
+        ctk.CTkLabel(bar,text="Units:").pack(side="right",padx=(0,4))
+        ctk.CTkButton(bar, text="⚙ Generate Output Files", fg_color="#1a5c8a",
+                      font=ctk.CTkFont(family=FONT_LABEL, size=12),
+                      command=self._generate).pack(side="right", padx=(0,4), pady=4)
+        ctk.CTkButton(bar, text="📄 Field Summary PDF", fg_color="#4a3060",
+                      font=ctk.CTkFont(family=FONT_LABEL, size=12),
+                      command=self._export_field_pdf).pack(side="right", padx=(0,4), pady=4)
         # Update-ready button — hidden until a code update is pulled.
-        # _on_update_ready() packs it; clicking it restarts the process.
         self._update_btn=ctk.CTkButton(bar,text="🔄 Restart to update",
                                         fg_color="#1a6b3a",width=160,
                                         command=self._restart_app)
         # intentionally NOT packed here — shown on demand
-        ctk.CTkLabel(bar,text="Units:").pack(side="right",padx=(0,4))
-        self.unit_var=tk.StringVar(value="Feet")
-        ctk.CTkComboBox(bar,variable=self.unit_var,values=["Feet","Metres"],
-                        width=90,command=self._on_unit_change).pack(side="right",padx=(0,12))
-        ctk.CTkButton(bar,text="⚙ Generate Output Files",fg_color="#1a5c8a",
-                      font=ctk.CTkFont(family=FONT_LABEL,size=12),
-                      command=self._generate).pack(side="right",padx=(0,12),pady=6)
+        # ── Left-side status label (no fixed width — shrinks before buttons do) ──
+        self.status_lbl=ctk.CTkLabel(bar,text="",text_color=UI_MUTED,anchor="w")
+        self.status_lbl.pack(side="left",padx=16)
 
     # ── Popup menu helpers ─────────────────────────────────────────────────────
     def _make_menu_btn(self, bar, label, items, color="#2b2b2b",
@@ -1035,6 +1067,10 @@ class BeetentApp(ctk.CTk):
         return container
 
     def _toggle_popup(self, popup, btn):
+        # Set a one-shot flag so the global ButtonRelease handler (which fires
+        # on the same event, one level up) knows not to immediately close the
+        # popup we're about to open.
+        self._popup_just_toggled = True
         if popup.winfo_ismapped():
             popup.place_forget(); return
         for p in self._all_popups:
@@ -1049,6 +1085,33 @@ class BeetentApp(ctk.CTk):
     def _close_all_popups(self, event=None):
         for p in self._all_popups:
             if p.winfo_exists(): p.place_forget()
+
+    def _on_global_popup_click(self, event):
+        """Close toolbar popups when clicking anywhere outside them."""
+        # _toggle_popup sets this flag on the same ButtonRelease event so we
+        # don't immediately close a popup that was just opened by the ▾ button.
+        if getattr(self, '_popup_just_toggled', False):
+            self._popup_just_toggled = False
+            return
+        if not any(p.winfo_exists() and p.winfo_ismapped()
+                   for p in self._all_popups):
+            return
+        # Walk the widget ancestry from the click target upward.
+        # If any ancestor is one of our popup frames, the click was inside —
+        # leave the popup open. Otherwise close all.
+        popup_paths = {str(p) for p in self._all_popups if p.winfo_exists()}
+        w = event.widget
+        while w is not None:
+            if str(w) in popup_paths:
+                return
+            parent_path = w.winfo_parent()
+            if not parent_path:
+                break
+            try:
+                w = self.nametowidget(parent_path)
+            except KeyError:
+                break
+        self._close_all_popups()
 
     def _set_menu_checkboxes_visible(self, visible):
         """Show or hide the master-toggle checkboxes on every toolbar menu button."""
@@ -1106,8 +1169,7 @@ class BeetentApp(ctk.CTk):
             self.fv["pass_edge_buffer_ft"].set(val)   # write-trace → _on_form_change
             self._status(f"Shelter edge band set to {val} ft from each pass edge.")
             # Refresh the overlay if it's currently being shown.
-            if self.show_pass_buffer_overlay.get():
-                self._redraw_pass_buffer_overlay()
+            self._redraw_pass_buffer_overlay()
 
     def _toggle_pass_buffer_overlay(self):
         """Show/hide the per-pass zone overlay: RED stripes mark the no-shelter
@@ -1208,7 +1270,7 @@ class BeetentApp(ctk.CTk):
             ("Clear Uploaded Paths",            self._clear_sprayer_data),
             ("Set Shelter Edge Band (ft)",      self._edit_pass_edge_buffer),
             ("Toggle Pass / Tire Zones",        self._toggle_pass_buffer_overlay),
-            ("Toggle Route Around Inner",       self._toggle_route_around_inner),
+            ("Toggle Pass Through Inner Boundaries", self._toggle_route_around_inner),
         ], color="#2a5a4a",
            toggle_var=self.sprayer_visible_var, toggle_fn=self._set_sprayer_visible)
         self._sp_btn.pack(side="left", padx=(0,4))
@@ -1220,7 +1282,7 @@ class BeetentApp(ctk.CTk):
             ("Shift",                     self._mode_shift_planter),
             ("Import Planter Data (.shp)", self._import_planter_data),
             ("Clear Planter Data",        self._clear_planter_passes),
-            ("Toggle Bays Through Inner", self._toggle_bays_through_inner),
+            ("Toggle Bays Through Inner Boundaries", self._toggle_bays_through_inner),
         ], color="#3a5a1a",
            toggle_var=self.planter_visible_var, toggle_fn=self._set_planter_visible)
         self._pl_btn.pack(side="left", padx=(0,4))
@@ -1230,8 +1292,8 @@ class BeetentApp(ctk.CTk):
             ("Numbers: Tray count",  lambda: self._set_pin_mode("trays")),
             ("Numbers: Shelter #",   lambda: self._set_pin_mode("shelters")),
             ("Numbers: Off",         lambda: self._set_pin_mode("off")),
-            ("Toggle Buffer Zone",   self._toggle_shelter_buffers),
-            ("Set Buffer Size",      self._edit_shelter_buffer),
+            ("Toggle Shelter Buffer Zone",   self._toggle_shelter_buffers),
+            ("Set Shelter Buffer Size",      self._edit_shelter_buffer),
         ], color="#5a3000",
            toggle_var=self.shelters_visible_var, toggle_fn=self._set_shelters_visible)
         self._shelter_btn.pack(side="left", padx=(0,4))
@@ -1336,7 +1398,8 @@ class BeetentApp(ctk.CTk):
             ("PP_Latitude",        "Pivot Latitude",         "Decimal degrees — or click 📍 on map",  False),
             ("PP_Longitude",       "Pivot Longitude",        "Decimal degrees",                        False),
             ("lld",                "Legal Land Description", "Auto-filled to NE/NW/SE/SW when pivot is placed. Editable — type a section (32-14-22-W4), half (N-32-14-22-W4), or quarter (NE-32-14-22-W4).", False),
-            ("Spray_angle",        "Spray Angle (°)",        "0=N↑  90=E→  180=S↓  270=W←",           False),
+            ("Planting_angle",     "Planting Angle (°)",     "Crop row direction. Blank = same as Spray Angle.", False),
+            ("Spray_angle",        "Spray Angle (°)",        "Sprayer pass direction. Blank = same as Planting Angle.", False),
             ("Sprayer_width",      "Sprayer Width (ft)",     "",                                       False),
             ("acres",              "Acres",                  "Total field area in acres",              False),
         ]
@@ -1390,17 +1453,13 @@ class BeetentApp(ctk.CTk):
         self.shelter_value_var=tk.StringVar()
         self.shelter_value_var.trace_add("write", self._on_shelter_value_change)
 
-        # Outside Sprayer Pass
-        ctk.CTkLabel(fs,text="Outside Sprayer Pass",anchor="w",
-                     font=ctk.CTkFont(family=FONT_LABEL,size=11)).pack(fill="x")
-        ctk.CTkLabel(fs,text="If yes, shelters are excluded from one pass-width inside the boundary",
-                     anchor="w",text_color=UI_MUTED,font=ctk.CTkFont(size=10)).pack(fill="x")
-        self.outside_pass_var=tk.StringVar(value="No")
-        ctk.CTkSegmentedButton(fs,values=["Yes","No"],variable=self.outside_pass_var,
-                               command=lambda v: self._on_outside_pass_toggle()
-                               ).pack(fill="x",pady=(2,8))
+        # Shelter allocation toggle for the outside sprayer pass lives in Bee
+        # Allocation. The outside round itself is always shown when a boundary
+        # exists — there is no such thing as a field with no outside pass.
+        self.shelters_in_outside_var = tk.StringVar(value="No")
+        self.shelter_at_pivot_var = tk.StringVar(value="No")
 
-        self.fv["Spray_angle"].set("0"); self.fv["Sprayer_width"].set("133")
+        self.fv["Planting_angle"].set(""); self.fv["Spray_angle"].set(""); self.fv["Sprayer_width"].set("133")
 
         # Bay calculator (collapsible)
         bc=self._collapsible(right,"Bay Calculator",expanded=False)
@@ -1556,17 +1615,6 @@ class BeetentApp(ctk.CTk):
         self.shelter_hint_lbl=ctk.CTkLabel(ba,text="",anchor="w",text_color=UI_MUTED,font=ctk.CTkFont(size=10))
         self.shelter_hint_lbl.pack(fill="x",pady=(0,2))
 
-        # Grid rows: −/+ stepper to add or remove rows of shelters for a more
-        # even staggered grid. "Auto" lets the algorithm decide.
-        rows_row=ctk.CTkFrame(ba,fg_color="transparent")
-        rows_row.pack(fill="x",pady=(0,8))
-        ctk.CTkLabel(rows_row,text="Grid rows:",width=70,anchor="w").pack(side="left")
-        ctk.CTkButton(rows_row,text="−",width=32,command=lambda:self._bump_shelter_rows(-1)).pack(side="left",padx=(2,2))
-        self.shelter_rows_lbl=ctk.CTkLabel(rows_row,text="Auto",width=46)
-        self.shelter_rows_lbl.pack(side="left")
-        ctk.CTkButton(rows_row,text="+",width=32,command=lambda:self._bump_shelter_rows(1)).pack(side="left",padx=(2,6))
-        ctk.CTkButton(rows_row,text="Auto",width=50,fg_color="#555",command=lambda:self._set_shelter_rows(0)).pack(side="left")
-
         bee_rows=[
             ("gals_per_acre", "Gals/acre"),
             ("gals_per_tray", "Gals/tray"),
@@ -1596,6 +1644,28 @@ class BeetentApp(ctk.CTk):
         ctk.CTkComboBox(ba, variable=self.tray_dist_var,
                         values=list(self._tray_dist_labels.keys()),
                         command=self._on_tray_dist_change).pack(fill="x",pady=(0,4))
+
+        ctk.CTkFrame(ba, height=1, fg_color=UI_BORDER).pack(fill="x", pady=(4,4))
+        ctk.CTkLabel(ba, text="Shelters in Outside Pass", anchor="w",
+                     font=ctk.CTkFont(family=FONT_LABEL, size=11)).pack(fill="x")
+        ctk.CTkLabel(ba, text="Allow shelters inside the outside boundary pass zone",
+                     anchor="w", text_color=UI_MUTED,
+                     font=ctk.CTkFont(size=10)).pack(fill="x")
+        ctk.CTkSegmentedButton(ba, values=["Yes", "No"],
+                               variable=self.shelters_in_outside_var,
+                               command=lambda v: self._on_shelters_in_outside_toggle()
+                               ).pack(fill="x", pady=(2, 8))
+
+        ctk.CTkFrame(ba, height=1, fg_color=UI_BORDER).pack(fill="x", pady=(0,4))
+        ctk.CTkLabel(ba, text="Shelter at Pivot Point", anchor="w",
+                     font=ctk.CTkFont(family=FONT_LABEL, size=11)).pack(fill="x")
+        ctk.CTkLabel(ba, text="Place a shelter pin at the field centre (pivot)",
+                     anchor="w", text_color=UI_MUTED,
+                     font=ctk.CTkFont(size=10)).pack(fill="x")
+        ctk.CTkSegmentedButton(ba, values=["Yes", "No"],
+                               variable=self.shelter_at_pivot_var,
+                               command=lambda v: self._on_shelter_at_pivot_toggle()
+                               ).pack(fill="x", pady=(2, 8))
 
         # No "Calculate Trays" button — the summary and the map redraw
         # automatically whenever any bee allocation field changes.
@@ -1631,21 +1701,23 @@ class BeetentApp(ctk.CTk):
         self._bay_refresh_id=self.after(400, self._calc_bays)
 
     def _on_form_change(self, *_):
-        # Bee summary recomputes immediately so the user sees the math update.
+        # Bee summary and the auto-mode shelter count recompute immediately.
         try: self._refresh_bee_summary()
+        except Exception: pass
+        try: self._refresh_shelter_value_display()
         except Exception: pass
         if not self.show_shelters.get(): return
         if self._shelter_refresh_id:
             self.after_cancel(self._shelter_refresh_id)
         self._shelter_refresh_id = self.after(600, self._redraw_shelters)
 
-    def _on_outside_pass_toggle(self):
-        """Outside-sprayer-pass toggle changed. Beyond the usual form-change
-        side effects (shelter recompute), redraw the sprayer passes so the
-        red outer-pass inset line appears/disappears with the toggle."""
+    def _on_shelters_in_outside_toggle(self):
+        """Shelter allocation for outside pass changed — recompute shelters."""
         self._on_form_change()
-        if self.show_passes.get():
-            self._redraw_passes()
+
+    def _on_shelter_at_pivot_toggle(self, _=None):
+        """Pivot shelter toggle changed — recompute shelters."""
+        self._on_form_change()
 
     def _on_track_excl_change(self, *_):
         if getattr(self, "_track_excl_refresh_id", None):
@@ -2244,8 +2316,20 @@ class BeetentApp(ctk.CTk):
         self.shelter_value_var.set(str(n) if n is not None else "—")
         self._loading_shelter_value=False
 
+    def _clear_shelter_overrides(self):
+        """Wipe manually-moved positions and the in-session undo stack.
+        Called whenever the shelter grid changes enough that old overrides
+        would place pins in wrong locations (mode switch, count change)."""
+        if self.current_field.get("shelter_overrides"):
+            self.current_field["shelter_overrides"] = {}
+        self._shelter_undo.clear()
+
     def _on_shelter_mode_change(self, _=None):
         mode=self._shelter_mode_labels.get(self.shelter_mode_var.get(),"total")
+        # Changing the shelter pattern invalidates any manually-moved pins —
+        # clear them so the new grid starts clean.
+        if mode != self.current_field.get("shelter_mode", ""):
+            self._clear_shelter_overrides()
         self.current_field["shelter_mode"]=mode
         self._loading_shelter_value=True
         if mode in ("trays_1","trays_2"):
@@ -2268,42 +2352,10 @@ class BeetentApp(ctk.CTk):
         if getattr(self,"_loading_shelter_value",False): return
         mode=self._shelter_mode_labels.get(self.shelter_mode_var.get(),"total")
         if mode in ("trays_1","trays_2"): return  # entry is read-only
+        # New shelter count means a different grid — old pin positions are stale.
+        self._clear_shelter_overrides()
         key=self._shelter_mode_key[mode]
         self.fv[key].set(self.shelter_value_var.get())   # fv trace → _on_form_change → redraw
-
-    # ── Grid-row override (−/+ stepper) ────────────────────────────────────────
-    def _refresh_shelter_rows_label(self):
-        v=(self.fv["shelter_rows"].get() or "").strip()
-        try: n=int(float(v)) if v else 0
-        except ValueError: n=0
-        self.shelter_rows_lbl.configure(text=(str(n) if n>0 else "Auto"))
-
-    def _auto_row_estimate(self):
-        """Approx number of N-S row bands in the currently drawn shelters, so
-        the first −/+ press starts from roughly what's on screen."""
-        pos=self.shelter_positions or []
-        if len(pos)<2: return 8
-        lats=sorted(p[0] for p in pos)
-        bands=1; last=lats[0]
-        for la in lats[1:]:
-            if (la-last)*111111.0 > 8.0:
-                bands+=1; last=la
-        return max(2,bands)
-
-    def _set_shelter_rows(self, n):
-        self.fv["shelter_rows"].set("" if n<=0 else str(int(n)))
-        self._refresh_shelter_rows_label()
-        if self.show_shelters.get(): self._redraw_shelters()
-        if n<=0: self._status("Shelter grid rows: Auto.")
-        else:    self._status(f"Shelter grid rows set toward {int(n)} — fewer columns, more rows.")
-
-    def _bump_shelter_rows(self, delta):
-        cur=(self.fv["shelter_rows"].get() or "").strip()
-        try: n=int(float(cur)) if cur else 0
-        except ValueError: n=0
-        if n<=0:
-            n=self._auto_row_estimate()   # seed from what's on screen
-        self._set_shelter_rows(max(1, n+delta))
 
     def _refresh_bee_summary(self):
         """Update the three computed lines under the Bee Allocation block.
@@ -2352,13 +2404,35 @@ class BeetentApp(ctk.CTk):
             math_trays = total_trays = None
             self.bee_total_trays_lbl.configure(text="Total trays:  —")
 
-        # Per-shelter + warning lines need the actual shelter count.
-        if n <= 0 or total_trays is None:
+        # Per-shelter: prefer the placed count; fall back to form/bee-math count
+        # so the value shows even before shelters are drawn on the map.
+        n_ps = n
+        if n_ps <= 0 and total_trays is not None:
+            mode = self._shelter_mode_labels.get(self.shelter_mode_var.get(), "total")
+            if mode in ("trays_1", "trays_2"):
+                n_ps = self._auto_shelter_count(mode) or 0
+            elif mode == "total":
+                try: n_ps = int(float(self.fv["num_structures"].get() or 0))
+                except (ValueError, TypeError): pass
+            elif mode == "per_acre":
+                try:
+                    spa = float(self.fv["shelters_per_acre"].get() or 0)
+                    ac  = float(self.fv["acres"].get() or 0)
+                    if spa > 0 and ac > 0: n_ps = max(1, int(math.ceil(spa * ac)))
+                except (ValueError, TypeError): pass
+            elif mode == "acres_per_shelter":
+                try:
+                    aps = float(self.fv["acres_per_shelter"].get() or 0)
+                    ac  = float(self.fv["acres"].get() or 0)
+                    if aps > 0 and ac > 0: n_ps = max(1, int(math.ceil(ac / aps)))
+                except (ValueError, TypeError): pass
+
+        if n_ps <= 0 or total_trays is None:
             self.bee_per_shelter_lbl.configure(text="Per shelter:  —")
             self.bee_short_lbl.configure(text="")
             return
 
-        total_trays_d, per, short, _tg = self._compute_bee_distribution(n)
+        total_trays_d, per, short, _tg = self._compute_bee_distribution(n_ps)
         if per:
             lo, hi = min(per), max(per)
             ps_txt = f"{lo} trays" if lo == hi else f"{lo}–{hi} trays"
@@ -2366,7 +2440,7 @@ class BeetentApp(ctk.CTk):
             ps_txt = "—"
         self.bee_per_shelter_lbl.configure(text=f"Per shelter:  {ps_txt}")
         if short > 0:
-            self.bee_short_lbl.configure(text=f"⚠ {n} shelters but bee math gives only {n-short} trays — bumped up to 1 each")
+            self.bee_short_lbl.configure(text=f"⚠ {n_ps} shelters but bee math gives only {n_ps-short} trays — bumped up to 1 each")
         else:
             self.bee_short_lbl.configure(text="")
 
@@ -2761,7 +2835,8 @@ class BeetentApp(ctk.CTk):
         for k,v in self.fv.items():
             val=f.get(k)
             v.set(str(bf.get(k,"")) if val is None else str(val))
-        self.outside_pass_var.set(f.get("outside_sprayer_pass","No"))
+        self.shelters_in_outside_var.set(f.get("shelters_in_outside_pass", "Yes"))
+        self.shelter_at_pivot_var.set("Yes" if f.get("shelter_at_pivot") else "No")
         # Row layout: dropdown + custom mask + use-imported-passes toggle.
         rl = f.get("row_layout","centered")
         self.row_layout_var.set(self._row_layout_inverse.get(rl,"Centered male"))
@@ -2784,12 +2859,20 @@ class BeetentApp(ctk.CTk):
         # Sync the shelter-count mode dropdown + its single value entry
         s_mode = f.get("shelter_mode") or "total"
         self.shelter_mode_var.set(self._shelter_mode_inverse.get(s_mode,"Total shelters"))
-        s_key = self._shelter_mode_key.get(s_mode,"num_structures")
-        self._loading_shelter_value=True
-        self.shelter_value_var.set(self.fv[s_key].get())
-        self._loading_shelter_value=False
+        if s_mode in ("trays_1","trays_2"):
+            # Auto modes: compute from acres × gals/acre ÷ gals/tray right now
+            # so the count is always visible when the field loads.
+            try: self._shelter_entry.configure(state="disabled")
+            except Exception: pass
+            self._refresh_shelter_value_display()
+        else:
+            try: self._shelter_entry.configure(state="normal")
+            except Exception: pass
+            s_key = self._shelter_mode_key.get(s_mode,"num_structures")
+            self._loading_shelter_value=True
+            self.shelter_value_var.set(self.fv[s_key].get())
+            self._loading_shelter_value=False
         self.shelter_hint_lbl.configure(text=self._shelter_hint(s_mode))
-        self._refresh_shelter_rows_label()
         self._refresh_track_list()
         # Migrate old corner_arms [[pts],[pts]] format → new [{type,pts/lat/lon/radius_m}] format
         old = self.current_field.get("corner_arms")
@@ -2806,7 +2889,8 @@ class BeetentApp(ctk.CTk):
     def _field_from_form(self):
         f=self.current_field
         for k,v in self.fv.items(): f[k]=v.get().strip()
-        f["outside_sprayer_pass"]=self.outside_pass_var.get()
+        f["shelters_in_outside_pass"] = self.shelters_in_outside_var.get()
+        f["shelter_at_pivot"] = (self.shelter_at_pivot_var.get() == "Yes")
         f["tray_distribution"]=self._tray_dist_labels.get(self.tray_dist_var.get(),"even")
         f["shelter_mode"]=self._shelter_mode_labels.get(self.shelter_mode_var.get(),"total")
         f["row_layout"]=self._row_layout_labels.get(self.row_layout_var.get(),"centered")
@@ -3578,9 +3662,20 @@ class BeetentApp(ctk.CTk):
 
     def _set_sprayer_visible(self, on):
         self.sprayer_visible_var.set(on)
-        self.show_passes.set(on)
-        if on: self._redraw_passes()
-        else:  self._clear_passes()
+        if on:
+            self.show_passes.set(True)
+            self._redraw_passes()
+            # Restore the pass/tire zone overlay to whatever it was before hiding
+            if getattr(self, '_sprayer_was_buffer_on', False):
+                self.show_pass_buffer_overlay.set(True)
+                self._redraw_pass_buffer_overlay()
+        else:
+            # Remember the buffer overlay state so we can restore it on turn-on
+            self._sprayer_was_buffer_on = self.show_pass_buffer_overlay.get()
+            self.show_passes.set(False)
+            self._clear_passes()
+            self.show_pass_buffer_overlay.set(False)
+            self._clear_pass_buffer_overlay()
 
     def _set_planter_visible(self, on):
         self.planter_visible_var.set(on)
@@ -3624,7 +3719,7 @@ class BeetentApp(ctk.CTk):
         the rings be corrected against real measurements when the satellite
         imagery is slightly off."""
         self._close_all_popups()
-        use_m=self.unit_var.get()=="Metres"
+        use_m=self.unit_var.get()=="Metric"
         unit="m" if use_m else "ft"
         conv=1.0 if use_m else 1.0/0.3048   # stored metres → display unit
         tracks=sorted(self.current_field.get("pivot_tracks") or [])
@@ -3724,8 +3819,9 @@ class BeetentApp(ctk.CTk):
         excl_m=float(self.fv.get("track_exclusion_ft",self.excl_var).get() or "10")*0.3048
         bp=self.current_field.get("boundary_polygon")
         has_bnd = bool(bp and len(bp)>=3)
-        for i,r_m in enumerate(self.current_field.get("pivot_tracks") or []):
-            for r,col,w in [(r_m+excl_m,"#32CD32",2),(max(1,r_m-excl_m),"#32CD32",1)]:
+        pivot_tracks = self.current_field.get("pivot_tracks") or []
+        for i,r_m in enumerate(pivot_tracks):
+            for r,col,w in [(r_m+excl_m,"#FF2A2A",2),(max(1,r_m-excl_m),"#FF2A2A",2)]:
                 pts = circle_pts(plat,plon,r,n=180)
                 # Decide whether to draw as a single polygon (fast, matches the
                 # historical look exactly) or as clipped path segments. We only
@@ -3845,7 +3941,7 @@ class BeetentApp(ctk.CTk):
         """Edit the distance-from-pivot (span measurement) of one pivot track."""
         tracks=self.current_field.get("pivot_tracks") or []
         if not (0<=idx<len(tracks)): return
-        use_m=self.unit_var.get()=="Metres"
+        use_m=self.unit_var.get()=="Metric"
         unit="m" if use_m else "ft"
         conv=1.0 if use_m else 1.0/0.3048
         cur=tracks[idx]*conv
@@ -3875,7 +3971,7 @@ class BeetentApp(ctk.CTk):
         tracks=self.current_field.get("pivot_tracks") or []
         if not (0<=idx<len(tracks)): return
         self._close_all_popups()
-        use_m=self.unit_var.get()=="Metres"
+        use_m=self.unit_var.get()=="Metric"
         unit="m" if use_m else "ft"
         conv=1.0 if use_m else 1.0/0.3048
         dist=tracks[idx]*conv
@@ -4214,20 +4310,40 @@ class BeetentApp(ctk.CTk):
         # so toggling off actually clears them; toggling back on rebuilds.
         if not self.show_corner_arms.get(): return
         arms=self.current_field.get("corner_arms") or []
-        # Match pivot tracks: lime-green ±excl_m offset lines, no centerline.
-        # Color is the same as pivot tracks so they read as "the same kind of
-        # zone" — the only difference is that corner tracks are anchored to
-        # absolute lat/lon and don't move when the pivot does.
-        col = "#32CD32"
+        col = "#FF2A2A"
+        bp = self.current_field.get("boundary_polygon") or []
         try:
             excl_m = float(self.fv.get("track_exclusion_ft", self.excl_var).get() or "10") * 0.3048
         except (ValueError, AttributeError):
             excl_m = 10 * 0.3048
+
+        def _draw_clipped(pts_ll, width):
+            """Draw a polyline clipped to the field boundary."""
+            if not bp or len(bp) < 3:
+                if len(pts_ll) >= 2:
+                    try: self.corner_arm_overlays.append(
+                            self.map_widget.set_path(pts_ll, color=col, width=width))
+                    except Exception: pass
+                return
+            flags = [point_in_latlon_polygon(la, lo, bp) for la, lo in pts_ll]
+            seg = []
+            for k, pt in enumerate(pts_ll):
+                if flags[k]:
+                    seg.append(pt)
+                else:
+                    if len(seg) >= 2:
+                        try: self.corner_arm_overlays.append(
+                                self.map_widget.set_path(seg, color=col, width=width))
+                        except Exception: pass
+                    seg = []
+            if len(seg) >= 2:
+                try: self.corner_arm_overlays.append(
+                        self.map_widget.set_path(seg, color=col, width=width))
+                except Exception: pass
+
         for arm in arms:
             try:
                 if arm.get("type") == "circle":
-                    # Legacy data: render as a single outline polygon. New
-                    # corner tracks are paths only (Add Circle removed).
                     o = self.map_widget.set_polygon(
                         circle_pts(arm["lat"], arm["lon"], arm["radius_m"]),
                         fill_color=None, outline_color=col, border_width=2)
@@ -4237,12 +4353,8 @@ class BeetentApp(ctk.CTk):
                     if len(pts) < 2: continue
                     pts_ll = [(p[0], p[1]) for p in pts]
                     left, right = self._offset_path_latlon(pts_ll, excl_m)
-                    if len(left) >= 2:
-                        self.corner_arm_overlays.append(
-                            self.map_widget.set_path(left, color=col, width=2))
-                    if len(right) >= 2:
-                        self.corner_arm_overlays.append(
-                            self.map_widget.set_path(right, color=col, width=1))
+                    _draw_clipped(left, 2)
+                    _draw_clipped(right, 2)
             except Exception:
                 pass
 
@@ -4309,7 +4421,7 @@ class BeetentApp(ctk.CTk):
     def _format_shift(self, e_m, n_m):
         """Human string for a shift vector in the current unit, e.g. '10 ft W'
         or '10 ft W + 5 ft N', or '0 ft' when there is no shift."""
-        use_m = self.unit_var.get() == "Metres"
+        use_m = self.unit_var.get() == "Metric"
         unit = "m" if use_m else "ft"
         conv = 1.0 if use_m else 1.0 / 0.3048
         parts = []
@@ -4323,7 +4435,7 @@ class BeetentApp(ctk.CTk):
         """Generic N/E/S/W + distance shift dialog. apply_fn(d_e_m, d_n_m).
         current_shift = (east_m, north_m) already applied, shown at the top."""
         self._close_all_popups()
-        use_m = self.unit_var.get() == "Metres"
+        use_m = self.unit_var.get() == "Metric"
         unit = "m" if use_m else "ft"
         win = ctk.CTkToplevel(self)
         win.title(title)
@@ -4641,7 +4753,7 @@ class BeetentApp(ctk.CTk):
 
     def _edit_shelter_buffer(self):
         self._close_all_popups()
-        use_m=self.unit_var.get()=="Metres"
+        use_m=self.unit_var.get()=="Metric"
         unit="m" if use_m else "ft"
         cur_m=float(self.current_field.get("shelter_buffer_m") or 0)
         cur_disp=cur_m if use_m else cur_m/0.3048
@@ -4695,6 +4807,7 @@ class BeetentApp(ctk.CTk):
                     self.current_field["shelter_overrides"] = {}
                     if self.show_shelters.get(): self._redraw_shelters()
                     self._status(f"Cleared {len(ov)} saved shelter move(s).")
+                    self._save_field()   # persist immediately so reopen sees the reset
                 return
             self._status("Nothing to undo."); return
         entry=self._shelter_undo.pop()
@@ -4715,6 +4828,7 @@ class BeetentApp(ctk.CTk):
             what="move"
         n=len(self._shelter_undo)
         self._status(f"Reverted last {what}." + (f" {n} earlier change(s) remain." if n else " No more to undo."))
+        self._save_field()   # persist each undo step so reopen sees the current state
 
     def _on_shelter_tap(self, idx):
         """Called when a shelter pin is clicked without dragging — highlight then offer delete."""
@@ -4788,7 +4902,7 @@ class BeetentApp(ctk.CTk):
         self._clear_shelters()
         if not self.show_shelters.get(): return
         f=self._field_from_form()
-        use_m=self.unit_var.get()=="Metres"
+        use_m=self.unit_var.get()=="Metric"
         mode_key=self._shelter_mode_labels.get(self.shelter_mode_var.get(),"total")
         positions, row_idxs = maketentgrid.get_tent_positions(f,use_metric=use_m,return_rows=True)
         # Shelters follow the planter (bay) Shift and the sprayer-pass Shift so
@@ -4835,6 +4949,46 @@ class BeetentApp(ctk.CTk):
             self.shelter_positions=[]; self.shelter_tray_counts=[]
             self._refresh_bee_summary()
             return
+
+        # Re-sort visible by NW-snake order (W→E columns, alternating N↔S
+        # within each column) based on current lat/lon.  This renumbers dragged
+        # and manually-added pins into the correct position rather than keeping
+        # their original algorithm index, matching what get_tent_positions does.
+        try:
+            _plat = float(f.get("PP_Latitude") or 0)
+            _plon = float(f.get("PP_Longitude") or 0)
+            if _plat and _plon:
+                _ang = float(f.get("Planting_angle") or f.get("Spray_angle") or 0)
+                _cos_r = math.cos(math.radians(_ang))
+                _sin_r = math.sin(math.radians(_ang))
+                # Column width: matches get_tent_positions bay logic (2× gap_m).
+                try:
+                    _rs   = float(f.get("row_spacing_in") or 22)
+                    _nf   = int(float(f.get("num_female_rows") or 0))
+                    _nm   = int(float(f.get("num_male_rows")  or 0))
+                    _gap  = float(f.get("bay_gap_in") or 0) * 0.0254
+                    _col_w = (_nf+1)*_rs*0.0254 + (_nm+1)*_rs*0.0254 + 2.0*_gap
+                except (ValueError, TypeError):
+                    _col_w = 0.0
+                if _col_w <= 0:
+                    try: _col_w = float(f.get("Sprayer_width") or 0) * 0.3048
+                    except (ValueError, TypeError): _col_w = 0.0
+                if _col_w <= 0:
+                    _col_w = 10.0
+                _first_desc = (-_sin_r + _cos_r) > 0  # travel_nw > 0
+
+                def _snake_key(entry):
+                    la, lo = entry[0], entry[1]
+                    e, n = latlon_to_enu(la, lo, _plat, _plon)
+                    lat_v =  e * _cos_r + n * _sin_r   # lateral (E→W field axis)
+                    trn_v = -e * _sin_r + n * _cos_r   # transverse (N→S field axis)
+                    col = round(lat_v / _col_w)
+                    desc = (col%2==0 and _first_desc) or (col%2==1 and not _first_desc)
+                    return (col, -trn_v if desc else trn_v)
+
+                visible.sort(key=_snake_key)
+        except Exception:
+            pass  # on any error keep original order
 
         vis_positions=[(v[0],v[1]) for v in visible]
         vis_rows=[v[4] for v in visible]
@@ -4931,7 +5085,9 @@ class BeetentApp(ctk.CTk):
         self._clear_passes()
         try:
             plat=float(self.fv["PP_Latitude"].get()); plon=float(self.fv["PP_Longitude"].get())
-            angle=float(self.fv["Spray_angle"].get() or 0)
+            _spray = self.fv["Spray_angle"].get().strip()
+            _plant = self.fv["Planting_angle"].get().strip()
+            angle=float(_spray or _plant or 0)
             width_ft=float(self.fv["Sprayer_width"].get() or 133)
             width_m=width_ft*0.3048
             bp=self.current_field.get("boundary_polygon")
@@ -4943,11 +5099,10 @@ class BeetentApp(ctk.CTk):
 
         if not self.show_passes.get(): return
 
-        # Outer sprayer limit (one sprayer-width inset from boundary) — only
-        # drawn when the user is actually running an outside pass; with the
-        # toggle off there is no outside pass, so no inner-limit line either.
-        outside_pass_on = (self.outside_pass_var.get() or "No").strip().lower() == "yes"
-        if outside_pass_on:
+        # Outer sprayer limit (one sprayer-width inset from boundary) — always
+        # drawn when a boundary exists; the outside round is always part of the
+        # sprayer operation.
+        if bp and len(bp) >= 3:
             inset=inset_polygon_enu(poly_enu,width_m)
             if len(inset)>=3:
                 lpts=[enu_to_latlon(e,n,plat,plon) for e,n in inset]
@@ -4959,6 +5114,7 @@ class BeetentApp(ctk.CTk):
         rot=math.radians((0-angle+180)%360-180)
         cos_r,sin_r=math.cos(rot),math.sin(rot)
         tdx=-sin_r; tdy=cos_r
+        ldx, ldy = cos_r, sin_r   # lateral direction (across rows)
         # Sprayer Shift offset — moves the pass lines only (the outside sprayer
         # limit above is tied to the boundary and is intentionally not shifted).
         sse, ssn = self._sprayer_shift()
@@ -4975,10 +5131,20 @@ class BeetentApp(ctk.CTk):
                 inner_polys_enu.append(
                     [latlon_to_enu(pt[0], pt[1], plat, plon) for pt in inner])
 
+        # Passes that lie entirely within the outside round zone are skipped —
+        # the outside round already covers them so drawing them again is
+        # misleading. A pass edge at x is "inside the round" if it never
+        # crosses inset_polygon_enu(poly_enu, width_m).
+        outside_round_inner = inset_polygon_enu(poly_enu, width_m)
+
         max_rows=int(max_r/width_m)+2
         for r in range(-max_rows,max_rows+1):
             lat_e=r*width_m; lat_n=0
             pe=lat_e*cos_r-lat_n*sin_r; pn=lat_n*cos_r+lat_e*sin_r
+            if (len(outside_round_inner) >= 3
+                    and not clip_line_to_polygon_intervals(
+                        lat_e * ldx, lat_e * ldy, tdx, tdy, outside_round_inner)):
+                continue   # this edge line is fully inside the outside round
             pe+=sse; pn+=ssn   # apply sprayer Shift (lateral part moves passes)
 
             # All inside-segments of the pass line against the outer boundary.
@@ -5021,7 +5187,7 @@ class BeetentApp(ctk.CTk):
         self._refresh_unit_labels()
 
     def _refresh_unit_labels(self):
-        u=self.unit_var.get(); m=u=="Metres"; abb="m" if m else "ft"
+        u=self.unit_var.get(); m=u=="Metric"; abb="m" if m else "ft"
         if "spacing" in self.field_labels:
             self.field_labels["spacing"].configure(text=f"Shelter Spacing ({abb})")
         if hasattr(self,"female_bay_lbl"):
@@ -5109,7 +5275,7 @@ class BeetentApp(ctk.CTk):
         planter_in = total_rows * rs
         planter_ft = planter_in / 12
         planter_m  = planter_ft * 0.3048
-        use_m=self.unit_var.get()=="Metres"
+        use_m=self.unit_var.get()=="Metric"
         if use_m:
             self.planter_pass_lbl.configure(
                 text=f'Planter pass: {total_rows} rows  ({planter_in:.1f}" = {planter_m:.3f} m)')
@@ -5250,20 +5416,19 @@ class BeetentApp(ctk.CTk):
         """Shelter-zone overlay:
 
           • SOLID RED 14 ft machine/tire band down the centre of every sprayer
-            pass (interior) and the outside round — the wheels run here, no
-            shelters (same size/shape as the old grey band, just red).
-          • GREEN DOTS fill the shelter edge band near each pass edge — the good
-            zone where shelters may sit (only when an edge band is set).
-          • DIAGONAL RED STRIPES fill each pivot-track buffer ring (the
-            track-exclusion zone) to flag it as no-shelter.
-
-        Pass edges are the bright-green lines drawn by the sprayer-pass layer."""
+            pass and the outside round (gated on the tire-zone toggle).
+          • DIAGONAL GREEN STRIPES fill the shelter edge band near each pass
+            edge — the good zone where shelters may sit. Drawn whenever a
+            buffer is set, regardless of the tire-zone toggle. Bands are
+            capped so they never overlap the tire zone or pivot track zones.
+        """
         self._clear_pass_buffer_overlay()
-        if not self.show_pass_buffer_overlay.get(): return
         try:
             plat = float(self.fv["PP_Latitude"].get())
             plon = float(self.fv["PP_Longitude"].get())
-            angle = float(self.fv["Spray_angle"].get() or 0)
+            _spray = self.fv["Spray_angle"].get().strip()
+            _plant = self.fv["Planting_angle"].get().strip()
+            angle = float(_spray or _plant or 0)
             width_ft = float(self.fv["Sprayer_width"].get() or 133)
             width_m = width_ft * 0.3048
             buffer_ft = float(self.fv["pass_edge_buffer_ft"].get() or 0)
@@ -5272,117 +5437,119 @@ class BeetentApp(ctk.CTk):
         except (ValueError, TypeError):
             return
         if not bp or len(bp) < 3 or width_m <= 0: return
+
+        show_tire = self.show_pass_buffer_overlay.get()
+        show_band = buffer_m > 0
+        if not show_tire and not show_band: return
+
         poly_enu = [latlon_to_enu(lat, lon, plat, plon) for lat, lon in bp]
         max_r = max(math.sqrt(e*e + n*n) for e, n in poly_enu) * 1.1
         rot = math.radians((0 - angle + 180) % 360 - 180)
         cos_r, sin_r = math.cos(rot), math.sin(rot)
         tdx, tdy = -sin_r, cos_r
         ldx, ldy = cos_r, sin_r
-        TIRE_HALF = 7.0 * 0.3048       # 14 ft machine band → ±7 ft from centre
+        TIRE_HALF = 7.0 * 0.3048
         RED   = "#FF2A2A"
         GREEN = "#22E048"
         max_rows = int(max_r / width_m) + 2
+        half_width = width_m / 2.0
+        # Maximum shelter band width before it would reach the tire zone
+        max_band_m = max(0.0, half_width - TIRE_HALF)
 
         def _add(o):
             if o is not None: self.pass_buffer_overlays.append(o)
 
-        # ── Solid red tire band down the centre of every interior pass ──────
+        outside_round_inner = inset_polygon_enu(poly_enu, width_m)
+
+        def _band_inside_round(cx):
+            if len(outside_round_inner) < 3: return False
+            pe, pn = cx * ldx, cx * ldy
+            return not clip_line_to_polygon_intervals(pe, pn, tdx, tdy, outside_round_inner)
+
         inner_polys_enu = []
         for inner in (self.current_field.get("boundary_inner") or []):
             if inner and len(inner) >= 3:
                 inner_polys_enu.append([latlon_to_enu(p[0], p[1], plat, plon) for p in inner])
-        for r in range(-max_rows, max_rows + 1):
-            cx = (r + 0.5) * width_m            # pass centre (between green edges)
-            for band in self._band_polygon_enu(cx - TIRE_HALF, cx + TIRE_HALF,
-                                               tdx, tdy, ldx, ldy, poly_enu,
-                                               inner_polys_enu=inner_polys_enu):
-                lpts = [enu_to_latlon(e, n, plat, plon) for e, n in band]
-                try: _add(self.map_widget.set_polygon(lpts, fill_color=RED,
-                                                       outline_color=RED, border_width=0))
-                except Exception: pass
 
-        # ── Green dots in the shelter edge band (good zone) near each edge ───
-        def _dots_in_band(x1, x2):
-            if x2 - x1 <= 0: return
-            DOT = 4.0; lat = x1 + DOT / 2.0
-            while lat <= x2:
-                pe, pn = lat * ldx, lat * ldy
-                for (t1, t2) in clip_line_to_polygon_intervals(pe, pn, tdx, tdy, poly_enu):
-                    tt = t1 + DOT / 2.0
-                    while tt <= t2:
-                        la, lo = enu_to_latlon(pe + tt*tdx, pn + tt*tdy, plat, plon)
-                        try: _add(self.map_widget.set_polygon(
-                            circle_pts(la, lo, 0.8, 6), fill_color=GREEN,
-                            outline_color=GREEN, border_width=0))
-                        except Exception: pass
-                        tt += DOT
-                lat += DOT
-        if buffer_m > 0:
+        # ── Solid red tire band (only when tire-zone toggle is on) ──────────
+        if show_tire:
             for r in range(-max_rows, max_rows + 1):
-                le = r * width_m; re_ = (r + 1) * width_m
-                _dots_in_band(le, le + buffer_m)
-                _dots_in_band(re_ - buffer_m, re_)
-
-        # ── Outside round: solid red tire ring + green good-zone dots ───────
-        outside_pass_on = (self.outside_pass_var.get() or "No").strip().lower() == "yes"
-        if outside_pass_on:
-            half = width_m / 2.0
-            outer = inset_polygon_enu(poly_enu, max(0.3, half - TIRE_HALF))
-            inner = inset_polygon_enu(poly_enu, half + TIRE_HALF)
-            if len(outer) >= 3 and len(inner) >= 3:
-                ring = list(outer) + [outer[0], inner[0]] + list(reversed(inner)) + [inner[0], outer[0]]
-                lpts = [enu_to_latlon(e, n, plat, plon) for e, n in ring]
-                try: _add(self.map_widget.set_polygon(lpts, fill_color=RED,
-                                                      outline_color=RED, border_width=0))
-                except Exception: pass
-            if buffer_m > 0:
-                # dotted green good zone just inside the round's inner edge
-                gdist = width_m - buffer_m / 2.0
-                gring = inset_polygon_enu(poly_enu, max(0.3, gdist))
-                for i, (e, n) in enumerate(gring):
-                    if i % 2: continue   # thin the ring samples
-                    la, lo = enu_to_latlon(e, n, plat, plon)
-                    try: _add(self.map_widget.set_polygon(
-                        circle_pts(la, lo, 0.8, 6), fill_color=GREEN,
-                        outline_color=GREEN, border_width=0))
+                cx = (r + 0.5) * width_m
+                if _band_inside_round(cx): continue
+                for band in self._band_polygon_enu(cx - TIRE_HALF, cx + TIRE_HALF,
+                                                   tdx, tdy, ldx, ldy, poly_enu,
+                                                   inner_polys_enu=inner_polys_enu):
+                    lpts = [enu_to_latlon(e, n, plat, plon) for e, n in band]
+                    try: _add(self.map_widget.set_polygon(lpts, fill_color=RED,
+                                                           outline_color=RED, border_width=0))
                     except Exception: pass
 
-        # ── Pivot-track buffer rings: diagonal red stripes ──────────────────
-        tracks = sorted(float(r) for r in (self.current_field.get("pivot_tracks") or []))
-        if tracks:
-            try: excl = float(self.fv.get("track_exclusion_ft", self.excl_var).get() or "10") * 0.3048
-            except (ValueError, AttributeError): excl = 10 * 0.3048
-            excl = max(excl, 0.5)
-            d = 0.70710678  # 45° diagonal in the ENU frame
-            STRIPE = 6.0
-            off = -max_r
-            while off <= max_r:
-                ax, ay = -off * d, off * d          # point on this diagonal line
-                ad = ax * d + ay * d
-                a2 = ax * ax + ay * ay
-                for r in tracks:
-                    r_in = max(0.0, r - excl); r_out = r + excl
-                    disc_o = ad * ad - (a2 - r_out * r_out)
-                    if disc_o <= 0: continue
-                    so = math.sqrt(disc_o)
-                    segs = [(-ad - so, -ad + so)]
-                    if r_in > 0:
-                        disc_i = ad * ad - (a2 - r_in * r_in)
-                        if disc_i > 0:
-                            si = math.sqrt(disc_i)
-                            segs = [(-ad - so, -ad - si), (-ad + si, -ad + so)]
-                    for (ta, tb) in segs:
-                        if tb - ta < 0.3: continue
-                        e1, n1 = ax + ta * d, ay + ta * d
-                        e2, n2 = ax + tb * d, ay + tb * d
-                        mla, mlo = enu_to_latlon((e1+e2)/2, (n1+n2)/2, plat, plon)
-                        if not _pt_in_poly(mla, mlo, bp): continue
-                        la1, lo1 = enu_to_latlon(e1, n1, plat, plon)
-                        la2, lo2 = enu_to_latlon(e2, n2, plat, plon)
-                        try: _add(self.map_widget.set_path(
-                            [(la1, lo1), (la2, lo2)], color=RED, width=2))
-                        except Exception: pass
-                off += STRIPE
+        # ── Solid green fill + edge lines in shelter edge band ──────────────
+        # Same fill approach as the red tire zone — just a solid green polygon
+        # for each clipped band piece, capped so it never overlaps the tire zone.
+        def _fill_band(x1, x2):
+            if x2 - x1 <= 0: return
+            for band_poly in self._band_polygon_enu(x1, x2, tdx, tdy, ldx, ldy, poly_enu):
+                lpts = [enu_to_latlon(e, n, plat, plon) for e, n in band_poly]
+                try: _add(self.map_widget.set_polygon(lpts, fill_color=GREEN,
+                                                      outline_color=GREEN, border_width=0))
+                except Exception: pass
+            for x_lat in (x1, x2):
+                pe_e, pn_e = x_lat * ldx, x_lat * ldy
+                for (t1, t2) in clip_line_to_polygon_intervals(pe_e, pn_e, tdx, tdy, poly_enu):
+                    la1, lo1 = enu_to_latlon(pe_e + t1*tdx, pn_e + t1*tdy, plat, plon)
+                    la2, lo2 = enu_to_latlon(pe_e + t2*tdx, pn_e + t2*tdy, plat, plon)
+                    try: _add(self.map_widget.set_path([(la1,lo1),(la2,lo2)], color=GREEN, width=2))
+                    except Exception: pass
+
+        if show_band and max_band_m > 0:
+            actual_band = min(buffer_m, max_band_m)
+            for r in range(-max_rows, max_rows + 1):
+                if _band_inside_round((r + 0.5) * width_m): continue
+                le = r * width_m; re_ = (r + 1) * width_m
+                _fill_band(le, le + actual_band)
+                _fill_band(re_ - actual_band, re_)
+
+        # ── Outside round: red tire ring + green good-zone fill bands ────────
+        if True:
+            half = width_m / 2.0
+            out_band = min(buffer_m, max(0.0, half - TIRE_HALF)) if show_band else 0.0
+
+            if show_tire:
+                outer_tire = inset_polygon_enu(poly_enu, max(0.3, half - TIRE_HALF))
+                inner_tire = inset_polygon_enu(poly_enu, half + TIRE_HALF)
+                if len(outer_tire) >= 3 and len(inner_tire) >= 3:
+                    ring = (list(outer_tire) + [outer_tire[0], inner_tire[0]]
+                            + list(reversed(inner_tire)) + [inner_tire[0], outer_tire[0]])
+                    lpts = [enu_to_latlon(e, n, plat, plon) for e, n in ring]
+                    try: _add(self.map_widget.set_polygon(lpts, fill_color=RED,
+                                                          outline_color=RED, border_width=0))
+                    except Exception: pass
+
+            if show_band and out_band > 0:
+                def _fill_ring(g_outer, g_inner):
+                    if not g_outer or len(g_outer) < 3: return
+                    if g_inner and len(g_inner) >= 3:
+                        pts = (list(g_outer) + [g_outer[0], g_inner[0]]
+                               + list(reversed(g_inner)) + [g_inner[0], g_outer[0]])
+                    else:
+                        pts = g_outer
+                    lpts = [enu_to_latlon(e, n, plat, plon) for e, n in pts]
+                    try: _add(self.map_widget.set_polygon(lpts, fill_color=GREEN,
+                                                          outline_color=GREEN, border_width=0))
+                    except Exception: pass
+
+                def _ring_edge(poly):
+                    if not poly or len(poly) < 3: return
+                    lpts_r = [enu_to_latlon(e, n, plat, plon) for e, n in poly]
+                    lpts_r.append(lpts_r[0])
+                    try: _add(self.map_widget.set_path(lpts_r, color=GREEN, width=2))
+                    except Exception: pass
+
+                # Outer band only: field boundary → out_band inset (boom's outer edge)
+                g_out_inner = inset_polygon_enu(poly_enu, out_band)
+                _fill_ring(poly_enu, g_out_inner)
+                _ring_edge(g_out_inner)
 
     def _redraw_bays(self):
         self._clear_bays()
@@ -5391,7 +5558,9 @@ class BeetentApp(ctk.CTk):
         if not self.current_field.get("use_bays", True): return
         try:
             plat=float(self.fv["PP_Latitude"].get()); plon=float(self.fv["PP_Longitude"].get())
-            angle=float(self.fv["Spray_angle"].get() or 0)
+            _plant = self.fv["Planting_angle"].get().strip()
+            _spray = self.fv["Spray_angle"].get().strip()
+            angle=float(_plant or _spray or 0)
             rs=float(self.fv["row_spacing_in"].get() or 22)
             nf=int(self.fv["num_female_rows"].get() or 8)
             nm=int(self.fv["num_male_rows"].get() or 2)
@@ -6130,12 +6299,12 @@ class BeetentApp(ctk.CTk):
             return
         opts = dlg2.result
 
-        # ── Zero-buffer handling (JD + buffers requested) ──────────────────
+        # ── Zero-buffer handling (JD Buffer Zones requested) ───────────────
         # Any selected field with a 0 buffer is offered an editable size right
         # here; entering a value saves it to that field and includes its buffer
         # zone in the export. Leaving 0 simply skips buffer zones for that field.
-        if opts["jd"] and opts["buffers"]:
-            metric_now=self.unit_var.get()=="Metres"
+        if opts["jd"]:
+            metric_now=self.unit_var.get()=="Metric"
             zero_fields=[]
             for c,y,name in selected_fields:
                 f=load_field(c,y,name)
@@ -6148,15 +6317,32 @@ class BeetentApp(ctk.CTk):
                 if res is None:
                     self._status("Export cancelled."); return
 
-        # ── Output folder name ─────────────────────────────────────────────
+        # ── Output name: "Shelter Maps_<Company>_v<N>" ─────────────────────
+        # Version N auto-increments: scan Downloads for existing exports of
+        # this company and use the next free number. The export is delivered
+        # as a single .zip so it shows a real size in Explorer's Size column
+        # (folders never do) and sorts to the top by size or date.
         cos=set(c for c,y,n in selected_fields)
-        yrs=set(y for c,y,n in selected_fields)
         co_tag=list(cos)[0] if len(cos)==1 else "MultiCompany"
-        yr_tag=list(yrs)[0] if len(yrs)==1 else "MultiYear"
-        tag=re.sub(r"[^A-Za-z0-9_-]+","_","%s_%s"%(co_tag,yr_tag)).strip("_") or "export"
-        stamp=datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
-        out_dir=Path.home()/"Downloads"/("BeeTents_%s_%s"%(tag,stamp))
-        metric=self.unit_var.get()=="Metres"
+        co_tag=re.sub(r"[^A-Za-z0-9 _-]+","_",co_tag).strip("_ ") or "export"
+        dl_dir=Path.home()/"Downloads"
+        _ver=1
+        try:
+            _pat=re.compile(re.escape("Shelter Maps_%s_v"%co_tag)+r"(\d+)$")
+            _used=[]
+            for _p in dl_dir.glob("Shelter Maps_%s_v*"%co_tag):
+                _stem=_p.stem if _p.suffix.lower()==".zip" else _p.name
+                _m=_pat.match(_stem)
+                if _m:
+                    try: _used.append(int(_m.group(1)))
+                    except ValueError: pass
+            if _used: _ver=max(_used)+1
+        except Exception:
+            _ver=1
+        base_name="Shelter Maps_%s_v%d"%(co_tag,_ver)
+        out_dir=dl_dir/base_name
+        zip_path=dl_dir/(base_name+".zip")
+        metric=self.unit_var.get()=="Metric"
         self._log("Generating %d field(s) → %s"%(len(selected_fields),out_dir)); self.update()
 
         # ── Export thread ──────────────────────────────────────────────────
@@ -6177,9 +6363,11 @@ class BeetentApp(ctk.CTk):
                     try: buf_m=float(f.get("shelter_buffer_m") or 0)
                     except (ValueError,TypeError): buf_m=0.0
                     outer_boundary=f.get("boundary_polygon") or None
+                    _spray_a = str(f.get("Spray_angle") or "").strip()
+                    _plant_a = str(f.get("Planting_angle") or "").strip()
+                    _ab_angle = float(_plant_a or _spray_a or 0)
                     maketentgrid.export_field_outputs(
                         positions, pivotpoint, str(out_dir), fname,
-                        include_buffers=opts["buffers"],
                         buffer_radius_m=buf_m,
                         outer_boundary=outer_boundary,
                         write_agps=opts["agps"],
@@ -6187,31 +6375,684 @@ class BeetentApp(ctk.CTk):
                         write_kml=opts["kml"],
                         write_geojson=opts["geojson"],
                         write_boundary=opts["boundary"],
+                        angle=_ab_angle,
                     )
                     ok+=1
                     self.after(0,lambda n=fname,k=len(positions):self._log("  ✓ %s (%d shelters)"%(n,k)))
                 self.after(0,lambda:self._log("Done. %d/%d fields exported."%(ok,len(selected_fields))))
-                self.after(0,lambda:tkinter.messagebox.showinfo("Done",
-                    "%d field(s) written to:\n%s\n\n"
+
+                # ── Package as a single .zip so it shows a size in Explorer ──
+                # Folders never report a size in the Size column; a .zip does,
+                # so the latest export sorts to the top by size (or date).
+                final_path=out_dir
+                try:
+                    if os.path.isdir(out_dir):
+                        if zip_path.exists():
+                            try: zip_path.unlink()
+                            except Exception: pass
+                        with zipfile.ZipFile(str(zip_path),"w",zipfile.ZIP_DEFLATED) as zf:
+                            for root,_dirs,files in os.walk(out_dir):
+                                for fn in files:
+                                    fp=os.path.join(root,fn)
+                                    zf.write(fp,os.path.relpath(fp,out_dir))
+                        shutil.rmtree(out_dir,ignore_errors=True)
+                        final_path=zip_path
+                        _sz=zip_path.stat().st_size
+                        _szmb=_sz/(1024*1024)
+                        self.after(0,lambda s=_szmb:self._log("  Packaged → %s (%.1f MB)"%(zip_path.name,s)))
+                except Exception:
+                    import traceback as _tb
+                    self.after(0,lambda m=_tb.format_exc():self._log("  (zip skipped: %s)"%m.splitlines()[-1]))
+                    final_path=out_dir
+
+                self.after(0,lambda fp=final_path:tkinter.messagebox.showinfo("Done",
+                    "%d field(s) exported to:\n%s\n\n"
+                    "Extract the .zip, then:\n"
+                    "\n"
                     "Trimble: copy AgGPS\\ folder to USB root.\n"
                     "\n"
-                    "John Deere Operations Center (John Deere\\ folder):\n"
-                    "  Upload Files → Flags → drop {field}_Shelter_Pins_shp.zip\n"
+                    "John Deere (John Deere Shelter Buffer Zones\\ folder):\n"
                     "  Upload Files → Internal Boundaries → drop\n"
-                    "    {field}_Shelter_Buffer_Zones_shp.zip  (if buffers enabled)\n"
+                    "    {field}_Shelter_Buffer_Zones_shp.zip\n"
                     "\n"
                     "Google Earth: open Shelter Pins KML\\{field}_Shelter_Pins.kml.\n"
                     "\n"
                     "Boundary Files\\ has the field boundary as shapefile and KML\n"
                     "(fields without a drawn boundary are skipped)."
-                    %(ok,out_dir)))
-                try: self.after(0,lambda:os.startfile(str(out_dir)))
+                    %(ok,fp)))
+                # Open Downloads with the new .zip selected so it's easy to find.
+                try:
+                    if final_path.suffix.lower()==".zip":
+                        self.after(0,lambda fp=final_path:subprocess.Popen(
+                            ["explorer","/select,",str(fp)]))
+                    else:
+                        self.after(0,lambda fp=final_path:os.startfile(str(fp)))
                 except Exception: pass
             except Exception:
                 import traceback as tb; msg=tb.format_exc()
                 self.after(0,lambda:self._log("ERROR:\n"+msg))
                 self.after(0,lambda:tkinter.messagebox.showerror("Error",msg[:600]))
         threading.Thread(target=run,daemon=True).start()
+
+    # ── Field Summary PDF ──────────────────────────────────────────────────────
+    def _export_field_pdf(self):
+        """Step 1 — Field picker (same pattern as Generate Output Files)."""
+        dlg1 = _ExportFieldPicker(self)
+        self.wait_window(dlg1)
+        if not dlg1.result: return
+        selected = dlg1.result   # [(company, year, name), ...]
+
+        # ── Step 2: Options dialog ─────────────────────────────────────────
+        dlg = ctk.CTkToplevel(self)
+        dlg.title("Field Summary PDF — Options")
+        dlg.resizable(False, False)
+        dlg.grab_set(); dlg.lift(); dlg.focus_force()
+        pw = self.winfo_width(); ph = self.winfo_height()
+        px = self.winfo_rootx(); py = self.winfo_rooty()
+        is_single = len(selected) == 1
+        dw, dh = 440, 225
+        dlg.geometry(f"{dw}x{dh}+{px+(pw-dw)//2}+{py+(ph-dh)//2}")
+
+        pad = ctk.CTkFrame(dlg, fg_color="transparent")
+        pad.pack(fill="both", expand=True, padx=18, pady=14)
+
+        if is_single:
+            co0, yr0, nm0 = selected[0]
+            ctk.CTkLabel(pad, text=f"{nm0}  ·  {co0}  ·  {yr0}",
+                         text_color=UI_MUTED).pack(anchor="w", pady=(0,8))
+        else:
+            ctk.CTkLabel(pad, text=f"{len(selected)} fields selected",
+                         text_color=UI_MUTED).pack(anchor="w", pady=(0,8))
+
+        ctk.CTkLabel(pad, text="Pin Labels:").pack(anchor="w")
+        label_var = tk.StringVar(value="Shelter Numbers")
+        ctk.CTkSegmentedButton(pad,
+                               values=["Shelter Numbers", "Tray Counts", "None"],
+                               variable=label_var).pack(anchor="w", pady=(2,10))
+
+        # Save path — file for single, folder for batch
+        def _versioned_pdf_name(directory, base_stem):
+            """Return first non-existing filename: base_stem.pdf, base_stem 2.pdf, ..."""
+            p = Path(directory) / f"{base_stem}.pdf"
+            if not p.exists():
+                return str(p), f"{base_stem}.pdf"
+            n = 2
+            while True:
+                p = Path(directory) / f"{base_stem} {n}.pdf"
+                if not p.exists():
+                    return str(p), f"{base_stem} {n}.pdf"
+                n += 1
+
+        if is_single:
+            co0, yr0, nm0 = selected[0]
+            safe = re.sub(r"[^A-Za-z0-9_\- ]+","",nm0).strip()
+            base_stem = f"{safe} {yr0} Shelter Map" if safe else f"Field {yr0} Shelter Map"
+            default_path, default_name = _versioned_pdf_name(Path.home()/"Downloads", base_stem)
+            save_var = tk.StringVar(value=default_path)
+            pr = ctk.CTkFrame(pad, fg_color="transparent"); pr.pack(fill="x")
+            ctk.CTkEntry(pr, textvariable=save_var, width=310).pack(side="left", padx=(0,6))
+            def _browse_file():
+                p = filedialog.asksaveasfilename(
+                    defaultextension=".pdf", filetypes=[("PDF files","*.pdf")],
+                    initialfile=default_name,
+                    initialdir=str(Path.home()/"Downloads"),
+                    title="Save Field Summary PDF")
+                if p: save_var.set(p)
+            ctk.CTkButton(pr, text="Browse…", width=80,
+                          command=_browse_file).pack(side="left")
+        else:
+            save_dir_var = tk.StringVar(value=str(Path.home()/"Downloads"))
+            pr = ctk.CTkFrame(pad, fg_color="transparent"); pr.pack(fill="x")
+            ctk.CTkEntry(pr, textvariable=save_dir_var, width=310).pack(side="left", padx=(0,6))
+            def _browse_dir():
+                d = filedialog.askdirectory(initialdir=str(Path.home()/"Downloads"),
+                                            title="Save PDFs to folder")
+                if d: save_dir_var.set(d)
+            ctk.CTkButton(pr, text="Browse…", width=80,
+                          command=_browse_dir).pack(side="left")
+
+        result = {"go": False}
+        def _ok(): result["go"] = True; dlg.destroy()
+        btn_row = ctk.CTkFrame(pad, fg_color="transparent"); btn_row.pack(pady=(12,0))
+        ctk.CTkButton(btn_row, text="Generate PDF" if is_single else "Generate PDFs",
+                      fg_color="#1a5c8a", command=_ok).pack(side="left", padx=(0,8))
+        ctk.CTkButton(btn_row, text="Cancel", fg_color="#555",
+                      command=dlg.destroy).pack(side="left")
+
+        self.wait_window(dlg)
+        if not result["go"]: return
+
+        label_mode = {"Shelter Numbers": "shelters",
+                      "Tray Counts":     "trays",
+                      "None":            "off"}[label_var.get()]
+
+        if is_single:
+            co0, yr0, nm0 = selected[0]
+            pdf_paths = {(co0,yr0,nm0): save_var.get().strip()}
+        else:
+            sdir = Path(save_dir_var.get())
+            pdf_paths = {}
+            for co,yr,nm in selected:
+                safe = re.sub(r"[^A-Za-z0-9_\- ]+","",nm).strip()
+                base_stem = f"{safe} {yr} Shelter Map" if safe else f"Field {yr} Shelter Map"
+                path, _ = _versioned_pdf_name(sdir, base_stem)
+                pdf_paths[(co,yr,nm)] = path
+
+        if not any(pdf_paths.values()):
+            self._status("PDF export cancelled."); return
+
+        # ── Step 3: Queue and process fields sequentially ──────────────────
+        self._pdf_queue      = list(selected)
+        self._pdf_paths      = pdf_paths
+        self._pdf_label_mode = label_mode
+        self._pdf_done       = []
+        self._process_next_pdf()
+
+    # ── Map-image cache helpers ────────────────────────────────────────────
+    def _pdf_cache_paths(self, co, yr, name):
+        base = Path(__file__).parent / "fields" / co / yr
+        return base / f"{name}_map.jpg", base / f"{name}_map.json"
+
+    def _pdf_load_cache(self, co, yr, name):
+        """Return (PIL.Image, True) if a valid cached map image exists, else (None, False)."""
+        try:
+            from PIL import Image as _PI
+            img_p, meta_p = self._pdf_cache_paths(co, yr, name)
+            fld_p = Path(__file__).parent / "fields" / co / yr / f"{name}.json"
+            if not img_p.exists() or not meta_p.exists():
+                return None, False
+            meta = json.loads(meta_p.read_text(encoding='utf-8'))
+            if meta.get('label_mode') != self._pdf_label_mode:
+                return None, False
+            if img_p.stat().st_mtime < fld_p.stat().st_mtime:
+                return None, False          # field updated since cache was saved
+            return _PI.open(str(img_p)).copy(), True
+        except Exception:
+            return None, False
+
+    def _pdf_save_cache(self, map_img, co, yr, name):
+        """Persist map screenshot so future PDF runs for this field skip tile polling."""
+        try:
+            img_p, meta_p = self._pdf_cache_paths(co, yr, name)
+            map_img.save(str(img_p), 'JPEG', quality=85)
+            meta_p.write_text(
+                json.dumps({'label_mode': self._pdf_label_mode}), encoding='utf-8')
+        except Exception:
+            pass
+
+    def _process_next_pdf(self):
+        """Load next field in queue, then schedule screenshot."""
+        if not self._pdf_queue:
+            n = len(self._pdf_done)
+            self._status(f"PDF{'s' if n!=1 else ''} saved ({n} field{'s' if n!=1 else ''})")
+            if self._pdf_done:
+                try: os.startfile(str(Path(self._pdf_done[-1]).parent))
+                except Exception: pass
+            return
+
+        co, yr, name = self._pdf_queue[0]
+        is_cur = (str(self.current_field.get("company",""))==co and
+                  str(self.current_field.get("year",""))==yr and
+                  str(self.current_field.get("Name",""))==name)
+
+        # ── Fast path: use cached map image ────────────────────────────────
+        cached_img, cache_ok = self._pdf_load_cache(co, yr, name)
+        if cache_ok:
+            save_path = self._pdf_paths.get((co, yr, name), "")
+            if save_path:
+                try:
+                    self._build_field_pdf(cached_img, self._pdf_label_mode, save_path)
+                    self._pdf_done.append(save_path)
+                except Exception:
+                    import traceback as _tb
+                    _s = _tb.format_exc()
+                    tkinter.messagebox.showerror("PDF Error",
+                        _s[-900:] if len(_s) > 900 else _s)
+            self._pdf_queue.pop(0)
+            self.after(50, self._process_next_pdf)
+            return
+
+        # ── Slow path: tile polling ─────────────────────────────────────────
+        if not is_cur:
+            self._activate_field_impl(co, yr, name)
+        self.update()
+        # Poll canvas stability instead of a fixed delay
+        self._pdf_poll_start    = time.time()
+        self._pdf_poll_prev     = None
+        self._pdf_poll_stable   = 0
+        self.after(400, self._pdf_poll_tiles)
+
+    def _pdf_poll_tiles(self):
+        """Fire every 300 ms; proceed once map tiles stop changing or time out."""
+        STABLE_NEED = 3        # 3 identical frames = stable
+        MAX_WAIT    = 8.0      # hard ceiling (seconds)
+        INTERVAL    = 300      # ms between checks
+
+        try:
+            from PIL import ImageGrab
+            cw  = self.map_widget
+            try: sc = self.winfo_fpixels('1i') / 96.0
+            except Exception: sc = 1.0
+            bx = int(cw.winfo_rootx() * sc); by = int(cw.winfo_rooty() * sc)
+            bw = int(cw.winfo_width()  * sc); bh = int(cw.winfo_height() * sc)
+            th = ImageGrab.grab(bbox=(bx, by, bx+bw, by+bh)).resize((80, 60))
+            h  = hash(th.tobytes())
+        except Exception:
+            h = None
+
+        if h is not None and h == self._pdf_poll_prev:
+            self._pdf_poll_stable += 1
+        else:
+            self._pdf_poll_stable = 0
+        self._pdf_poll_prev = h
+
+        if self._pdf_poll_stable >= STABLE_NEED or \
+                (time.time() - self._pdf_poll_start) >= MAX_WAIT:
+            self._pdf_pre_screenshot()
+        else:
+            self.after(INTERVAL, self._pdf_poll_tiles)
+
+    def _pdf_pre_screenshot(self):
+        """Enable shelters + set label mode, then wait for canvas to settle."""
+        self.show_shelters.set(True)
+        self.shelters_visible_var.set(True)
+        self._pdf_old_mode  = self.pin_label_mode
+        self.pin_label_mode = self._pdf_label_mode
+        self._redraw_shelters()
+        self.update_idletasks()
+        self.after(500, self._pdf_do_screenshot)
+
+    def _capture_canvas_gdi(self, canvas):
+        """Capture a tkinter Canvas via Windows GDI PrintWindow.
+        Works even when other windows (taskbar, etc.) overlap the widget.
+        Falls back to PIL ImageGrab if GDI fails."""
+        try:
+            import ctypes, struct
+            from PIL import Image as _PIL
+            hwnd = canvas.winfo_id()
+            try:
+                scale = self.winfo_fpixels('1i') / 96.0
+            except Exception:
+                scale = 1.0
+            w = max(1, int(canvas.winfo_width()  * scale))
+            h = max(1, int(canvas.winfo_height() * scale))
+            gdi32  = ctypes.windll.gdi32
+            user32 = ctypes.windll.user32
+            hdc_src = user32.GetDC(hwnd)
+            hdc_mem = gdi32.CreateCompatibleDC(hdc_src)
+            hbm     = gdi32.CreateCompatibleBitmap(hdc_src, w, h)
+            old_bm  = gdi32.SelectObject(hdc_mem, hbm)
+            # PW_CLIENTONLY=1 | PW_RENDERFULLCONTENT=2 (Win8+)
+            user32.PrintWindow(hwnd, hdc_mem, 3)
+            # DIB header: 32-bit top-down
+            bmi = struct.pack('=IIIHHIIIIII', 40, w, -h, 1, 32, 0, 0, 0, 0, 0, 0)
+            buf = ctypes.create_string_buffer(w * h * 4)
+            gdi32.GetDIBits(hdc_mem, hbm, 0, h, buf, bmi, 0)
+            gdi32.SelectObject(hdc_mem, old_bm)
+            gdi32.DeleteObject(hbm)
+            gdi32.DeleteDC(hdc_mem)
+            user32.ReleaseDC(hwnd, hdc_src)
+            return _PIL.frombuffer('RGBA', (w, h), buf.raw, 'raw', 'BGRA', 0, 1).convert('RGB')
+        except Exception:
+            # Fallback: plain screen grab
+            from PIL import ImageGrab
+            try: scale = self.winfo_fpixels('1i') / 96.0
+            except Exception: scale = 1.0
+            x = canvas.winfo_rootx(); y = canvas.winfo_rooty()
+            w = canvas.winfo_width();  h = canvas.winfo_height()
+            return ImageGrab.grab(bbox=(
+                int(x*scale), int(y*scale),
+                int((x+w)*scale), int((y+h)*scale)))
+
+    def _pdf_do_screenshot(self):
+        """Capture the map widget and build the PDF, then advance the queue."""
+        co, yr, name = self._pdf_queue[0]
+        save_path = self._pdf_paths.get((co,yr,name),"")
+
+        try:
+            cw = self.map_widget
+            cw.canvas.update()
+            map_img = self._capture_canvas_gdi(cw.canvas)
+        except Exception as ex:
+            tkinter.messagebox.showerror("Screenshot Failed", str(ex))
+            map_img = None
+
+        # Restore label mode immediately
+        self.pin_label_mode = self._pdf_old_mode
+        self._redraw_shelters()
+
+        if map_img is not None and save_path:
+            try:
+                self._build_field_pdf(map_img, self._pdf_label_mode, save_path)
+                self._pdf_done.append(save_path)
+                # Save for future runs (next generation of this field is instant)
+                self._pdf_save_cache(map_img, co, yr, name)
+            except Exception:
+                import traceback as _tb
+                _tb_str = _tb.format_exc()
+                tkinter.messagebox.showerror("PDF Error",
+                    _tb_str[-900:] if len(_tb_str) > 900 else _tb_str)
+
+        self._pdf_queue.pop(0)
+        self._process_next_pdf()
+
+    def _build_field_pdf(self, map_img, label_mode, save_path):
+        """Construct and write the Field Summary PDF to *save_path*."""
+        import fpdf as _fpdf
+        import tempfile, math as _math
+
+        f = self.current_field
+
+        # ── Gather field data ──────────────────────────────────────────────
+        field_name = str(f.get("Name","") or "").strip() or "Untitled"
+        company    = str(f.get("company","") or "").strip() or "—"
+        year       = str(f.get("year","") or "").strip() or "—"
+        lld        = str(f.get("lld","") or "").strip() or "—"
+
+        acres_manual = str(f.get("acres","") or "").strip()
+        if acres_manual:
+            try:    acres_disp = f"{float(acres_manual):.1f} ac"
+            except  ValueError: acres_disp = acres_manual
+            acres_f = float(acres_manual) if acres_manual else 0.0
+        else:
+            bp  = f.get("boundary_polygon") or []
+            ac  = polygon_area_m2(bp) * ACRES_PER_M2 if len(bp) >= 3 else 0.0
+            acres_disp = f"{ac:.1f} ac" if ac > 0 else "—"
+            acres_f = ac
+
+        plant_a  = str(f.get("Planting_angle","") or "").strip()
+        spray_a  = str(f.get("Spray_angle","") or "").strip()
+        plant_disp  = f"{plant_a}°" if plant_a else "—"
+        spray_disp  = f"{spray_a}°" if spray_a else "—"
+
+        sw = str(f.get("Sprayer_width","") or "").strip()
+        sw_disp = f"{sw} ft" if sw else "—"
+
+        rs = str(f.get("row_spacing_in","") or "").strip()
+        rs_disp = f"{rs} in" if rs else "—"
+
+        total_rows_s = str(f.get("total_rows","") or "").strip()
+        nf_s = str(f.get("num_female_rows","") or "").strip()
+        nm_s = str(f.get("num_male_rows","") or "").strip()
+        gap_s = str(f.get("bay_gap_in","") or "").strip()
+        gap_disp = f"{gap_s} in" if gap_s else "0 in"
+
+        try:
+            nf_i = int(nf_s or 8); nm_i = int(nm_s or 2)
+            tr_i = int(total_rows_s or (nf_i + nm_i))
+            layout_key   = f.get("row_layout", "centered")
+            custom_mask  = str(f.get("custom_row_mask","") or "").strip()
+            layout_disp  = self._row_layout_inverse.get(layout_key, layout_key).title()
+            row_mask     = maketentgrid.resolve_row_mask(nf_i, nm_i, layout_key, custom_mask, tr_i)
+        except Exception:
+            layout_disp = "—"; row_mask = "—"
+
+        has_planter = bool(f.get("planter_passes"))
+        has_sprayer = bool(f.get("sprayer_passes"))
+        upload_parts = []
+        if has_planter: upload_parts.append("Planter GPS")
+        if has_sprayer: upload_parts.append("Sprayer GPS")
+        uploaded_disp = " + ".join(upload_parts) if upload_parts else None
+
+        # ── Bee allocation ─────────────────────────────────────────────────
+        n_shelters   = len(self.shelter_positions)
+        shelters_disp = str(n_shelters) if n_shelters else "—"
+
+        gpa_s = str(f.get("gals_per_acre","") or "").strip()
+        gpt_s = str(f.get("gals_per_tray","") or "").strip()
+        gpa_disp = f"{gpa_s} gal/ac" if gpa_s else "—"
+        gpt_disp = f"{gpt_s} gal/tray" if gpt_s else "—"
+
+        total_gals_disp = "—"; total_trays_disp = "—"; trays_per_disp = "—"
+        if gpa_s and gpt_s and acres_f > 0:
+            try:
+                gpa_f = float(gpa_s); gpt_f = float(gpt_s)
+                tot_gals = gpa_f * acres_f
+                total_gals_disp = f"{tot_gals:.1f} gal"
+                if self.shelter_tray_counts and n_shelters:
+                    tot_tr = sum(self.shelter_tray_counts)
+                    mn = min(self.shelter_tray_counts); mx = max(self.shelter_tray_counts)
+                    total_trays_disp = str(tot_tr)
+                    trays_per_disp   = str(mn) if mn == mx else f"{mn}–{mx}"
+                elif gpt_f > 0 and n_shelters:
+                    tot_tr = max(int(_math.ceil(tot_gals / gpt_f)), n_shelters)
+                    total_trays_disp = str(tot_tr)
+                    base = tot_tr // n_shelters; ext = tot_tr % n_shelters
+                    trays_per_disp   = str(base) if ext == 0 else f"{base}–{base+1}"
+            except (ValueError, ZeroDivisionError): pass
+
+        dist_key  = f.get("tray_distribution","even")
+        dist_disp = self._tray_dist_inverse.get(dist_key, dist_key).title()
+        outside_disp = ("Yes" if str(f.get("shelters_in_outside_pass","Yes")
+                                    ).strip().lower() == "yes" else "No")
+        label_disp = {"shelters": "Shelter Numbers",
+                      "trays":    "Tray Counts",
+                      "off":      "None"}[label_mode]
+
+        # ── Colour palette ─────────────────────────────────────────────────
+        NAVY  = (30,  58,  95)
+        GOLD  = (213, 160, 23)
+        HBGR  = (245, 247, 250)   # header background
+        MGRAY = (140, 152, 170)   # muted label text
+        DBDR  = (200, 210, 222)   # divider / border
+        ALTBG = (237, 242, 248)   # alternating table row
+        WHITE = (255, 255, 255)
+
+        # ── Page geometry (mm) ─────────────────────────────────────────────
+        PW = 215.9; PH = 279.4
+        ML = 15.0;  MR = 15.0
+        CW = PW - ML - MR          # 185.9
+
+        pdf = _fpdf.FPDF('P', 'mm', 'Letter')
+        pdf.add_page()
+        pdf.set_margins(0, 0, 0)
+        pdf.set_auto_page_break(False)
+
+        # ── Drawing helpers ────────────────────────────────────────────────
+        def _fill(x, y, w, h, rgb):
+            pdf.set_fill_color(*rgb)
+            pdf.rect(x, y, w, h, 'F')
+
+        def _hline(x, y, w, rgb, lw=0.3):
+            pdf.set_draw_color(*rgb)
+            pdf.set_line_width(lw)
+            pdf.line(x, y, x + w, y)
+
+        def _vline(x, y1, y2, rgb, lw=0.3):
+            pdf.set_draw_color(*rgb)
+            pdf.set_line_width(lw)
+            pdf.line(x, y1, x, y2)
+
+        def _txt(x, y, w, h, s, font='Helvetica', style='', size=9,
+                 rgb=NAVY, align='L'):
+            # fpdf v1 encodes to latin-1; strip anything outside that range
+            safe = (str(s)
+                    .replace('—', '--')   # em dash
+                    .replace('–', '-')    # en dash
+                    .replace('‒', '-')    # figure dash
+                    .encode('latin-1', errors='replace')
+                    .decode('latin-1'))
+            pdf.set_font(font, style, size)
+            pdf.set_text_color(*rgb)
+            pdf.set_xy(x, y)
+            pdf.cell(w, h, safe, align=align)
+
+        # ── GOLD TOP BAR ───────────────────────────────────────────────────
+        _fill(0, 0, PW, 3, GOLD)
+
+        # ── HEADER BACKGROUND ─────────────────────────────────────────────
+        _fill(0, 3, PW, 37, HBGR)
+
+        # ── LOGO ──────────────────────────────────────────────────────────
+        LQSEP = ML + 82           # x of vertical separator (97 mm)
+        LQ_CX = LQSEP / 2        # horizontal centre of left quadrant
+        HDR_TOP = 3; HDR_BOT = 38  # header content band
+        logo_path = str(Path(__file__).parent / "assets" / "pdflogo.png")
+        if os.path.exists(logo_path):
+            try:
+                from PIL import Image as _LI
+                _logo_img = _LI.open(logo_path)
+                _lw, _lh  = _logo_img.size
+                aspect    = _lh / _lw
+                # Composite RGBA onto header background so fpdf gets plain RGB
+                if _logo_img.mode in ('RGBA', 'LA', 'P'):
+                    _bg = _LI.new('RGB', (_lw, _lh), HBGR)
+                    if _logo_img.mode == 'P':
+                        _logo_img = _logo_img.convert('RGBA')
+                    _bg.paste(_logo_img, mask=_logo_img.split()[-1]
+                              if _logo_img.mode in ('RGBA', 'LA') else None)
+                    _logo_img = _bg
+                _logo_tmp = tempfile.NamedTemporaryFile(suffix='.png', delete=False)
+                _logo_tmp.close()
+                _logo_img.save(_logo_tmp.name, 'PNG')
+                _logo_embed = _logo_tmp.name
+            except Exception:
+                aspect = 1.446
+                _logo_embed = logo_path
+                _logo_tmp   = None
+            logo_w = min(22, (HDR_BOT - HDR_TOP - 10) / aspect)  # 5 mm pad top+bottom
+            logo_h = logo_w * aspect
+            logo_x = LQ_CX - logo_w / 2
+            logo_y = HDR_TOP + (HDR_BOT - HDR_TOP - logo_h) / 2
+            pdf.image(_logo_embed, logo_x, logo_y, logo_w)
+            try:
+                if _logo_tmp: os.unlink(_logo_tmp.name)
+            except Exception:
+                pass
+
+        # ── Vertical separator ─────────────────────────────────────────────
+        _vline(ML + 82, 7, 37, DBDR, 0.4)
+
+        # ── Field info (right of separator) ───────────────────────────────
+        rx = ML + 85;  rw = PW - MR - rx
+        _txt(rx, 13, rw, 9,  field_name, 'Helvetica', 'B', 18, NAVY, 'C')
+        _txt(rx, 25, rw, 6,  f"{company}  ·  {year}", 'Helvetica', '', 11,
+             (80, 100, 120), 'C')
+        try:
+            date_str = datetime.date.today().strftime("%B %d, %Y").replace(" 0", " ")
+        except Exception:
+            date_str = str(datetime.date.today())
+
+        # ── GOLD BOTTOM ACCENT ─────────────────────────────────────────────
+        _fill(0, 38, PW, 2.5, GOLD)
+
+        # ── MAP IMAGE ─────────────────────────────────────────────────────
+        MAP_Y = 42.5;  MAP_H = 124.0
+        # Border frame
+        _fill(ML - 0.5, MAP_Y - 0.5, CW + 1, MAP_H + 1, DBDR)
+
+        # Resize map image to fixed target (fills box, slight stretch is OK)
+        from PIL import Image as _PILImage
+        # Crop source image to match the PDF box aspect ratio before resizing
+        # so the image is never stretched/warped.
+        src_w, src_h = map_img.size
+        pdf_aspect = CW / MAP_H          # target width-to-height ratio
+        src_aspect = src_w / src_h
+        if src_aspect > pdf_aspect + 0.01:
+            new_w = int(src_h * pdf_aspect)
+            x0 = (src_w - new_w) // 2
+            map_img = map_img.crop((x0, 0, x0 + new_w, src_h))
+        elif src_aspect < pdf_aspect - 0.01:
+            new_h = int(src_w / pdf_aspect)
+            y0 = (src_h - new_h) // 2
+            map_img = map_img.crop((0, y0, src_w, y0 + new_h))
+        target_px_w = 1600; target_px_h = int(target_px_w / pdf_aspect)
+        map_resized = map_img.resize((target_px_w, target_px_h), _PILImage.LANCZOS)
+        _tmp = tempfile.NamedTemporaryFile(suffix='.jpg', delete=False)
+        _tmp.close()
+        try:
+            map_resized.save(_tmp.name, 'JPEG', quality=90)
+            pdf.image(_tmp.name, ML, MAP_Y, CW, MAP_H)
+        finally:
+            try: os.unlink(_tmp.name)
+            except Exception: pass
+
+        # Caption below map
+        cap_y = MAP_Y + MAP_H + 2
+        _txt(ML, cap_y, CW, 4,
+             f"Yellow pins = shelter positions  ·  Labels: {label_disp}",
+             'Helvetica', 'I', 7.5, MGRAY, 'C')
+
+        # ── SECTION HEADER BAR ─────────────────────────────────────────────
+        sec_y = cap_y + 6
+        _fill(0, sec_y, PW, 8.5, NAVY)
+        _txt(ML + 2, sec_y + 1.5, CW * 0.48, 5.5,
+             "FIELD DETAILS", 'Helvetica', 'B', 8.5, WHITE)
+        _txt(ML + CW * 0.51, sec_y + 1.5, CW * 0.48, 5.5,
+             "BEE ALLOCATION", 'Helvetica', 'B', 8.5, WHITE, 'L')
+
+        # ── DATA TABLES ───────────────────────────────────────────────────
+        ROW_H  = 6.4
+        tbl_y  = sec_y + 9.5
+        HALF   = (CW - 5) / 2   # each panel ~90mm
+        LGAP   = 3               # gap between panels (label side)
+
+        def _data_row(px, py, pw, label, value, alt=False, small_val=False):
+            _fill(px, py, pw, ROW_H, ALTBG if alt else WHITE)
+            # Label
+            _txt(px + 2.5, py + 1.3, pw * 0.50, ROW_H - 1.5,
+                 label, 'Helvetica', '', 8, MGRAY, 'L')
+            # Value
+            vs = 7 if small_val else 8
+            _txt(px + pw * 0.50, py + 1.3, pw * 0.48, ROW_H - 1.5,
+                 value, 'Helvetica', 'B', vs, NAVY, 'R')
+
+        # Left panel — Field Details
+        left_rows = [
+            ("Legal Description", lld),
+            ("Acres",             acres_disp),
+            ("Planting Angle",    plant_disp),
+            ("Spraying Angle",    spray_disp),
+            ("Sprayer Width",     sw_disp),
+            ("Row Spacing",       rs_disp),
+            ("Total Rows on Planter", total_rows_s or "—"),
+            ("Female Rows (per unit)", nf_s or "—"),
+            ("Male Rows (per unit)",   nm_s or "—"),
+            ("Gap Between Bays",  gap_disp),
+            ("Planter Layout",    row_mask or "—"),
+        ]
+        if uploaded_disp:
+            left_rows.append(("Uploaded Data", uploaded_disp))
+
+        for i, (lbl, val) in enumerate(left_rows):
+            _data_row(ML, tbl_y + i * ROW_H, HALF,
+                      lbl, val, alt=(i % 2 == 1),
+                      small_val=(lbl == "Planter Layout" and len(val) > 18))
+
+        # Right panel — Bee Allocation
+        right_rows = [
+            ("Total Shelters",         shelters_disp),
+            ("Gals / Acre",            gpa_disp),
+            ("Total Gals",             total_gals_disp),
+            ("Gals / Tray",            gpt_disp),
+            ("Total Trays",            total_trays_disp),
+            ("Trays per Shelter",      trays_per_disp),
+            ("Tray Distribution",      dist_disp),
+            ("Shelters in Outside Pass", outside_disp),
+        ]
+        rx2 = ML + HALF + LGAP + 2
+        pw2 = HALF - LGAP
+
+        for i, (lbl, val) in enumerate(right_rows):
+            _data_row(rx2, tbl_y + i * ROW_H, pw2,
+                      lbl, val, alt=(i % 2 == 1))
+
+        # Thin vertical line between panels
+        mid_x = ML + HALF + (LGAP + 2) / 2
+        _vline(mid_x, sec_y, tbl_y + len(left_rows) * ROW_H, DBDR, 0.3)
+
+        # ── FOOTER ────────────────────────────────────────────────────────
+        foot_y = PH - 9
+        _hline(0, foot_y - 2.5, PW, GOLD, 1.5)
+        _txt(ML, foot_y, CW * 0.5, 5,
+             "Shelter Mapping App  ·  TNT Pollination",
+             'Helvetica', '', 7, MGRAY, 'L')
+        _txt(ML + CW * 0.5, foot_y, CW * 0.5, 5,
+             f"Generated: {date_str}",
+             'Helvetica', 'I', 7, MGRAY, 'R')
+
+        # ── WRITE FILE ────────────────────────────────────────────────────
+        pdf.output(save_path, 'F')
 
     # ── Helpers ────────────────────────────────────────────────────────────────
     def _status(self,msg): self.status_lbl.configure(text=msg)
