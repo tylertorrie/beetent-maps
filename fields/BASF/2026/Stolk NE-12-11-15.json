@@ -1943,5 +1943,6 @@
   "Planting_angle": "0",
   "bay_gap_in": "0",
   "boundary_inner": [],
-  "shelters_in_outside_pass": "No"
+  "shelters_in_outside_pass": "Yes",
+  "shelter_at_pivot": false
 }
