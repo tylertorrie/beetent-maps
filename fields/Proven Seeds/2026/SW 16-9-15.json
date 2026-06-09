@@ -299,20 +299,17 @@
   "boundary_inner": [],
   "sprayer_routes_around_inner": true,
   "bays_through_inner": false,
-  "manual_shelter_pins": [
-    [
-      49.726098539516244,
-      -111.99884682421714
-    ]
-  ],
+  "manual_shelter_pins": [],
   "shelter_overrides": {
     "32": [
       49.73151752085268,
       -111.98585822706252
-    ]
+    ],
+    "40": null
   },
   "Planting_angle": "",
   "shelter_rows": "",
   "bay_gap_in": "0",
-  "shelters_in_outside_pass": "Yes"
+  "shelters_in_outside_pass": "Yes",
+  "shelter_at_pivot": false
 }
