@@ -232,10 +232,32 @@
   "sprayer_routes_around_inner": true,
   "bays_through_inner": false,
   "manual_shelter_pins": [],
-  "shelter_overrides": {},
+  "shelter_overrides": {
+    "43": [
+      49.794043983435074,
+      -111.57553216944659
+    ],
+    "11": [
+      49.79305530661023,
+      -111.58103405068839
+    ],
+    "2": [
+      49.79304491760474,
+      -111.5776491029116
+    ],
+    "1": [
+      49.79394182686979,
+      -111.58316372464621
+    ],
+    "0": [
+      49.794901051215085,
+      -111.58442972730124
+    ]
+  },
   "shelter_rows": "",
   "Planting_angle": "0",
   "bay_gap_in": "0",
   "shelters_in_outside_pass": "No",
-  "shelter_at_pivot": false
+  "shelter_at_pivot": false,
+  "tire_width_ft": "14"
 }
