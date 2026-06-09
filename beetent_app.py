@@ -1827,7 +1827,7 @@ class BeetentApp(ctk.CTk):
         # current field is clear even when the side panels are collapsed.
         self.map_field_label = ctk.CTkLabel(
             self.map_frame, text="", anchor="e",
-            fg_color="#101418", text_color="#FFD700", corner_radius=6,
+            fg_color="transparent", text_color="#1E90FF",
             font=ctk.CTkFont(family=FONT_HEADING, size=16, weight="bold"))
         # Placed/hidden by _update_map_field_label (hidden until a field loads).
         self._update_map_field_label()
