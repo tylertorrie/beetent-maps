@@ -5596,12 +5596,26 @@ class BeetentApp(ctk.CTk):
         # cut. (With cutouts we keep the simpler flat-interval path below.)
         if not inner_polys_enu:
             polys = []
-            for (a0, a1), (b0, b1) in zip(edge_a, edge_b):
-                if min(a1, b1) - max(a0, b0) <= 1e-6: continue
-                polys.append([(p1e + a0*tdx, p1n + a0*tdy),
-                              (p2e + b0*tdx, p2n + b0*tdy),
-                              (p2e + b1*tdx, p2n + b1*tdy),
-                              (p1e + a1*tdx, p1n + a1*tdy)])
+            if len(edge_a) == len(edge_b):
+                for (a0, a1), (b0, b1) in zip(edge_a, edge_b):
+                    if min(a1, b1) - max(a0, b0) <= 1e-6: continue
+                    polys.append([(p1e + a0*tdx, p1n + a0*tdy),
+                                  (p2e + b0*tdx, p2n + b0*tdy),
+                                  (p2e + b1*tdx, p2n + b1*tdy),
+                                  (p1e + a1*tdx, p1n + a1*tdy)])
+            else:
+                # Edge interval counts disagree — happens when the clip polygon
+                # self-intersects (a raw deep inset on a concave/finely-traced
+                # boundary). Pairing the two edges then drops or garbles fill
+                # pieces (the band shows its outline but no fill). Fall back to
+                # clipping the band's CENTRELINE so the fill always renders
+                # (flat ends instead of slanted, which is fine here).
+                xm_e = (p1e + p2e) / 2.0; xm_n = (p1n + p2n) / 2.0
+                for (t0, t1) in clip_line_to_polygon_intervals(xm_e, xm_n, tdx, tdy, poly_enu):
+                    polys.append([(p1e + t0*tdx, p1n + t0*tdy),
+                                  (p2e + t0*tdx, p2n + t0*tdy),
+                                  (p2e + t1*tdx, p2n + t1*tdy),
+                                  (p1e + t1*tdx, p1n + t1*tdy)])
             return polys
         # Pair up matching intervals between the two edges. They should
         # always have the same count for sane geometry; intersect the i-th
@@ -5804,6 +5818,13 @@ class BeetentApp(ctk.CTk):
                 lp = [enu_to_latlon(e, n, plat, plon) for e, n in q]
                 try: _add(self.map_widget.set_polygon(lp, fill_color=GREEN,
                                                       outline_color=GREEN, border_width=0))
+                except Exception: pass
+                # Bright inner-edge line of the outer band (per-edge, so it
+                # never gaps). q[3]→q[2] is the edge at depth out_band.
+                try: _add(self.map_widget.set_path(
+                    [enu_to_latlon(q[3][0], q[3][1], plat, plon),
+                     enu_to_latlon(q[2][0], q[2][1], plat, plon)],
+                    color=GREEN, width=2))
                 except Exception: pass
 
         # ── Outside round: red tire ring ────────────────────────────────────
