@@ -1785,6 +1785,8 @@ class BeetentApp(ctk.CTk):
 
     def _on_form_change(self, *_):
         # Bee summary and the auto-mode shelter count recompute immediately.
+        try: self._update_map_field_label()   # keep the on-map name in sync
+        except Exception: pass
         try: self._refresh_bee_summary()
         except Exception: pass
         try: self._refresh_shelter_value_display()
@@ -1820,6 +1822,15 @@ class BeetentApp(ctk.CTk):
         self.map_widget.set_tile_server(SATELLITE_URL,max_zoom=21)
         self.map_widget.set_position(DEFAULT_LAT,DEFAULT_LON)
         self.map_widget.set_zoom(DEFAULT_ZOOM)
+
+        # Always-visible field name, overlaid top-right of the map so the
+        # current field is clear even when the side panels are collapsed.
+        self.map_field_label = ctk.CTkLabel(
+            self.map_frame, text="", anchor="e",
+            fg_color="#101418", text_color="#FFD700", corner_radius=6,
+            font=ctk.CTkFont(family=FONT_HEADING, size=16, weight="bold"))
+        # Placed/hidden by _update_map_field_label (hidden until a field loads).
+        self._update_map_field_label()
 
     # ── Bay Presets ────────────────────────────────────────────────────────────
     def _load_bay_presets(self):
@@ -2911,6 +2922,23 @@ class BeetentApp(ctk.CTk):
         self._status(f'Renamed "{old_name}" to "{new_name}".')
 
     # ── Form helpers ───────────────────────────────────────────────────────────
+    def _update_map_field_label(self):
+        """Show the current field name overlaid at the top-right of the map.
+        Hidden when no field is named. Called on load/new and on Name edits."""
+        lbl = getattr(self, "map_field_label", None)
+        if lbl is None:
+            return
+        try:
+            name = (self.fv["Name"].get() or "").strip()
+        except Exception:
+            name = ""
+        if name:
+            lbl.configure(text="  " + name + "  ")
+            lbl.place(relx=1.0, rely=0.0, x=-14, y=12, anchor="ne")
+            lbl.lift()
+        else:
+            lbl.place_forget()
+
     def _form_from_field(self):
         f=self.current_field
         bf=blank_field()
@@ -2918,6 +2946,7 @@ class BeetentApp(ctk.CTk):
         for k,v in self.fv.items():
             val=f.get(k)
             v.set(str(bf.get(k,"")) if val is None else str(val))
+        self._update_map_field_label()   # reflect the newly loaded field name
         self.shelters_in_outside_var.set(f.get("shelters_in_outside_pass", "Yes"))
         self.shelter_at_pivot_var.set("Yes" if f.get("shelter_at_pivot") else "No")
         # Row layout: dropdown + custom mask + use-imported-passes toggle.
