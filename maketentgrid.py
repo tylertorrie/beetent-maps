@@ -591,21 +591,20 @@ def _make_geojson_with_buffers(lonlat_list, field_name, include_buffers=False,
 
 
 def export_field_outputs(positions_latlon, pivotpoint, out_dir, field_name,
-                         include_buffers=False, buffer_radius_m=1.524,
+                         include_buffers=True, buffer_radius_m=1.524,
                          outer_boundary=None,
                          write_agps=True, write_jd=True, write_kml=True,
-                         write_geojson=True, write_boundary=True):
+                         write_geojson=True, write_boundary=True, angle=0):
     """Write the per-field export files from already-computed shelter positions
     (so the output matches exactly what get_tent_positions drew on the map).
 
     Creates, under out_dir (each section only written when its write_* flag is True):
-      Shelter Pins KML/{field}_Shelter_Pins.kml          Google Earth points
-      AgGPS/Data/TNTBees/BeeTents/{field}/                Trimble import set
-      GeoJSON Files/{field}.geojson                       loose GeoJSON
-      John Deere/{field}_Shelter_Pins_shp.zip             JD Ops Center → Flags
-      John Deere/{field}_Shelter_Buffer_Zones_shp.zip     JD → Internal Boundaries
-      Boundary Files/kml files/{field}_Boundary.kml       field boundary KML
-      Boundary Files/shp files/{field}_Boundary_shp.zip   field boundary shapefile
+      Shelter Pins KML/{field}_Shelter_Pins.kml                  Google Earth points
+      AgGPS/Data/TNTBees/BeeTents/{field}/                        Trimble import set
+      GeoJSON Files/{field}.geojson                               loose GeoJSON
+      John Deere Shelter Buffer Zones/{field}_Shelter_Buffer_Zones_shp.zip  JD → Internal Boundaries
+      Boundary Files/kml files/{field}_Boundary.kml               field boundary KML
+      Boundary Files/shp files/{field}_Boundary_shp.zip           field boundary shapefile
 
     positions_latlon : [(lat, lon), ...]
     pivotpoint       : (lon, lat)
@@ -614,7 +613,7 @@ def export_field_outputs(positions_latlon, pivotpoint, out_dir, field_name,
 
     # ── Sub-folder roots ────────────────────────────────────────────────────
     kml_dir     = os.path.join(out_dir, "Shelter Pins KML")
-    jd_dir      = os.path.join(out_dir, "John Deere")
+    jd_dir      = os.path.join(out_dir, "John Deere Shelter Buffer Zones")
     geojson_dir = os.path.join(out_dir, "GeoJSON Files")
     bnd_shp_dir = os.path.join(out_dir, "Boundary Files", "shp files")
     bnd_kml_dir = os.path.join(out_dir, "Boundary Files", "kml files")
@@ -640,7 +639,7 @@ def export_field_outputs(positions_latlon, pivotpoint, out_dir, field_name,
     if write_agps:
         field_dir = os.path.join(out_dir, "AgGPS", "Data", "TNTBees", "BeeTents", field_name)
         make_files(writer, field_dir, field_name, pivotpoint)
-        make_line(writer, field_dir, pivotpoint, 0, 0)   # north AB line from pivot
+        make_line(writer, field_dir, pivotpoint, 0, angle)
 
         shp = BytesIO(); shx = BytesIO(); dbf = BytesIO()
         w = shapefile.Writer(shp=shp, shx=shx, dbf=dbf, shapeType=1)
@@ -669,86 +668,42 @@ def export_field_outputs(positions_latlon, pivotpoint, out_dir, field_name,
         writer.writestr(os.path.join(geojson_dir, "%s.geojson" % field_name),
                         jd_geojson_text)
 
-    # ── John Deere Operations Center exports ────────────────────────────────
-    if write_jd:
-        def _shelter_pins_shapefile_bytes():
-            """Point shapefile of shelter markers. JD reads this as Flags."""
-            shp = BytesIO(); shx = BytesIO(); dbf = BytesIO()
-            w = shapefile.Writer(shp=shp, shx=shx, dbf=dbf, shapeType=shapefile.POINT)
-            w.field('id',   'N', size=8,  decimal=0)
-            w.field('name', 'C', size=32)
-            w.field('type', 'C', size=16)
-            for i, (lat, lon) in enumerate(positions_latlon):
-                w.point(lon, lat)
-                w.record(i + 1, "Shelter_%d" % (i + 1), "flag")
-            w.close()
-            return shp.getvalue(), shx.getvalue(), dbf.getvalue()
-
-        def _buffer_zones_shapefile_bytes(radius_m):
-            """Polygon shapefile of shelter buffer circles. JD reads this as
-            Internal Boundaries (passable interior boundaries)."""
-            shp = BytesIO(); shx = BytesIO(); dbf = BytesIO()
-            w = shapefile.Writer(shp=shp, shx=shx, dbf=dbf, shapeType=shapefile.POLYGON)
-            w.field('id',   'N', size=8,  decimal=0)
-            w.field('name', 'C', size=32)
-            w.field('type', 'C', size=16)
-            for i, (lat, lon) in enumerate(positions_latlon):
-                ring = _circle_lonlat(lat, lon, radius_m, 24)
-                w.poly([ring])
-                w.record(i + 1, "Buffer_%d" % (i + 1), "interior")
-            w.close()
-            return shp.getvalue(), shx.getvalue(), dbf.getvalue()
-
-        # {field}_Shelter_Pins_shp.zip  (upload to JD → Flags)
-        shp, shx, dbf = _shelter_pins_shapefile_bytes()
-        pins_zip_buf = BytesIO()
-        with zipfile.ZipFile(pins_zip_buf, 'w', zipfile.ZIP_DEFLATED) as zf:
-            base = "%s_Shelter_Pins" % field_name
-            zf.writestr("%s.shp" % base, shp)
-            zf.writestr("%s.shx" % base, shx)
-            zf.writestr("%s.dbf" % base, dbf)
+    # ── John Deere Operations Center — Buffer Zones only ────────────────────
+    # JD does not support uploading point shapefiles as pins, so only the
+    # shelter buffer-zone polygons are exported (as Internal Boundaries).
+    if write_jd and buffer_radius_m and buffer_radius_m > 0:
+        shp = BytesIO(); shx = BytesIO(); dbf = BytesIO()
+        w = shapefile.Writer(shp=shp, shx=shx, dbf=dbf, shapeType=shapefile.POLYGON)
+        w.field('id',   'N', size=8,  decimal=0)
+        w.field('name', 'C', size=32)
+        w.field('type', 'C', size=16)
+        for i, (lat, lon) in enumerate(positions_latlon):
+            ring = _circle_lonlat(lat, lon, buffer_radius_m, 24)
+            w.poly([ring])
+            w.record(i + 1, "Buffer_%d" % (i + 1), "interior")
+        w.close()
+        bz_zip_buf = BytesIO()
+        with zipfile.ZipFile(bz_zip_buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+            base = "%s_Shelter_Buffer_Zones" % field_name
+            zf.writestr("%s.shp" % base, shp.getvalue())
+            zf.writestr("%s.shx" % base, shx.getvalue())
+            zf.writestr("%s.dbf" % base, dbf.getvalue())
             zf.writestr("%s.prj" % base, WGS84_PRJ)
             zf.writestr("README.txt",
-                "Beetent Maps — Shelter Pins for John Deere Operations Center\n"
+                "Beetent Maps — Shelter Buffer Zones for John Deere Operations Center\n"
                 "\n"
-                "This .zip is the shelter-pin layer for the field \"%s\".\n"
-                "Contains a point shapefile (one feature per shelter).\n"
+                "This .zip is the shelter-buffer layer for the field \"%s\".\n"
+                "Contains a polygon shapefile (one circle per shelter) marking\n"
+                "the passable interior zones the sprayer / planter should\n"
+                "drive around.\n"
                 "\n"
                 "To upload in John Deere Operations Center:\n"
-                "  Files (cloud icon) → Upload Files → Flags → drop this .zip.\n"
+                "  Files → Upload Files → Internal Boundaries → drop this .zip.\n"
                 "\n"
-                "If Flags isn't available in your JD plan, the \"Other\"\n"
-                "category accepts it too and the points stay viewable on the\n"
-                "field map.\n"
+                "The buffer zones import as interior (passable) boundaries.\n"
                 % field_name)
-        writer.writestr(os.path.join(jd_dir, "%s_Shelter_Pins_shp.zip" % field_name),
-                        pins_zip_buf.getvalue())
-
-        # {field}_Shelter_Buffer_Zones_shp.zip  (upload as Internal Boundaries)
-        if include_buffers and buffer_radius_m and buffer_radius_m > 0:
-            shp, shx, dbf = _buffer_zones_shapefile_bytes(buffer_radius_m)
-            bz_zip_buf = BytesIO()
-            with zipfile.ZipFile(bz_zip_buf, 'w', zipfile.ZIP_DEFLATED) as zf:
-                base = "%s_Shelter_Buffer_Zones" % field_name
-                zf.writestr("%s.shp" % base, shp)
-                zf.writestr("%s.shx" % base, shx)
-                zf.writestr("%s.dbf" % base, dbf)
-                zf.writestr("%s.prj" % base, WGS84_PRJ)
-                zf.writestr("README.txt",
-                    "Beetent Maps — Shelter Buffer Zones for John Deere Operations Center\n"
-                    "\n"
-                    "This .zip is the shelter-buffer layer for the field \"%s\".\n"
-                    "Contains a polygon shapefile (one circle per shelter) marking\n"
-                    "the passable interior zones the sprayer / planter should\n"
-                    "drive around.\n"
-                    "\n"
-                    "To upload in John Deere Operations Center:\n"
-                    "  Files → Upload Files → Internal Boundaries → drop this .zip.\n"
-                    "\n"
-                    "The buffer zones import as interior (passable) boundaries.\n"
-                    % field_name)
-            writer.writestr(os.path.join(jd_dir, "%s_Shelter_Buffer_Zones_shp.zip" % field_name),
-                            bz_zip_buf.getvalue())
+        writer.writestr(os.path.join(jd_dir, "%s_Shelter_Buffer_Zones_shp.zip" % field_name),
+                        bz_zip_buf.getvalue())
 
     # ── Boundary Files ──────────────────────────────────────────────────────
     if write_boundary and outer_boundary and len(outer_boundary) >= 3:
@@ -1291,11 +1246,10 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
         boundary_polygon = field_dict.get('boundary_polygon') or None
         pivot_tracks = sorted(float(r) for r in (field_dict.get('pivot_tracks') or []))
         excl_m = float(field_dict.get('track_exclusion_ft') or 10) * 0.3048
-        # Outside sprayer pass: when "Yes", keep shelters out of the boundary
-        # kill-zone (between the 3 m edge band and one sprayer width in) so the
-        # sprayer's outside round can't hit them. When "No", shelters may sit
-        # anywhere inside the boundary.
-        outside_pass = str(field_dict.get('outside_sprayer_pass') or 'No').strip().lower() == 'yes'
+        # shelters_in_outside_pass="Yes" → shelters allowed in outside round → no exclusion
+        # shelters_in_outside_pass="No" → keep shelters out of outside round
+        # Missing key (old fields) → default 'Yes' so existing fields are unaffected
+        outside_pass = str(field_dict.get('shelters_in_outside_pass') or 'Yes').strip().lower() != 'yes'
 
         if boundary_polygon:
             boundary_enu = latlon_list_to_enu(boundary_polygon, pivotpoint[0], pivotpoint[1])
@@ -1324,7 +1278,7 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
             except Exception:
                 pass
 
-        seed_angle = float(field_dict.get('Spray_angle') or field_dict.get('Seed_angle') or 0)
+        seed_angle = float(field_dict.get('Planting_angle') or field_dict.get('Spray_angle') or field_dict.get('Seed_angle') or 0)
 
         # Bay parameters → tent_row_width and lat_offset.
         # tent_row_width = female_m + male_m is the bay repeat distance.
@@ -1980,21 +1934,36 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                 return True
 
             def _outside_ok(east, north):
-                # Outside-pass exclusion — keep shelters clear of the outside
-                # round so the sprayer can't hit them. One-sided: a shelter must
-                # sit at least (sprayer_width − edge) in from the boundary, i.e.
-                # at or inside the INNER edge of the outside round. This shrinks
-                # the placeable area by that band rather than punching a ring
-                # hole, so there's no gap and the outermost row lands cleanly at
-                # the inner edge. A cell failing only this is DROPPED (not
-                # snapped — sliding it ~one pass-width inward would clump).
-                if not outside_pass: return True
+                # Outside-pass exclusion / edge-band enforcement.
+                #
+                # outside_pass = True  (shelters_in_outside_pass != 'Yes'):
+                #   Shelters must sit at or inside the INNER edge of the outside
+                #   round (d_b ≥ sprayer_width − op_edge_m).  This shrinks the
+                #   placeable area rather than punching a hole, so the outermost
+                #   row lands cleanly at the inner edge.  A cell failing only
+                #   this is DROPPED (not snapped — sliding it one pass-width
+                #   inward would clump shelters together).
+                #
+                # outside_pass = False (shelters_in_outside_pass = 'Yes'):
+                #   Shelters ARE allowed anywhere in the outside round, but when
+                #   a pass-edge buffer is set we apply it symmetrically: kill the
+                #   MIDDLE of the outside round (d_b between the two edge bands)
+                #   so shelters land near BOTH the outer (boundary) edge AND the
+                #   inner (field-interior) edge — consistent with how interior
+                #   passes are treated.
                 if boundary_enu:
                     d_b = _min_dist_to_bnd(east, north)
                 else:
                     d_b = radius - math.sqrt(east*east + north*north)
-                if d_b < (sprayer_width - op_edge_m):
-                    return False
+                if outside_pass:
+                    # Exclude the whole outside round except the inner-edge band.
+                    if d_b < (sprayer_width - op_edge_m):
+                        return False
+                elif buffer_enabled and op_edge_m > 0 and d_b < sprayer_width:
+                    # Shelter is inside the outside round AND edge buffer is set.
+                    # Kill the middle; allow near BOTH edges.
+                    if op_edge_m < d_b < sprayer_width - op_edge_m:
+                        return False
                 return True
 
             def _valid(east, north):
@@ -2169,6 +2138,56 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                         hi = mid
                 ns_spacing = lo
 
+            # Auto-balance for very sparse layouts: when ns_spacing/2 > radius the
+            # stagger offset exceeds the field radius, so alternate rows have no
+            # valid positions and all shelters land in a straight line. Fix:
+            # (1) filter row_list to in-field columns (r_max overshoot builds
+            #     columns on both sides of the pivot; asymmetric fields may have
+            #     no shelters at all in the out-of-field side, making the index-
+            #     based column selection pick empty columns);
+            # (2) reduce lateral bay columns to round(sqrt(num_tents)) so the
+            #     binary search finds a spacing where the stagger fits inside the
+            #     field.
+            # Threshold ns_spacing > 2*radius means stagger offset > field radius.
+            if (not _cols_reduced
+                    and ns_spacing > radius * 2.0
+                    and len(row_list) > 1):
+                # Step 1: restrict to columns that lie within the field boundary.
+                if boundary_enu:
+                    _ab_lat_c = [e * cos_r + n * sin_r for e, n in boundary_enu]
+                    _ab_lat_min, _ab_lat_max = min(_ab_lat_c), max(_ab_lat_c)
+                    _ab_infield = [rc for rc in row_list
+                                   if _ab_lat_min <= rc[0] <= _ab_lat_max]
+                else:
+                    # Circular field: radius includes a 1.05× buffer; undo it.
+                    _ab_infield = [rc for rc in row_list
+                                   if abs(rc[0]) < radius / 1.05]
+                if len(_ab_infield) >= 2:
+                    row_list = _ab_infield
+                # Step 2: reduce to target column count.
+                _target_cols = max(1, round(math.sqrt(float(num_tents))))
+                if _target_cols < len(row_list):
+                    if _target_cols == 1:
+                        row_list = [row_list[len(row_list) // 2]]
+                    else:
+                        _ab_stride = (len(row_list) - 1) / (_target_cols - 1)
+                        _ab_idxs = sorted(
+                            {int(round(i * _ab_stride)) for i in range(_target_cols)})
+                        row_list = [row_list[i] for i in _ab_idxs]
+                # Re-run binary search. _count_at_least captures row_list by
+                # reference so automatically uses the refined column set.
+                lo, hi = 1.0, radius * 2.0
+                if not _count_at_least(lo, num_tents):
+                    ns_spacing = lo
+                else:
+                    for _ in range(32):
+                        mid = (lo + hi) / 2
+                        if _count_at_least(mid, num_tents):
+                            lo = mid
+                        else:
+                            hi = mid
+                    ns_spacing = lo
+
             # Generate the final grid at the chosen spacing. Stagger and row
             # grouping both key off the row's visual index, not k. Cells in the
             # outside-pass band are dropped; cells in a track / pivot-inner /
@@ -2265,6 +2284,10 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                 result.append((lat, lon))
                 kept_rows.append(row_idx)
             ordered_rows = kept_rows
+            if field_dict.get("shelter_at_pivot"):
+                result.append((float(field_dict['PP_Latitude']),
+                                float(field_dict['PP_Longitude'])))
+                kept_rows.append(-1)
             if return_rows:
                 return result, ordered_rows
             return result
@@ -2332,6 +2355,9 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
         for e, n in ordered:
             lon, lat = utmish.to_lonlat(e + easting, n + northing, pivotpoint[0])
             result.append((lat, lon))
+        if field_dict.get("shelter_at_pivot"):
+            result.append((float(field_dict['PP_Latitude']),
+                            float(field_dict['PP_Longitude'])))
         if return_rows:
             # Rectangular-grid path doesn't track row indices; return zeros so
             # callers always see a parallel list of the same length.
