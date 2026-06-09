@@ -299,7 +299,12 @@
   "boundary_inner": [],
   "sprayer_routes_around_inner": true,
   "bays_through_inner": false,
-  "manual_shelter_pins": [],
+  "manual_shelter_pins": [
+    [
+      49.72991122136943,
+      -111.9868265045169
+    ]
+  ],
   "shelter_overrides": {
     "32": [
       49.73151752085268,
