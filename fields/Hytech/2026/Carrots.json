@@ -136,7 +136,7 @@
   "acres_per_shelter": "",
   "total_rows": "20",
   "use_bays": true,
-  "pass_edge_buffer_ft": "0",
+  "pass_edge_buffer_ft": "25",
   "shelter_rows": "",
   "bay_gap_in": "33",
   "Planting_angle": "303",

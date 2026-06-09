@@ -1515,9 +1515,9 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
             # width max(0, sprayer_width − 2 × buffer). Applies to the outside
             # pass AND every main pass through the field interior.
             try:
-                pass_edge_buffer_m_pf = float(field_dict.get("pass_edge_buffer_ft") or 0) * 0.3048
+                pass_edge_buffer_m_pf = float(field_dict.get("pass_edge_buffer_ft") or 25) * 0.3048
             except (ValueError, TypeError):
-                pass_edge_buffer_m_pf = 30.0 * 0.3048
+                pass_edge_buffer_m_pf = 25.0 * 0.3048
             # buffer ≤ 0 → user wants the kill zones turned off entirely.
             buffer_enabled_pf = pass_edge_buffer_m_pf > 0
             pass_dead_half_pf = max(0.0, sprayer_width / 2.0 - pass_edge_buffer_m_pf)
@@ -1884,9 +1884,9 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
             #   - Outside pass (only when outside_sprayer_pass = Yes)
             #   - Every main pass through the field interior (always on)
             try:
-                pass_edge_buffer_m = float(field_dict.get("pass_edge_buffer_ft") or 0) * 0.3048
+                pass_edge_buffer_m = float(field_dict.get("pass_edge_buffer_ft") or 25) * 0.3048
             except (ValueError, TypeError):
-                pass_edge_buffer_m = 30.0 * 0.3048
+                pass_edge_buffer_m = 25.0 * 0.3048
             # buffer ≤ 0 → INTERIOR-pass kill zones turned off (opt-in).
             buffer_enabled = pass_edge_buffer_m > 0
             pass_dead_half = max(0.0, sprayer_width / 2.0 - pass_edge_buffer_m)

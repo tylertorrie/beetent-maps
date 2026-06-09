@@ -23,7 +23,7 @@
   "use_bays": true,
   "outside_sprayer_pass": "Yes",
   "track_exclusion_ft": "10",
-  "pass_edge_buffer_ft": "0",
+  "pass_edge_buffer_ft": "25",
   "shelter_buffer_m": "1.524",
   "planter_passes": null,
   "use_imported_passes": false,

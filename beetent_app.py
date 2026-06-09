@@ -532,7 +532,7 @@ def blank_field(company="",year=""):
                 custom_row_mask="",       # only used when row_layout == "custom"
                 use_bays=True,            # False = blanket-planted crop, no female-bay constraint
                 shelters_in_outside_pass="Yes",track_exclusion_ft="10",
-                pass_edge_buffer_ft="0",    # 0 = no sprayer-pass kill zone (opt in via Sprayer → Set Edge Buffer)
+                pass_edge_buffer_ft="25",   # ft shelters may intrude into a pass from its edge (0 = none / full outside-ring exclusion)
                 shelter_buffer_m="1.524",
                 planter_passes=None,           # [[(lat,lon), ...], ...]  imported from JD
                 use_imported_passes=True,      # when False or no data, use synthetic grid
@@ -1428,8 +1428,9 @@ class BeetentApp(ctk.CTk):
         # Sprayer-pass edge buffer (Sprayer menu). How far in from the edge of
         # any sprayer pass shelters can sit; the middle of each pass becomes
         # a kill zone of width max(0, sprayer_width − 2 × buffer). Defaults
-        # to 0 (no kill zone) — opt in via Sprayer → Set Edge Buffer (ft).
-        self.fv["pass_edge_buffer_ft"]=tk.StringVar(value="0")
+        # to 25 ft — change via Sprayer → Set Edge Buffer (ft); 0 = no band /
+        # full outside-ring exclusion.
+        self.fv["pass_edge_buffer_ft"]=tk.StringVar(value="25")
         self._shelter_mode_labels={
             "Total shelters":           "total",
             "Shelters per acre":        "per_acre",
