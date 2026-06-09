@@ -1944,5 +1944,6 @@
   "bay_gap_in": "0",
   "boundary_inner": [],
   "shelters_in_outside_pass": "Yes",
-  "shelter_at_pivot": false
+  "shelter_at_pivot": false,
+  "tire_width_ft": "14"
 }
