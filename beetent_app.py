@@ -533,6 +533,7 @@ def blank_field(company="",year=""):
                 use_bays=True,            # False = blanket-planted crop, no female-bay constraint
                 shelters_in_outside_pass="Yes",track_exclusion_ft="10",
                 pass_edge_buffer_ft="25",   # ft shelters may intrude into a pass from its edge (0 = none / full outside-ring exclusion)
+                tire_width_ft="14",         # ft machine/tire drive width shown down each pass centre (red zone)
                 shelter_buffer_m="1.524",
                 planter_passes=None,           # [[(lat,lon), ...], ...]  imported from JD
                 use_imported_passes=True,      # when False or no data, use synthetic grid
@@ -1152,35 +1153,77 @@ class BeetentApp(ctk.CTk):
             self._status(f"Buffer zone set to {val} ft.")
 
     def _edit_pass_edge_buffer(self):
-        """Set the shelter edge band: how far IN from each sprayer-pass edge a
-        shelter may sit. The middle of each pass (pass width − 2 × this) becomes
-        the no-shelter zone. 0 = no zone (shelters anywhere along a pass)."""
+        """Set BOTH the sprayer edge zone (how far in from each pass edge a
+        shelter may sit) and the machine/tire width (the red drive zone down
+        each pass centre) in one window."""
         self._close_all_popups()
-        cur = self.fv["pass_edge_buffer_ft"].get() or "0"
-        val = self._ask_string("Shelter Edge Band",
-                                "How far IN from each sprayer-pass EDGE a shelter may sit (ft).\n"
-                                "Shelters are allowed within this band at each edge; the middle\n"
-                                "of the pass (pass width − 2 × this) becomes the no-shelter zone.\n"
-                                "0 = no zone (shelters anywhere along a pass).\n"
-                                f"Current: {cur}")
-        if val is None: return
-        val = val.strip()
-        if val:
-            self.fv["pass_edge_buffer_ft"].set(val)   # write-trace → _on_form_change
-            self._status(f"Shelter edge band set to {val} ft from each pass edge.")
-            # Refresh the overlay if it's currently being shown.
+        use_m = self.unit_var.get() == "Metric"
+        unit = "m" if use_m else "ft"
+
+        def _to_disp(ft):   # stored feet → displayed unit
+            try: v = float(ft)
+            except (ValueError, TypeError): v = 0.0
+            return v * 0.3048 if use_m else v
+
+        cur_edge = self.fv["pass_edge_buffer_ft"].get() or "25"
+        cur_tire = self.fv["tire_width_ft"].get() or "14"
+
+        win = ctk.CTkToplevel(self)
+        win.title("Sprayer Edge Zone & Tire Width")
+        win.grab_set()
+        ctk.CTkLabel(win, text="Sprayer edge zone & tire width",
+                     font=ctk.CTkFont(family=FONT_HEADING, size=15)).pack(padx=24, pady=(18, 2))
+        ctk.CTkLabel(win,
+                     text=("Edge zone: how far IN from each pass EDGE a shelter may sit.\n"
+                           "Tire width: the machine's drive zone down the pass centre."),
+                     text_color=UI_MUTED,
+                     font=ctk.CTkFont(size=12)).pack(padx=24, pady=(0, 8))
+
+        erow = ctk.CTkFrame(win, fg_color="transparent"); erow.pack(padx=24, pady=4, fill="x")
+        ctk.CTkLabel(erow, text="Edge zone:", width=110, anchor="w").pack(side="left")
+        edge_var = tk.StringVar(value=("%g" % _to_disp(cur_edge)))
+        ctk.CTkEntry(erow, textvariable=edge_var, width=90).pack(side="left", padx=(2, 4))
+        ctk.CTkLabel(erow, text=unit, width=24, anchor="w").pack(side="left")
+
+        trow = ctk.CTkFrame(win, fg_color="transparent"); trow.pack(padx=24, pady=4, fill="x")
+        ctk.CTkLabel(trow, text="Tire width:", width=110, anchor="w").pack(side="left")
+        tire_var = tk.StringVar(value=("%g" % _to_disp(cur_tire)))
+        ctk.CTkEntry(trow, textvariable=tire_var, width=90).pack(side="left", padx=(2, 4))
+        ctk.CTkLabel(trow, text=unit, width=24, anchor="w").pack(side="left")
+
+        def _to_ft(s):   # displayed unit → stored feet
+            try: v = float(s.strip())
+            except (ValueError, TypeError): return None
+            if v < 0: return None
+            return v / 0.3048 if use_m else v
+
+        def do_apply():
+            e_ft = _to_ft(edge_var.get())
+            t_ft = _to_ft(tire_var.get())
+            if e_ft is None or t_ft is None:
+                self._status("Enter valid widths (≥ 0)."); return
+            self.fv["pass_edge_buffer_ft"].set("%g" % e_ft)   # write-trace → _on_form_change
+            self.fv["tire_width_ft"].set("%g" % t_ft)
+            win.destroy()
             self._redraw_pass_buffer_overlay()
+            self._status("Edge zone %g %s, tire width %g %s set."
+                         % (_to_disp(e_ft), unit, _to_disp(t_ft), unit))
+
+        ctk.CTkButton(win, text="Apply", height=36, command=do_apply).pack(
+            fill="x", padx=24, pady=(8, 4))
+        ctk.CTkButton(win, text="Cancel", height=36, fg_color="#555",
+                      command=win.destroy).pack(fill="x", padx=24, pady=(0, 18))
+        _center_on_parent(win, self)
 
     def _toggle_pass_buffer_overlay(self):
-        """Show/hide the per-pass zone overlay: RED stripes mark the no-shelter
-        zone (the 14 ft machine/tire band down each pass centre, plus the whole
-        middle when a shelter edge band is set); GREEN stripes mark the good zone
-        near each pass edge where shelters may sit. Pass edges are the bright-
-        green lines on the sprayer-pass layer."""
+        """Show/hide the tire & sprayer edge zone overlay: RED stripes mark the
+        machine/tire drive zone down each pass centre (plus the no-shelter
+        middle); GREEN stripes mark the edge zone near each pass edge where
+        shelters may sit."""
         self._close_all_popups()
         self.show_pass_buffer_overlay.set(not self.show_pass_buffer_overlay.get())
         self._redraw_pass_buffer_overlay()
-        self._status("Pass / tire zones " +
+        self._status("Tire & sprayer edge zone " +
                      ("shown." if self.show_pass_buffer_overlay.get() else "hidden."))
 
     def _toggle_route_around_inner(self):
@@ -1268,8 +1311,8 @@ class BeetentApp(ctk.CTk):
             ("Import Sprayer Data (.shp/.geojson)", self._import_sprayer_data),
             ("Toggle Uploaded Paths on/off",    self._toggle_sprayer_passes),
             ("Clear Uploaded Paths",            self._clear_sprayer_data),
-            ("Set Shelter Edge Band (ft)",      self._edit_pass_edge_buffer),
-            ("Toggle Pass / Tire Zones",        self._toggle_pass_buffer_overlay),
+            ("Set Sprayer Edge Zone and Tire Width", self._edit_pass_edge_buffer),
+            ("Toggle Tire and Sprayer Edge Zone",    self._toggle_pass_buffer_overlay),
             ("Toggle Pass Through Inner Boundaries", self._toggle_route_around_inner),
         ], color="#2a5a4a",
            toggle_var=self.sprayer_visible_var, toggle_fn=self._set_sprayer_visible)
@@ -1431,6 +1474,10 @@ class BeetentApp(ctk.CTk):
         # to 25 ft — change via Sprayer → Set Edge Buffer (ft); 0 = no band /
         # full outside-ring exclusion.
         self.fv["pass_edge_buffer_ft"]=tk.StringVar(value="25")
+        # Machine/tire drive width (ft) shown as the red zone down each pass
+        # centre and the outside-round centre. Visual only — placement keeps
+        # shelters in the edge zones regardless.
+        self.fv["tire_width_ft"]=tk.StringVar(value="14")
         self._shelter_mode_labels={
             "Total shelters":           "total",
             "Shelters per acre":        "per_acre",
@@ -5463,6 +5510,8 @@ class BeetentApp(ctk.CTk):
             width_m = width_ft * 0.3048
             buffer_ft = float(self.fv["pass_edge_buffer_ft"].get() or 0)
             buffer_m = buffer_ft * 0.3048
+            tire_ft = float(self.fv["tire_width_ft"].get() or 14)
+            tire_m = max(0.0, tire_ft) * 0.3048
             bp = self.current_field.get("boundary_polygon")
         except (ValueError, TypeError):
             return
@@ -5490,7 +5539,7 @@ class BeetentApp(ctk.CTk):
         cos_r, sin_r = math.cos(rot), math.sin(rot)
         tdx, tdy = -sin_r, cos_r
         ldx, ldy = cos_r, sin_r
-        TIRE_HALF = 7.0 * 0.3048
+        TIRE_HALF = tire_m / 2.0   # half the configurable machine/tire width
         RED   = "#FF2A2A"
         GREEN = "#22E048"
         max_rows = int(max_r / width_m) + 2
