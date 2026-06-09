@@ -5853,6 +5853,32 @@ class BeetentApp(ctk.CTk):
                 try: _add(self.map_widget.set_path(_ob_inner, color=GREEN, width=2))
                 except Exception: pass
 
+            #   • Inner edge band of the outside round: drawn PER BOUNDARY EDGE
+            #     at depth [width − band, width] so it follows the boundary all
+            #     the way around — including pinches and narrow lobes where the
+            #     safe_poly clip (a deep inset) collapses and the interior bands
+            #     above leave nothing. Each quad is kept only where its lateral
+            #     position sits in a green pass-edge band (skip the pass kill
+            #     middles) so it still breaks at row ends and stays clear of
+            #     interior tires. Inner-boundary cutouts handled by skipping any
+            #     quad whose centre falls inside one.
+            _inner_cuts = inner_polys_enu or []
+            for q in perimeter_band_quads(poly_enu, max(0.0, width_m - out_band), width_m):
+                cx = (q[0][0]+q[1][0]+q[2][0]+q[3][0]) / 4.0
+                cy = (q[0][1]+q[1][1]+q[2][1]+q[3][1]) / 4.0
+                lat = (cx - sse)*ldx + (cy - ssn)*ldy        # pass-grid lateral
+                m = lat % width_m
+                if min(m, width_m - m) > out_band:           # in a pass kill middle
+                    continue
+                if any(any(a <= 0.0 <= b for (a, b) in
+                           clip_line_to_polygon_intervals(cx, cy, tdx, tdy, ring))
+                       for ring in _inner_cuts):
+                    continue                                  # inside an inner boundary
+                lp = [enu_to_latlon(e, n, plat, plon) for e, n in q]
+                try: _add(self.map_widget.set_polygon(lp, fill_color=GREEN,
+                                                      outline_color=GREEN, border_width=0))
+                except Exception: pass
+
         # ── Outside round: red tire ring ────────────────────────────────────
         # The perimeter pass's machine/tire drive zone. Drawn PER BOUNDARY EDGE
         # (not from a global inset) so it renders all the way around any shape —
