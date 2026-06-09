@@ -1247,9 +1247,10 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
         pivot_tracks = sorted(float(r) for r in (field_dict.get('pivot_tracks') or []))
         excl_m = float(field_dict.get('track_exclusion_ft') or 10) * 0.3048
         # shelters_in_outside_pass="Yes" → shelters allowed in outside round → no exclusion
-        # shelters_in_outside_pass="No" → keep shelters out of outside round
-        # Missing key (old fields) → default 'Yes' so existing fields are unaffected
-        outside_pass = str(field_dict.get('shelters_in_outside_pass') or 'Yes').strip().lower() != 'yes'
+        # shelters_in_outside_pass="No"  → keep shelters out of outside round (green-compliant)
+        # Missing key → default 'No' so shelters stay in the green zones unless
+        # the user opts into the outside round.
+        outside_pass = str(field_dict.get('shelters_in_outside_pass') or 'No').strip().lower() != 'yes'
 
         if boundary_polygon:
             boundary_enu = latlon_list_to_enu(boundary_polygon, pivotpoint[0], pivotpoint[1])
