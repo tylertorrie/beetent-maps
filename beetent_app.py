@@ -658,7 +658,7 @@ def blank_field(company="",year=""):
                 row_layout="centered",   # "outer" | "centered" | "custom"
                 custom_row_mask="",       # only used when row_layout == "custom"
                 use_bays=True,            # False = blanket-planted crop, no female-bay constraint
-                shelters_in_outside_pass="No",track_exclusion_ft="10",
+                shelters_in_outside_pass="Yes",track_exclusion_ft="10",
                 pass_edge_buffer_ft="25",   # ft shelters may intrude into a pass from its edge (0 = none / full outside-ring exclusion)
                 tire_width_ft="14",         # ft machine/tire drive width shown down each pass centre (red zone)
                 shelter_buffer_m="1.524",
@@ -1682,7 +1682,7 @@ class BeetentApp(ctk.CTk):
         # Shelter allocation toggle for the outside sprayer pass lives in Bee
         # Allocation. The outside round itself is always shown when a boundary
         # exists — there is no such thing as a field with no outside pass.
-        self.shelters_in_outside_var = tk.StringVar(value="No")
+        self.shelters_in_outside_var = tk.StringVar(value="Yes")
         self.shelter_at_pivot_var = tk.StringVar(value="No")
 
         self.fv["Planting_angle"].set(""); self.fv["Spray_angle"].set(""); self.fv["Sprayer_width"].set("133")
@@ -3124,7 +3124,7 @@ class BeetentApp(ctk.CTk):
             val=f.get(k)
             v.set(str(bf.get(k,"")) if val is None else str(val))
         self._update_map_field_label()   # reflect the newly loaded field name
-        self.shelters_in_outside_var.set(f.get("shelters_in_outside_pass", "No"))
+        self.shelters_in_outside_var.set(f.get("shelters_in_outside_pass", "Yes"))
         self.shelter_at_pivot_var.set("Yes" if f.get("shelter_at_pivot") else "No")
         # Row layout: dropdown + custom mask + use-imported-passes toggle.
         rl = f.get("row_layout","centered")
