@@ -4520,6 +4520,8 @@ class BeetentApp(ctk.CTk):
     def _redraw_sprayer_shift_layers(self):
         if self.show_passes.get():   self._redraw_passes()
         self._redraw_sprayer_passes()
+        # Tire / green edge-band overlay moves with the interior passes.
+        self._redraw_pass_buffer_overlay()
         if self.show_shelters.get(): self._redraw_shelters()
 
     # ── Imported planter passes (JD Operations Center Seeding shapefile) ─────
@@ -5360,7 +5362,7 @@ class BeetentApp(ctk.CTk):
         self.bay_polygons=[]
 
     def _band_polygon_enu(self, x1, x2, tdx, tdy, ldx, ldy, poly_enu,
-                           inner_polys_enu=None):
+                           inner_polys_enu=None, off_e=0.0, off_n=0.0):
         """Clip a band (between lateral positions x1 and x2, travelling
         along (tdx, tdy)) to the outer polygon AND subtract every inner
         polygon. Returns a LIST of band polygons (one per inside-interval).
@@ -5370,9 +5372,13 @@ class BeetentApp(ctk.CTk):
         (e.g. a field that wraps around a farmstead) gets multiple bay
         slices instead of one bounding rectangle that fills across the
         gap. Each interval is also subtracted by every inner polygon.
+
+        (off_e, off_n) translates the band in ENU before clipping — used to
+        apply the sprayer Shift so the pass overlay moves with the passes.
+        The clip polygons stay fixed (tied to the boundary).
         """
-        p1e, p1n = x1 * ldx, x1 * ldy
-        p2e, p2n = x2 * ldx, x2 * ldy
+        p1e, p1n = x1 * ldx + off_e, x1 * ldy + off_n
+        p2e, p2n = x2 * ldx + off_e, x2 * ldy + off_n
         # Inside-intervals for each band edge.
         edge_a = clip_line_to_polygon_intervals(p1e, p1n, tdx, tdy, poly_enu)
         edge_b = clip_line_to_polygon_intervals(p2e, p2n, tdx, tdy, poly_enu)
@@ -5448,6 +5454,12 @@ class BeetentApp(ctk.CTk):
             return
         if not bp or len(bp) < 3 or width_m <= 0: return
 
+        # Sprayer Shift (ENU metres) — the INTERIOR pass tires and their green
+        # edge bands move with the passes. The outside round (its tire ring and
+        # the continuous outer edge band) is tied to the boundary and does NOT
+        # shift.
+        sse, ssn = self._sprayer_shift()
+
         # Both the red tire stripes and the green good-zone bands are part of
         # the "Pass / Tire Zones" overlay and only render when it is toggled on
         # (off by default on field load). Previously the green band drew whenever
@@ -5498,8 +5510,8 @@ class BeetentApp(ctk.CTk):
                 return True
             for i in range(7):
                 cx = x_lo + (x_hi - x_lo) * i / 6.0
-                if clip_line_to_polygon_intervals(cx * ldx, cx * ldy, tdx, tdy,
-                                                  outside_round_inner):
+                if clip_line_to_polygon_intervals(cx * ldx + sse, cx * ldy + ssn,
+                                                  tdx, tdy, outside_round_inner):
                     return True
             return False
 
@@ -5515,7 +5527,8 @@ class BeetentApp(ctk.CTk):
                 if not _pass_covers_interior(r * width_m, (r + 1) * width_m): continue
                 for band in self._band_polygon_enu(cx - TIRE_HALF, cx + TIRE_HALF,
                                                    tdx, tdy, ldx, ldy, poly_enu,
-                                                   inner_polys_enu=inner_polys_enu):
+                                                   inner_polys_enu=inner_polys_enu,
+                                                   off_e=sse, off_n=ssn):
                     lpts = [enu_to_latlon(e, n, plat, plon) for e, n in band]
                     try: _add(self.map_widget.set_polygon(lpts, fill_color=RED,
                                                            outline_color=RED, border_width=0))
@@ -5524,18 +5537,20 @@ class BeetentApp(ctk.CTk):
         # ── Solid green fill + edge lines in shelter edge band ──────────────
         # Same fill approach as the red tire zone — just a solid green polygon
         # for each clipped band piece, capped so it never overlaps the tire zone.
-        def _fill_band(x1, x2, clip_poly=None, cutouts=None, draw_edges=True):
+        def _fill_band(x1, x2, clip_poly=None, cutouts=None, draw_edges=True,
+                       off_e=0.0, off_n=0.0):
             if x2 - x1 <= 0: return
             cp = clip_poly if clip_poly is not None else safe_poly
             for band_poly in self._band_polygon_enu(x1, x2, tdx, tdy, ldx, ldy, cp,
-                                                    inner_polys_enu=cutouts):
+                                                    inner_polys_enu=cutouts,
+                                                    off_e=off_e, off_n=off_n):
                 lpts = [enu_to_latlon(e, n, plat, plon) for e, n in band_poly]
                 try: _add(self.map_widget.set_polygon(lpts, fill_color=GREEN,
                                                       outline_color=GREEN, border_width=0))
                 except Exception: pass
             if not draw_edges: return
             for x_lat in (x1, x2):
-                pe_e, pn_e = x_lat * ldx, x_lat * ldy
+                pe_e, pn_e = x_lat * ldx + off_e, x_lat * ldy + off_n
                 for (t1, t2) in clip_line_to_polygon_intervals(pe_e, pn_e, tdx, tdy, cp):
                     la1, lo1 = enu_to_latlon(pe_e + t1*tdx, pn_e + t1*tdy, plat, plon)
                     la2, lo2 = enu_to_latlon(pe_e + t2*tdx, pn_e + t2*tdy, plat, plon)
@@ -5555,8 +5570,8 @@ class BeetentApp(ctk.CTk):
             for r in range(-max_rows, max_rows + 1):
                 if not _pass_covers_interior(r * width_m, (r + 1) * width_m): continue
                 le = r * width_m; re_ = (r + 1) * width_m
-                _fill_band(le, le + out_band)
-                _fill_band(re_ - out_band, re_)
+                _fill_band(le, le + out_band, off_e=sse, off_n=ssn)
+                _fill_band(re_ - out_band, re_, off_e=sse, off_n=ssn)
             #   • Outer edge band against the boundary: kept CONTINUOUS all the
             #     way around (override). The outside round is driven once and the
             #     operator turns before leaving the field, so a shelter on the
