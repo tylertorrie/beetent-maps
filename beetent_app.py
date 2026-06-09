@@ -5509,18 +5509,12 @@ class BeetentApp(ctk.CTk):
                 inner_polys_enu.append([latlon_to_enu(p[0], p[1], plat, plon) for p in inner])
 
         # ── Solid red tire band (only when tire-zone toggle is on) ──────────
-        # Interior pass tires are clipped to the outside-round inner edge, NOT
-        # the field boundary: interior passes stop at the headland (the outside
-        # round covers it), so their tire must never be drawn across the
-        # headland where it would sit next to the outside round's green edge
-        # bands and break the machine-to-edge clearance rule.
-        tire_clip = outside_round_inner if len(outside_round_inner) >= 3 else poly_enu
         if show_tire:
             for r in range(-max_rows, max_rows + 1):
                 cx = (r + 0.5) * width_m
                 if not _pass_covers_interior(r * width_m, (r + 1) * width_m): continue
                 for band in self._band_polygon_enu(cx - TIRE_HALF, cx + TIRE_HALF,
-                                                   tdx, tdy, ldx, ldy, tire_clip,
+                                                   tdx, tdy, ldx, ldy, poly_enu,
                                                    inner_polys_enu=inner_polys_enu):
                     lpts = [enu_to_latlon(e, n, plat, plon) for e, n in band]
                     try: _add(self.map_widget.set_polygon(lpts, fill_color=RED,
@@ -5530,83 +5524,69 @@ class BeetentApp(ctk.CTk):
         # ── Solid green fill + edge lines in shelter edge band ──────────────
         # Same fill approach as the red tire zone — just a solid green polygon
         # for each clipped band piece, capped so it never overlaps the tire zone.
-        def _fill_band(x1, x2):
+        def _fill_band(x1, x2, clip_poly=None, cutouts=None, draw_edges=True):
             if x2 - x1 <= 0: return
-            for band_poly in self._band_polygon_enu(x1, x2, tdx, tdy, ldx, ldy, safe_poly):
+            cp = clip_poly if clip_poly is not None else safe_poly
+            for band_poly in self._band_polygon_enu(x1, x2, tdx, tdy, ldx, ldy, cp,
+                                                    inner_polys_enu=cutouts):
                 lpts = [enu_to_latlon(e, n, plat, plon) for e, n in band_poly]
                 try: _add(self.map_widget.set_polygon(lpts, fill_color=GREEN,
                                                       outline_color=GREEN, border_width=0))
                 except Exception: pass
+            if not draw_edges: return
             for x_lat in (x1, x2):
                 pe_e, pn_e = x_lat * ldx, x_lat * ldy
-                for (t1, t2) in clip_line_to_polygon_intervals(pe_e, pn_e, tdx, tdy, safe_poly):
+                for (t1, t2) in clip_line_to_polygon_intervals(pe_e, pn_e, tdx, tdy, cp):
                     la1, lo1 = enu_to_latlon(pe_e + t1*tdx, pn_e + t1*tdy, plat, plon)
                     la2, lo2 = enu_to_latlon(pe_e + t2*tdx, pn_e + t2*tdy, plat, plon)
                     try: _add(self.map_widget.set_path([(la1,lo1),(la2,lo2)], color=GREEN, width=2))
                     except Exception: pass
 
-        if show_band and max_band_m > 0:
-            actual_band = min(buffer_m, max_band_m)
+        if show_band and out_band > 0:
+            # Every green good-zone band is a LATERAL edge band (within out_band
+            # of a pass edge). Because shelters only ever sit in these lateral
+            # edge bands, the green automatically keeps the machine-to-edge
+            # clearance from every interior tire and BREAKS at each row end
+            # where a pass drives through — so green is never drawn too close to
+            # a red tire zone.
+            #   • Interior + inner-edge bands: clipped to safe_poly (≥ width −
+            #     band in from the boundary) — fills the interior and the
+            #     round's inner edge band without entering the driven middle.
             for r in range(-max_rows, max_rows + 1):
                 if not _pass_covers_interior(r * width_m, (r + 1) * width_m): continue
                 le = r * width_m; re_ = (r + 1) * width_m
-                _fill_band(le, le + actual_band)
-                _fill_band(re_ - actual_band, re_)
+                _fill_band(le, le + out_band)
+                _fill_band(re_ - out_band, re_)
+            #   • Outer edge band against the boundary: the SAME lateral edge
+            #     bands, clipped to the thin outer ring [0, band] of the outside
+            #     round (the boundary minus its inset by band). This keeps the
+            #     "green all the way around" look while breaking at every row
+            #     end, so it never crowds a tire. No bright edge lines here —
+            #     they would streak across the field.
+            _outer_cut = inset_polygon_enu(poly_enu, out_band)
+            if _outer_cut and len(_outer_cut) >= 3:
+                for r in range(-max_rows, max_rows + 1):
+                    le = r * width_m; re_ = (r + 1) * width_m
+                    _fill_band(le, le + out_band, clip_poly=poly_enu,
+                               cutouts=[_outer_cut], draw_edges=False)
+                    _fill_band(re_ - out_band, re_, clip_poly=poly_enu,
+                               cutouts=[_outer_cut], draw_edges=False)
 
-        # ── Outside round: red tire ring + green good-zone fill bands ────────
-        if True:
+        # ── Outside round: red tire ring ────────────────────────────────────
+        # The outside round's own tire/drive zone (its green edge bands are
+        # drawn above as part of the lateral edge-band system, so they obey the
+        # machine-to-edge clearance like every other green band).
+        if show_tire:
             half = width_m / 2.0
-
-            if show_tire:
-                outer_tire = inset_polygon_enu(poly_enu, max(0.3, half - TIRE_HALF))
-                inner_tire = inset_polygon_enu(poly_enu, half + TIRE_HALF)
-                if len(outer_tire) >= 3 and len(inner_tire) >= 3:
-                    ring = (list(outer_tire) + [outer_tire[0], inner_tire[0]]
-                            + list(reversed(inner_tire)) + [inner_tire[0], outer_tire[0]])
-                    lpts = [enu_to_latlon(e, n, plat, plon) for e, n in ring]
-                    try: _add(self.map_widget.set_polygon(lpts, fill_color=RED,
-                                                          outline_color=RED, border_width=0))
-                    except Exception: pass
-
-            if show_band and out_band > 0:
-                def _fill_ring(g_outer, g_inner):
-                    if not g_outer or len(g_outer) < 3: return
-                    if g_inner and len(g_inner) >= 3:
-                        pts = (list(g_outer) + [g_outer[0], g_inner[0]]
-                               + list(reversed(g_inner)) + [g_inner[0], g_outer[0]])
-                    else:
-                        pts = g_outer
-                    lpts = [enu_to_latlon(e, n, plat, plon) for e, n in pts]
-                    try: _add(self.map_widget.set_polygon(lpts, fill_color=GREEN,
-                                                          outline_color=GREEN, border_width=0))
-                    except Exception: pass
-
-                def _ring_edge(poly):
-                    if not poly or len(poly) < 3: return
-                    lpts_r = [enu_to_latlon(e, n, plat, plon) for e, n in poly]
-                    lpts_r.append(lpts_r[0])
-                    try: _add(self.map_widget.set_path(lpts_r, color=GREEN, width=2))
-                    except Exception: pass
-
-                # The perimeter pass is treated like any other pass: a green
-                # good-zone band on EACH edge, with the driven middle (red tire)
-                # left clear between them.
-                #
-                # Outer edge band — boundary in to out_band (the boom's outer
-                # reach). Shelters may sit here, right against the field edge.
-                g_outer_inner = inset_polygon_enu(poly_enu, out_band)
-                if g_outer_inner and len(g_outer_inner) < 3:
-                    g_outer_inner = None
-                _fill_ring(poly_enu, g_outer_inner)
-                if g_outer_inner is not None:
-                    _ring_edge(g_outer_inner)
-                # Inner edge band — safe_poly (= width − edge band in from the
-                # boundary) to the round's inner edge (a full width in).
-                g_inner_edge = inset_polygon_enu(poly_enu, width_m)
-                if g_inner_edge and len(g_inner_edge) < 3:
-                    g_inner_edge = None
-                _fill_ring(safe_poly, g_inner_edge)
-                _ring_edge(safe_poly)
+            outer_tire = inset_polygon_enu(poly_enu, max(0.3, half - TIRE_HALF))
+            inner_tire = inset_polygon_enu(poly_enu, half + TIRE_HALF)
+            if len(outer_tire) >= 3 and len(inner_tire) >= 3:
+                ring = (list(outer_tire) + [outer_tire[0], inner_tire[0]]
+                        + list(reversed(inner_tire)) + [inner_tire[0], outer_tire[0]])
+                lpts = [enu_to_latlon(e, n, plat, plon) for e, n in ring]
+                try: _add(self.map_widget.set_polygon(lpts, fill_color=RED,
+                                                      outline_color=RED, border_width=0))
+                except Exception: pass
 
     def _redraw_bays(self):
         self._clear_bays()
