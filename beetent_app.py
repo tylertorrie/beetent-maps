@@ -5439,8 +5439,14 @@ class BeetentApp(ctk.CTk):
             return
         if not bp or len(bp) < 3 or width_m <= 0: return
 
-        show_tire = self.show_pass_buffer_overlay.get()
-        show_band = buffer_m > 0
+        # Both the red tire stripes and the green good-zone bands are part of
+        # the "Pass / Tire Zones" overlay and only render when it is toggled on
+        # (off by default on field load). Previously the green band drew whenever
+        # a buffer was set, which — now that every field defaults to a 25 ft edge
+        # band — made it show on first open regardless of the toggle.
+        overlay_on = self.show_pass_buffer_overlay.get()
+        show_tire = overlay_on
+        show_band = overlay_on and buffer_m > 0
         if not show_tire and not show_band: return
 
         poly_enu = [latlon_to_enu(lat, lon, plat, plon) for lat, lon in bp]
