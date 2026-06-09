@@ -5387,6 +5387,20 @@ class BeetentApp(ctk.CTk):
         # don't drop a band just because its outer edge skims past).
         if not edge_a: edge_a = edge_b
         if not edge_b: edge_b = edge_a
+        # No cutouts → build trapezoids whose END faces follow each band edge's
+        # OWN entry/exit on the clip boundary. So a band that runs into the
+        # boundary (or the outside-round tire that hugs it) stops AT THAT ANGLE
+        # — a slanted cut matching the feature it meets — instead of a flat 90°
+        # cut. (With cutouts we keep the simpler flat-interval path below.)
+        if not inner_polys_enu:
+            polys = []
+            for (a0, a1), (b0, b1) in zip(edge_a, edge_b):
+                if min(a1, b1) - max(a0, b0) <= 1e-6: continue
+                polys.append([(p1e + a0*tdx, p1n + a0*tdy),
+                              (p2e + b0*tdx, p2n + b0*tdy),
+                              (p2e + b1*tdx, p2n + b1*tdy),
+                              (p1e + a1*tdx, p1n + a1*tdy)])
+            return polys
         # Pair up matching intervals between the two edges. They should
         # always have the same count for sane geometry; intersect the i-th
         # interval of each edge to get the band's i-th inside-segment.
