@@ -494,8 +494,14 @@ def perimeter_band_quads(poly_enu, d_in, d_out):
                       (bx+d_out*nx, by+d_out*ny), (ax+d_out*nx, ay+d_out*ny)])
     return quads
 
-def inset_polygon_enu(poly_enu, dist):
+def inset_polygon_enu(poly_enu, dist, remove_spikes=True):
     """Offset every edge of poly_enu inward by dist metres.
+
+    remove_spikes=True cleans self-intersections so the result fills cleanly;
+    pass False when the result is only used as a CLIP polygon (even-odd ray
+    casting tolerates self-intersection). On a deep inset of a finely-traced /
+    concave boundary the spike cleanup can collapse whole sections, so the raw
+    offset gives far better clip coverage.
 
     Simple parallel offset: each edge shifts inward by dist, corners
     joined by miter or bevel:
@@ -545,7 +551,7 @@ def inset_polygon_enu(poly_enu, dist):
         else:
             result.append(a[1])
             result.append(b[0])
-    return _remove_inset_spikes(result)
+    return _remove_inset_spikes(result) if remove_spikes else result
 
 def clip_line_to_polygon_intervals(px, py, dx, dy, polygon):
     """All inside-the-polygon intervals (in line-parameter t) for the
@@ -5703,14 +5709,17 @@ class BeetentApp(ctk.CTk):
         # Pass toggle, so the rule is always visible.
         out_band = min(buffer_m, max_band_m) if show_band else 0.0
         safe_inset = max(0.0, width_m - out_band)
-        safe_poly = inset_polygon_enu(poly_enu, safe_inset) if out_band > 0 else poly_enu
+        # Clip-only polygons → raw inset (no spike cleanup) so deep insets on
+        # finely-traced / concave boundaries don't collapse and leave gaps.
+        safe_poly = (inset_polygon_enu(poly_enu, safe_inset, remove_spikes=False)
+                     if out_band > 0 else poly_enu)
         if not safe_poly or len(safe_poly) < 3:
             safe_poly = poly_enu
 
         def _add(o):
             if o is not None: self.pass_buffer_overlays.append(o)
 
-        outside_round_inner = inset_polygon_enu(poly_enu, width_m)
+        outside_round_inner = inset_polygon_enu(poly_enu, width_m, remove_spikes=False)
 
         def _pass_covers_interior(x_lo, x_hi):
             """True if any part of the lateral pass span [x_lo, x_hi] reaches
