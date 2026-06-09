@@ -5509,12 +5509,18 @@ class BeetentApp(ctk.CTk):
                 inner_polys_enu.append([latlon_to_enu(p[0], p[1], plat, plon) for p in inner])
 
         # ── Solid red tire band (only when tire-zone toggle is on) ──────────
+        # Interior pass tires are clipped to the outside-round inner edge, NOT
+        # the field boundary: interior passes stop at the headland (the outside
+        # round covers it), so their tire must never be drawn across the
+        # headland where it would sit next to the outside round's green edge
+        # bands and break the machine-to-edge clearance rule.
+        tire_clip = outside_round_inner if len(outside_round_inner) >= 3 else poly_enu
         if show_tire:
             for r in range(-max_rows, max_rows + 1):
                 cx = (r + 0.5) * width_m
                 if not _pass_covers_interior(r * width_m, (r + 1) * width_m): continue
                 for band in self._band_polygon_enu(cx - TIRE_HALF, cx + TIRE_HALF,
-                                                   tdx, tdy, ldx, ldy, poly_enu,
+                                                   tdx, tdy, ldx, ldy, tire_clip,
                                                    inner_polys_enu=inner_polys_enu):
                     lpts = [enu_to_latlon(e, n, plat, plon) for e, n in band]
                     try: _add(self.map_widget.set_polygon(lpts, fill_color=RED,
