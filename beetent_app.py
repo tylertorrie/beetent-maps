@@ -5097,15 +5097,29 @@ class BeetentApp(ctk.CTk):
         leave a shelter clumped onto a neighbour and a gap where it came from."""
         if not self._shelter_undo:
             ov = self.current_field.get("shelter_overrides") or {}
-            if ov:
+            # Added (additive) pins are also manual placements. They live in
+            # manual_shelter_pins and were NOT being cleared by Reset Moves, so
+            # they reappeared on reopen. Clear them too — except in "manual pins
+            # only" mode, where those pins ARE the placement (nothing to reset
+            # back to).
+            mode = self._shelter_mode_labels.get(self.shelter_mode_var.get(), "total")
+            extra_pins = [] if mode == "manual" else (self.current_field.get("manual_shelter_pins") or [])
+            n_ov, n_pins = len(ov), len(extra_pins)
+            if n_ov or n_pins:
+                parts = []
+                if n_ov:   parts.append(f"{n_ov} move(s)/delete(s)")
+                if n_pins: parts.append(f"{n_pins} added pin(s)")
+                joined = " and ".join(parts)
                 if tkinter.messagebox.askyesno("Reset Moves",
                         f"No in-session changes to undo, but this field has "
-                        f"{len(ov)} saved shelter move(s)/delete(s).\n\n"
+                        f"{joined} saved.\n\n"
                         f"Clear them so every shelter returns to its calculated "
                         f"position?"):
                     self.current_field["shelter_overrides"] = {}
+                    if n_pins:
+                        self.current_field["manual_shelter_pins"] = []
                     if self.show_shelters.get(): self._redraw_shelters()
-                    self._status(f"Cleared {len(ov)} saved shelter move(s).")
+                    self._status(f"Cleared {joined}.")
                     self._save_field()   # persist immediately so reopen sees the reset
                 return
             self._status("Nothing to undo."); return
