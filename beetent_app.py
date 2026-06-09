@@ -672,7 +672,8 @@ def blank_field(company="",year=""):
                 bays_through_inner=False,     # when True, planter bays draw through inner boundaries instead of clipping
                 shelter_at_pivot=False,
                 manual_shelter_pins=[],       # remembered when shelter_mode="manual"; restored if user switches back
-                shelter_overrides={})
+                shelter_overrides={},
+                tray_overrides={})            # {shelter ident: tray count} — manual per-shelter tray counts
 
 def _field_dir(company,year):
     d=DATA_DIR/company/str(year); d.mkdir(parents=True,exist_ok=True); return d
@@ -1034,6 +1035,8 @@ class BeetentApp(ctk.CTk):
         self.pin_label_mode     = "off"   # "off" | "trays" | "shelters" — what each pin shows
         self._shelter_undo      = []   # stack of (override_key, prev_value) for Reset Move
         self.shelter_tray_counts= []  # parallel to shelter_positions; per-shelter int
+        self._tray_count_by_ident = {}   # ident → current tray count (after overrides)
+        self._shelter_seq_by_ident = {}  # ident → display index (snake order)
         self.moving_shelter_idx = None
         self._shelter_refresh_id= None
         self._all_popups        = []
@@ -1842,6 +1845,10 @@ class BeetentApp(ctk.CTk):
         self.bee_per_shelter_lbl.pack(fill="x")
         self.bee_short_lbl       = ctk.CTkLabel(ba,text="", anchor="w",text_color=UI_WARN)
         self.bee_short_lbl.pack(fill="x",pady=(0,4))
+        # Live tray allocation: trays placed (auto + manual per-shelter
+        # overrides) vs trays needed, with a short/over readout.
+        self.bee_alloc_lbl       = ctk.CTkLabel(ba,text="", anchor="w",text_color=UI_ACCENT)
+        self.bee_alloc_lbl.pack(fill="x",pady=(0,4))
 
         ctk.CTkLabel(ba,text="Distribution:",anchor="w",font=ctk.CTkFont(family=FONT_LABEL,size=11)).pack(fill="x")
         self.tray_dist_var = tk.StringVar(value="Spread evenly")
@@ -2545,6 +2552,8 @@ class BeetentApp(ctk.CTk):
         would place pins in wrong locations (mode switch, count change)."""
         if self.current_field.get("shelter_overrides"):
             self.current_field["shelter_overrides"] = {}
+        if self.current_field.get("tray_overrides"):
+            self.current_field["tray_overrides"] = {}
         self._shelter_undo.clear()
 
     def _on_shelter_mode_change(self, _=None):
@@ -2579,6 +2588,30 @@ class BeetentApp(ctk.CTk):
         self._clear_shelter_overrides()
         key=self._shelter_mode_key[mode]
         self.fv[key].set(self.shelter_value_var.get())   # fv trace → _on_form_change → redraw
+
+    def _update_tray_alloc_readout(self, needed):
+        """Live readout under Bee Allocation: trays PLACED (auto distribution
+        plus any manual per-shelter overrides) vs trays NEEDED, with a short/
+        over amount. We never re-balance for overrides — we just report."""
+        lbl = getattr(self, "bee_alloc_lbl", None)
+        if lbl is None:
+            return
+        counts = self.shelter_tray_counts or []
+        if not counts or not needed:
+            lbl.configure(text="")
+            return
+        allocated = sum(counts)
+        n_over = len(self.current_field.get("tray_overrides") or {})
+        delta = allocated - needed
+        if delta == 0:
+            txt = f"Trays: {allocated} placed / {needed} needed  ✓"; col = UI_ACCENT
+        elif delta < 0:
+            txt = f"Trays: {allocated} placed / {needed} needed  — SHORT {-delta}"; col = UI_WARN
+        else:
+            txt = f"Trays: {allocated} placed / {needed} needed  — OVER {delta}"; col = UI_WARN
+        if n_over:
+            txt += f"   ({n_over} manual)"
+        lbl.configure(text=txt, text_color=col)
 
     def _refresh_bee_summary(self):
         """Update the three computed lines under the Bee Allocation block.
@@ -4984,6 +5017,9 @@ class BeetentApp(ctk.CTk):
             try: p.delete()
             except Exception: pass
         self.shelter_circle_polys=[]
+        # Tray allocation readout only applies while shelters are shown.
+        if getattr(self, "bee_alloc_lbl", None) is not None:
+            self.bee_alloc_lbl.configure(text="")
 
     def _toggle_shelter_buffers(self):
         turning_on = not self.shelter_circle_var.get()
@@ -5079,25 +5115,77 @@ class BeetentApp(ctk.CTk):
         self._save_field()   # persist each undo step so reopen sees the current state
 
     def _on_shelter_tap(self, idx):
-        """Called when a shelter pin is clicked without dragging — highlight then offer delete."""
-        drag_key = f"shelter_{idx}"
-        info = self._drag_registry.get(drag_key)
+        """Tap a shelter pin (no drag): set its tray count, reset it to the auto
+        count, or delete it. `idx` is the stable algorithm ident."""
+        cur_trays = None
+        try: cur_trays = (self._tray_count_by_ident or {}).get(idx)
+        except Exception: pass
+        try: seq = (self._shelter_seq_by_ident or {}).get(idx)
+        except Exception: seq = None
+        disp = (seq + 1) if seq is not None else (idx + 1)
+        is_over = str(idx) in (self.current_field.get("tray_overrides") or {})
+
+        # Highlight the tapped pin while the dialog is open.
         hl_oval = None
+        info = self._drag_registry.get(f"shelter_{idx}")
         marker = info.get('marker') if info else None
-        if marker and not getattr(marker,'deleted',True):
+        if marker and not getattr(marker, 'deleted', True):
             try:
-                cx,cy = marker.get_canvas_pos(marker.position)
-                hl_oval=self.map_widget.canvas.create_oval(
-                    cx-16,cy-47,cx+16,cy-15,
-                    fill="#FF6600",outline="#FF0000",width=2,tags="shelter_hl")
+                cx, cy = marker.get_canvas_pos(marker.position)
+                hl_oval = self.map_widget.canvas.create_oval(
+                    cx-16, cy-47, cx+16, cy-15,
+                    fill="#FF6600", outline="#FF0000", width=2, tags="shelter_hl")
                 self.map_widget.canvas.update()
             except Exception: pass
-        ans=tkinter.messagebox.askyesno("Delete Shelter",f"Delete shelter #{idx+1}?")
+
+        win = ctk.CTkToplevel(self); win.title(f"Shelter #{disp}"); win.grab_set()
+        ctk.CTkLabel(win, text=f"Shelter #{disp}",
+                     font=ctk.CTkFont(family=FONT_HEADING, size=15)).pack(padx=24, pady=(16, 2))
+        ctk.CTkLabel(win,
+                     text=(f"Current: {cur_trays if cur_trays is not None else '—'} tray(s)"
+                           + ("  (manual)" if is_over else "  (auto)")),
+                     text_color=UI_MUTED, font=ctk.CTkFont(size=12)).pack(padx=24, pady=(0, 8))
+        row = ctk.CTkFrame(win, fg_color="transparent"); row.pack(padx=24, pady=4)
+        ctk.CTkLabel(row, text="Trays:", width=60, anchor="w").pack(side="left")
+        tv = tk.StringVar(value=str(cur_trays) if cur_trays is not None else "")
+        ent = ctk.CTkEntry(row, textvariable=tv, width=80); ent.pack(side="left", padx=(2, 4))
+        try: ent.focus_set()
+        except Exception: pass
+
+        def _set():
+            try: n = int(float(tv.get().strip()))
+            except (ValueError, TypeError):
+                self._status("Enter a whole number of trays."); return
+            if n < 0:
+                self._status("Trays can't be negative."); return
+            self.current_field.setdefault("tray_overrides", {})[str(idx)] = n
+            win.destroy()
+            if self.show_shelters.get(): self._redraw_shelters()
+            self._status(f"Shelter #{disp} set to {n} tray(s) (manual) — Save Field to keep.")
+
+        def _reset():
+            (self.current_field.get("tray_overrides") or {}).pop(str(idx), None)
+            win.destroy()
+            if self.show_shelters.get(): self._redraw_shelters()
+            self._status(f"Shelter #{disp} tray count back to auto.")
+
+        def _delete():
+            win.destroy()
+            self._delete_shelter(idx)
+
+        ctk.CTkButton(win, text="Set trays", height=34, command=_set).pack(
+            fill="x", padx=24, pady=(8, 4))
+        ctk.CTkButton(win, text="Reset to auto", height=32, fg_color="#555",
+                      command=_reset).pack(fill="x", padx=24, pady=(0, 4))
+        ctk.CTkButton(win, text="Delete shelter", height=32, fg_color="#7a2a2a",
+                      command=_delete).pack(fill="x", padx=24, pady=(0, 4))
+        ctk.CTkButton(win, text="Cancel", height=32, fg_color="#444",
+                      command=win.destroy).pack(fill="x", padx=24, pady=(0, 16))
+        _center_on_parent(win, self)
+        self.wait_window(win)
         if hl_oval:
             try: self.map_widget.canvas.delete(hl_oval)
             except Exception: pass
-        if ans:
-            self._delete_shelter(idx)
 
     def _delete_shelter(self, idx):
         mode = self._shelter_mode_labels.get(self.shelter_mode_var.get(), "total")
@@ -5245,6 +5333,22 @@ class BeetentApp(ctk.CTk):
         total_trays, per, short, _ = self._compute_bee_distribution(
             n_visible, vis_rows, shelter_positions_latlon=vis_positions)
         self.shelter_tray_counts=list(per) if per else [0]*n_visible
+        # Apply manual per-shelter tray overrides (keyed on the stable algorithm
+        # ident, so they follow the physical shelter as numbering changes). The
+        # auto distribution of the OTHER shelters is left as-is — we only report
+        # the resulting short/over, we don't re-balance.
+        _tov = self.current_field.get("tray_overrides") or {}
+        self._tray_count_by_ident = {}
+        self._shelter_seq_by_ident = {}
+        for seq,(lat,lon,kind,ident,row) in enumerate(visible):
+            if kind != "manual":
+                self._shelter_seq_by_ident[ident] = seq
+                if _tov and str(ident) in _tov and seq < len(self.shelter_tray_counts):
+                    try: self.shelter_tray_counts[seq] = int(_tov[str(ident)])
+                    except (ValueError, TypeError): pass
+            if seq < len(self.shelter_tray_counts):
+                self._tray_count_by_ident[ident] = self.shelter_tray_counts[seq]
+        self._update_tray_alloc_readout(total_trays)
         mode=self.pin_label_mode
         try: BUFFER_M=float(self.current_field.get("shelter_buffer_m") or 0)
         except (ValueError,TypeError): BUFFER_M=0.0
@@ -5253,8 +5357,8 @@ class BeetentApp(ctk.CTk):
             cc="#FFD700"; oc="#B8860B"
             if mode=="shelters":
                 lbl=str(seq+1)
-            elif mode=="trays" and per:
-                lbl=str(per[seq])
+            elif mode=="trays" and self.shelter_tray_counts:
+                lbl=str(self.shelter_tray_counts[seq])
             else:
                 lbl=""
             if kind=="manual":
