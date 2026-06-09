@@ -673,7 +673,8 @@ def blank_field(company="",year=""):
                 shelter_at_pivot=False,
                 manual_shelter_pins=[],       # remembered when shelter_mode="manual"; restored if user switches back
                 shelter_overrides={},
-                tray_overrides={})            # {shelter ident: tray count} — manual per-shelter tray counts
+                tray_overrides={},            # {shelter ident: tray count} — manual per-shelter tray counts
+                actual_shelter_pins=None)     # uploaded scanned placements: [{qr,lat,lon,placed,user}, ...]
 
 def _field_dir(company,year):
     d=DATA_DIR/company/str(year); d.mkdir(parents=True,exist_ok=True); return d
@@ -902,6 +903,14 @@ class _ExportTypePicker(ctk.CTkToplevel):
                         variable=self._bnd_var,
                         command=self._update_ok).pack(anchor="w", pady=4)
 
+        # Planned vs actual placement. When on, any selected field that has
+        # uploaded (scanned) actual pins exports those instead of the planned
+        # grid; fields without actual pins still export planned.
+        ctk.CTkFrame(frame, height=1, fg_color="grey30").pack(fill="x", pady=(8,6))
+        self._actual_var = ctk.BooleanVar(value=False)
+        ctk.CTkCheckBox(frame, text="Use ACTUAL placement where uploaded",
+                        variable=self._actual_var).pack(anchor="w", pady=4)
+
         # ── Select All / Deselect All ──────────────────────────────────────
         btn_row = ctk.CTkFrame(self, fg_color="transparent")
         btn_row.pack(fill="x", padx=16, pady=(4,0))
@@ -941,6 +950,7 @@ class _ExportTypePicker(ctk.CTkToplevel):
             "kml":      self._kml_var.get(),
             "geojson":  self._geojson_var.get(),
             "boundary": self._bnd_var.get(),
+            "actual":   self._actual_var.get(),
         }
         self.destroy()
 
@@ -1037,6 +1047,7 @@ class BeetentApp(ctk.CTk):
         self.shelter_tray_counts= []  # parallel to shelter_positions; per-shelter int
         self._tray_count_by_ident = {}   # ident → current tray count (after overrides)
         self._shelter_seq_by_ident = {}  # ident → display index (snake order)
+        self.shelter_view = "planned"    # "planned" | "actual" — which placement is shown
         self.moving_shelter_idx = None
         self._shelter_refresh_id= None
         self._all_popups        = []
@@ -1502,6 +1513,8 @@ class BeetentApp(ctk.CTk):
             ("Numbers: Off",         lambda: self._set_pin_mode("off")),
             ("Toggle Shelter Buffer Zone",   self._toggle_shelter_buffers),
             ("Set Shelter Buffer Size",      self._edit_shelter_buffer),
+            ("Import Actual Shelter Pins (CSV)", self._import_actual_shelters),
+            ("Show Planned / Actual",        self._toggle_shelter_view),
         ], color="#5a3000",
            toggle_var=self.shelters_visible_var, toggle_fn=self._set_shelters_visible)
         self._shelter_btn.pack(side="left", padx=(0,4))
@@ -3095,7 +3108,8 @@ class BeetentApp(ctk.CTk):
         except Exception:
             name = ""
         if name:
-            lbl.configure(text="  " + name + "  ")
+            suffix = "  —  ACTUAL" if getattr(self, "shelter_view", "planned") == "actual" else ""
+            lbl.configure(text="  " + name + suffix + "  ")
             lbl.place(relx=1.0, rely=0.0, x=-14, y=12, anchor="ne")
             lbl.lift()
         else:
@@ -3105,6 +3119,7 @@ class BeetentApp(ctk.CTk):
         f=self.current_field
         bf=blank_field()
         self._shelter_undo=[]   # undo history is per-field, reset on load/new
+        self.shelter_view="planned"   # always start on the planned placement
         for k,v in self.fv.items():
             val=f.get(k)
             v.set(str(bf.get(k,"")) if val is None else str(val))
@@ -5234,9 +5249,134 @@ class BeetentApp(ctk.CTk):
         if tkinter.messagebox.askyesno("Delete Pin", "Delete this extra shelter pin?"):
             self._delete_manualpin(idx)
 
+    # ── Actual (scanned) shelter placement ──────────────────────────────────
+    def _parse_shelter_csv(self, path):
+        """Parse a scanned-shelter CSV. Expected columns (header, any order;
+        matched loosely): QR Code Number, Latitude, Longitude, date/time
+        placed, user. Returns (pins, error_message)."""
+        def _find(keys, fns):
+            low = {f.lower().strip(): f for f in fns}
+            for k in keys:
+                if k in low: return low[k]
+            for fn in fns:
+                fl = fn.lower()
+                if any(k in fl for k in keys): return fn
+            return None
+        try:
+            with open(path, newline="", encoding="utf-8-sig") as fh:
+                rdr = csv.DictReader(fh)
+                fns = rdr.fieldnames or []
+                if not fns:
+                    return [], "That CSV has no header row."
+                lat_c = _find(["latitude", "lat"], fns)
+                lon_c = _find(["longitude", "long", "lon", "lng"], fns)
+                qr_c  = _find(["qr code number", "qr", "code", "shelter"], fns)
+                dt_c  = _find(["date/time placed", "datetime", "date", "time", "placed"], fns)
+                usr_c = _find(["user", "scanned by", "scanned", "operator"], fns)
+                if not lat_c or not lon_c:
+                    return [], ("Couldn't find Latitude / Longitude columns.\n\n"
+                                "Headers found: " + ", ".join(fns))
+                pins = []
+                for row in rdr:
+                    try:
+                        lat = float(str(row.get(lat_c, "")).strip())
+                        lon = float(str(row.get(lon_c, "")).strip())
+                    except (ValueError, TypeError):
+                        continue
+                    pins.append({
+                        "qr":     str(row.get(qr_c, "")).strip() if qr_c else "",
+                        "lat":    lat, "lon": lon,
+                        "placed": str(row.get(dt_c, "")).strip() if dt_c else "",
+                        "user":   str(row.get(usr_c, "")).strip() if usr_c else "",
+                    })
+                return pins, None
+        except Exception as ex:
+            return [], f"Couldn't read {Path(path).name}:\n{ex}"
+
+    def _import_actual_shelters(self):
+        """Pick a scanned-shelter CSV, store the points, and show ACTUAL view."""
+        self._close_all_popups()
+        path = tkinter.filedialog.askopenfilename(
+            title="Import Actual Shelter Pins (CSV)",
+            filetypes=[("CSV", "*.csv"), ("All files", "*.*")])
+        if not path: return
+        pins, err = self._parse_shelter_csv(path)
+        if err:
+            tkinter.messagebox.showerror("Import Error", err); return
+        if not pins:
+            tkinter.messagebox.showwarning("Import",
+                "No rows with valid latitude/longitude found in that CSV."); return
+        self.current_field["actual_shelter_pins"] = pins
+        self.shelter_view = "actual"
+        self.show_shelters.set(True); self.shelters_visible_var.set(True)
+        self._redraw_shelters()
+        self._update_map_field_label()
+        self._status(f"Loaded {len(pins)} actual shelter pins — showing ACTUAL placement. "
+                     f"Save Field to keep.")
+
+    def _toggle_shelter_view(self):
+        """Flip between PLANNED and ACTUAL placement. Switching to ACTUAL with
+        no uploaded data explains why and offers to import a CSV."""
+        self._close_all_popups()
+        if self.shelter_view == "planned":
+            if not (self.current_field.get("actual_shelter_pins")):
+                if tkinter.messagebox.askyesno(
+                        "No actual placement uploaded",
+                        "This field has no uploaded ACTUAL shelter placements yet.\n\n"
+                        "Actual pins come from scanning each shelter's QR code as it's "
+                        "placed — a CSV with QR code number, latitude, longitude, "
+                        "date/time placed and user.\n\n"
+                        "Import that CSV now?"):
+                    self._import_actual_shelters()
+                return
+            self.shelter_view = "actual"
+        else:
+            self.shelter_view = "planned"
+        self.show_shelters.set(True); self.shelters_visible_var.set(True)
+        self._redraw_shelters()
+        self._update_map_field_label()
+        self._status("Showing %s placement." %
+                     ("ACTUAL" if self.shelter_view == "actual" else "PLANNED"))
+
+    def _redraw_actual_shelters(self):
+        """Draw the uploaded/scanned ACTUAL placements (blue pins + buffer
+        circles). Independent point set — no tray distribution or overrides."""
+        pins = self.current_field.get("actual_shelter_pins") or []
+        try: BUFFER_M = float(self.current_field.get("shelter_buffer_m") or 0)
+        except (ValueError, TypeError): BUFFER_M = 0.0
+        show_circles = self.shelter_circle_var.get() and BUFFER_M > 0
+        self.shelter_positions = []; self.shelter_tray_counts = []
+        self._tray_count_by_ident = {}; self._shelter_seq_by_ident = {}
+        for seq, p in enumerate(pins):
+            try: lat = float(p.get("lat")); lon = float(p.get("lon"))
+            except (ValueError, TypeError, AttributeError): continue
+            self.shelter_positions.append((lat, lon))
+            lbl = "" if self.pin_label_mode == "off" else str(seq + 1)
+            try:
+                m = self.map_widget.set_marker(lat, lon, text=lbl,
+                        marker_color_circle="#1E90FF", marker_color_outside="#0A3D7A",
+                        text_color="#FFFFFF", font=(FONT_LABEL, 11))
+                self.shelter_markers.append(m)
+            except Exception: pass
+            if show_circles:
+                try:
+                    poly = self.map_widget.set_polygon(circle_pts(lat, lon, BUFFER_M, n=36),
+                            fill_color=None, outline_color="#1E90FF", border_width=1)
+                    self.shelter_circle_polys.append(poly)
+                except Exception: pass
+        if getattr(self, "bee_alloc_lbl", None) is not None:
+            self.bee_alloc_lbl.configure(
+                text=f"ACTUAL placement — {len(self.shelter_positions)} shelters scanned",
+                text_color=UI_ACCENT)
+        self._status(f"Showing ACTUAL placement — {len(self.shelter_positions)} scanned pins.")
+
     def _redraw_shelters(self):
         self._clear_shelters()
         if not self.show_shelters.get(): return
+        # Actual (uploaded/scanned) placement view — an independent point set.
+        if self.shelter_view == "actual" and (self.current_field.get("actual_shelter_pins")):
+            self._redraw_actual_shelters()
+            return
         f=self._field_from_form()
         use_m=self.unit_var.get()=="Metric"
         mode_key=self._shelter_mode_labels.get(self.shelter_mode_var.get(),"total")
@@ -6703,10 +6843,19 @@ class BeetentApp(ctk.CTk):
                     out.append((c,y,name))
         return out
 
-    def _final_shelter_positions(self, f, metric):
+    def _final_shelter_positions(self, f, metric, use_actual=False):
         """Shelter positions exactly as drawn on the map: get_tent_positions
         with the field's shelter_overrides (moved/deleted) applied, plus any
-        additive manual pins (extra pins placed on top of the algorithm grid)."""
+        additive manual pins (extra pins placed on top of the algorithm grid).
+
+        use_actual=True returns the uploaded/scanned ACTUAL placements instead
+        (an independent point set), when the field has them."""
+        if use_actual:
+            out=[]
+            for p in (f.get("actual_shelter_pins") or []):
+                try: out.append((float(p["lat"]), float(p["lon"])))
+                except (KeyError, TypeError, ValueError): pass
+            return out
         positions=maketentgrid.get_tent_positions(f,use_metric=metric)
         # Match the map: shift the algorithm grid by the planter + sprayer Shift.
         sse, ssn = self._field_combined_shift(f)
@@ -6857,10 +7006,13 @@ class BeetentApp(ctk.CTk):
                         pivotpoint=(float(f["PP_Longitude"]),float(f["PP_Latitude"]))
                     except (KeyError,ValueError,TypeError):
                         self.after(0,lambda n=name:self._log("  skipped %s — no pivot point"%n)); continue
-                    positions=self._final_shelter_positions(f,metric)
+                    use_actual = bool(opts.get("actual")) and bool(f.get("actual_shelter_pins"))
+                    positions=self._final_shelter_positions(f,metric,use_actual=use_actual)
                     if not positions:
                         self.after(0,lambda n=name:self._log("  skipped %s — no shelters"%n)); continue
                     fname=str(f.get("Name") or name).strip()
+                    if use_actual:
+                        self.after(0,lambda n=fname:self._log("  %s — using ACTUAL placement"%n))
                     try: buf_m=float(f.get("shelter_buffer_m") or 0)
                     except (ValueError,TypeError): buf_m=0.0
                     outer_boundary=f.get("boundary_polygon") or None
