@@ -305,16 +305,11 @@
       -111.9868265045169
     ]
   ],
-  "shelter_overrides": {
-    "32": [
-      49.73151752085268,
-      -111.98585822706252
-    ],
-    "40": null
-  },
+  "shelter_overrides": {},
   "Planting_angle": "",
   "shelter_rows": "",
   "bay_gap_in": "0",
   "shelters_in_outside_pass": "No",
-  "shelter_at_pivot": false
+  "shelter_at_pivot": false,
+  "tire_width_ft": "14"
 }
