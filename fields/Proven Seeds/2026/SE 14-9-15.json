@@ -266,12 +266,12 @@
   "manual_shelter_pins": [],
   "shelter_overrides": {
     "53": [
-      49.72788762884844,
-      -111.93091582254635
+      49.7337603959913,
+      -111.92675068974495
     ]
   },
   "Planting_angle": "0",
   "shelter_rows": "",
   "bay_gap_in": "0",
-  "shelters_in_outside_pass": "No"
+  "shelters_in_outside_pass": "Yes"
 }
