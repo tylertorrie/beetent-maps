@@ -1527,7 +1527,7 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
             # candidate. ~150K validity calls × 87 edges × subtraction =
             # the difference between sub-second and minute-long freezes.
             _bnd_edges = None
-            if boundary_enu and outside_pass and buffer_enabled_pf:
+            if boundary_enu and outside_pass:
                 _bnd_edges = []
                 n_b = len(boundary_enu)
                 for i in range(n_b):
@@ -1540,11 +1540,11 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
             _inner_pivot_r2 = sprayer_width * sprayer_width
             # Pre-tuple pivot_tracks so we iterate a tuple (faster than list).
             _pivot_tracks_t = tuple(pivot_tracks) if pivot_tracks else ()
-            # Outside-pass kill zone bounds — always applied when running an
-            # outside pass so shelters land near its edges, not its driven-over
-            # middle. Edge band = user buffer if set, else a default.
-            _op_edge_pf = pass_edge_buffer_m_pf if pass_edge_buffer_m_pf > 0 else min(sprayer_width * 0.25, 9.144)
-            _outpass_lo = _op_edge_pf
+            # Outside-pass exclusion cutoff (one-sided). The edge band is how
+            # far a shelter may intrude into the outside round from its INNER
+            # edge; 0 → the whole round is excluded. Shelters are valid only at
+            # distance-to-boundary d_b ≥ _outpass_hi.
+            _op_edge_pf = pass_edge_buffer_m_pf if pass_edge_buffer_m_pf > 0 else 0.0
             _outpass_hi = sprayer_width - _op_edge_pf
 
             def _pf_valid(east, north):
@@ -1604,7 +1604,9 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                         d_b = math.sqrt(min_d2)
                     else:
                         d_b = radius - math.sqrt(d_sq)
-                    if _outpass_lo < d_b < _outpass_hi:
+                    # One-sided: drop anything inside the no-go strip (closer to
+                    # the boundary than the round's inner edge minus the band).
+                    if d_b < _outpass_hi:
                         return False
                 return True
 
@@ -1934,36 +1936,24 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                 return True
 
             def _outside_ok(east, north):
-                # Outside-pass exclusion / edge-band enforcement.
-                #
-                # outside_pass = True  (shelters_in_outside_pass != 'Yes'):
-                #   Shelters must sit at or inside the INNER edge of the outside
-                #   round (d_b ≥ sprayer_width − op_edge_m).  This shrinks the
-                #   placeable area rather than punching a hole, so the outermost
-                #   row lands cleanly at the inner edge.  A cell failing only
-                #   this is DROPPED (not snapped — sliding it one pass-width
-                #   inward would clump shelters together).
-                #
-                # outside_pass = False (shelters_in_outside_pass = 'Yes'):
-                #   Shelters ARE allowed anywhere in the outside round, but when
-                #   a pass-edge buffer is set we apply it symmetrically: kill the
-                #   MIDDLE of the outside round (d_b between the two edge bands)
-                #   so shelters land near BOTH the outer (boundary) edge AND the
-                #   inner (field-interior) edge — consistent with how interior
-                #   passes are treated.
+                # Outside-pass exclusion (only when shelters_in_outside_pass =
+                # 'No' → outside_pass = True). The outside round is the perimeter
+                # sprayer pass, one sprayer-width wide, hugging the boundary. A
+                # shelter placed in it gets driven over, so keep shelters out of
+                # it — EXCEPT they may intrude inward from the round's INNER edge
+                # by up to the shelter edge band (op_edge_m). Net rule (one-
+                # sided): a shelter is valid only where its distance to the
+                # boundary d_b ≥ sprayer_width − op_edge_m; everything closer to
+                # the boundary (the no-go strip) is dropped. With op_edge_m = 0
+                # the whole round is excluded. When shelters_in_outside_pass =
+                # 'Yes' (outside_pass = False) there is no exclusion.
+                if not outside_pass: return True
                 if boundary_enu:
                     d_b = _min_dist_to_bnd(east, north)
                 else:
                     d_b = radius - math.sqrt(east*east + north*north)
-                if outside_pass:
-                    # Exclude the whole outside round except the inner-edge band.
-                    if d_b < (sprayer_width - op_edge_m):
-                        return False
-                elif buffer_enabled and op_edge_m > 0 and d_b < sprayer_width:
-                    # Shelter is inside the outside round AND edge buffer is set.
-                    # Kill the middle; allow near BOTH edges.
-                    if op_edge_m < d_b < sprayer_width - op_edge_m:
-                        return False
+                if d_b < (sprayer_width - op_edge_m):
+                    return False
                 return True
 
             def _valid(east, north):

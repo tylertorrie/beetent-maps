@@ -5455,6 +5455,17 @@ class BeetentApp(ctk.CTk):
         half_width = width_m / 2.0
         # Maximum shelter band width before it would reach the tire zone
         max_band_m = max(0.0, half_width - TIRE_HALF)
+        # Outside-round edge band (how far shelters may intrude into the
+        # perimeter pass from its inner edge) and the no-go limit polygon.
+        # Shelters must stay at distance ≥ (width − edge band) from the boundary,
+        # so every green good-zone band is clipped to safe_poly and never bleeds
+        # into the perimeter pass. Drawn regardless of the Shelters-in-Outside-
+        # Pass toggle, so the rule is always visible.
+        out_band = min(buffer_m, max_band_m) if show_band else 0.0
+        safe_inset = max(0.0, width_m - out_band)
+        safe_poly = inset_polygon_enu(poly_enu, safe_inset) if out_band > 0 else poly_enu
+        if not safe_poly or len(safe_poly) < 3:
+            safe_poly = poly_enu
 
         def _add(o):
             if o is not None: self.pass_buffer_overlays.append(o)
@@ -5489,14 +5500,14 @@ class BeetentApp(ctk.CTk):
         # for each clipped band piece, capped so it never overlaps the tire zone.
         def _fill_band(x1, x2):
             if x2 - x1 <= 0: return
-            for band_poly in self._band_polygon_enu(x1, x2, tdx, tdy, ldx, ldy, poly_enu):
+            for band_poly in self._band_polygon_enu(x1, x2, tdx, tdy, ldx, ldy, safe_poly):
                 lpts = [enu_to_latlon(e, n, plat, plon) for e, n in band_poly]
                 try: _add(self.map_widget.set_polygon(lpts, fill_color=GREEN,
                                                       outline_color=GREEN, border_width=0))
                 except Exception: pass
             for x_lat in (x1, x2):
                 pe_e, pn_e = x_lat * ldx, x_lat * ldy
-                for (t1, t2) in clip_line_to_polygon_intervals(pe_e, pn_e, tdx, tdy, poly_enu):
+                for (t1, t2) in clip_line_to_polygon_intervals(pe_e, pn_e, tdx, tdy, safe_poly):
                     la1, lo1 = enu_to_latlon(pe_e + t1*tdx, pn_e + t1*tdy, plat, plon)
                     la2, lo2 = enu_to_latlon(pe_e + t2*tdx, pn_e + t2*tdy, plat, plon)
                     try: _add(self.map_widget.set_path([(la1,lo1),(la2,lo2)], color=GREEN, width=2))
@@ -5513,7 +5524,6 @@ class BeetentApp(ctk.CTk):
         # ── Outside round: red tire ring + green good-zone fill bands ────────
         if True:
             half = width_m / 2.0
-            out_band = min(buffer_m, max(0.0, half - TIRE_HALF)) if show_band else 0.0
 
             if show_tire:
                 outer_tire = inset_polygon_enu(poly_enu, max(0.3, half - TIRE_HALF))
@@ -5546,10 +5556,17 @@ class BeetentApp(ctk.CTk):
                     try: _add(self.map_widget.set_path(lpts_r, color=GREEN, width=2))
                     except Exception: pass
 
-                # Outer band only: field boundary → out_band inset (boom's outer edge)
-                g_out_inner = inset_polygon_enu(poly_enu, out_band)
-                _fill_ring(poly_enu, g_out_inner)
-                _ring_edge(g_out_inner)
+                # Allowance band on the INNER side of the perimeter pass: the
+                # edge-band-wide strip just inside the round's inner edge where
+                # shelters MAY intrude. Filled between safe_poly (outer limit,
+                # = width − edge band in from the boundary) and the round's
+                # inner edge (a full width in). The no-go strip from the
+                # boundary out to safe_poly is intentionally left unshaded.
+                g_inner_edge = inset_polygon_enu(poly_enu, width_m)
+                if g_inner_edge and len(g_inner_edge) < 3:
+                    g_inner_edge = None
+                _fill_ring(safe_poly, g_inner_edge)
+                _ring_edge(safe_poly)
 
     def _redraw_bays(self):
         self._clear_bays()
