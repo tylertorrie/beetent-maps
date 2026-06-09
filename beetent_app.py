@@ -1944,8 +1944,17 @@ class BeetentApp(ctk.CTk):
         self._shelter_refresh_id = self.after(600, self._redraw_shelters)
 
     def _on_shelters_in_outside_toggle(self):
-        """Shelter allocation for outside pass changed — recompute shelters."""
+        """Shelters-in-outside-pass changed — record it on the field, recompute,
+        and persist immediately so the choice survives an app restart (the
+        toggle var alone is only written to the field on an explicit Save)."""
+        self.current_field["shelters_in_outside_pass"] = self.shelters_in_outside_var.get()
         self._on_form_change()
+        # Save now (only for an already-named field) so reopening keeps it.
+        try:
+            if self.fv.get("Name") and self.fv["Name"].get().strip():
+                self._save_field()
+        except Exception:
+            pass
 
     def _on_shelter_at_pivot_toggle(self, _=None):
         """Pivot shelter toggle changed — recompute shelters."""
