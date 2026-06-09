@@ -376,20 +376,7 @@
     384.98
   ],
   "corner_arms": [],
-  "shelter_overrides": {
-    "24": [
-      49.88887918162302,
-      -111.85555529263443
-    ],
-    "2": [
-      49.89085346395431,
-      -111.85788345005936
-    ],
-    "18": [
-      49.894533103313336,
-      -111.85556199815697
-    ]
-  },
+  "shelter_overrides": {},
   "gals_per_acre": "3",
   "acres": "66.37",
   "gals_per_tray": "2",
@@ -62545,5 +62532,7 @@
   "Planting_angle": "0",
   "shelter_rows": "",
   "bay_gap_in": "0",
-  "shelters_in_outside_pass": "No"
+  "shelters_in_outside_pass": "No",
+  "tire_width_ft": "14",
+  "shelter_at_pivot": false
 }
