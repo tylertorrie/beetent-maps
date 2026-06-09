@@ -1842,8 +1842,16 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
         # of valid grid points is >= num_tents (closest above). Because every
         # row uses the SAME N-S coordinates, shelters form perfectly straight
         # lines when viewed from any direction.
+        #
+        # This is the UNIFIED green-zone grid used by every shelter-count mode
+        # (target count, explicit spacing, auto) so shelters always land in the
+        # green zones — on a sprayer pass edge, in a female bay, clear of the
+        # kill zones / pivot tracks / outside round, inside the boundary. The
+        # spacing source differs per mode (see the N-S spacing block below); the
+        # placement + validity is identical. The old separate rectangular-grid
+        # path below is kept only as an unreachable fallback.
         # =====================================================================
-        if not user_spacing and num_tents:
+        if True:
             if sprayer_width <= 0:
                 return ([], []) if return_rows else []
 
@@ -2153,68 +2161,76 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                             if total >= target: return True
                 return False
 
-            # Find the largest N-S spacing that still yields >= num_tents positions.
-            lo, hi = 1.0, radius * 2.0
-            if not _count_at_least(lo, num_tents):
-                ns_spacing = lo
-            else:
-                for _ in range(32):   # 32 halvings ≈ sub-µm spacing precision, plenty
-                    mid = (lo + hi) / 2
-                    if _count_at_least(mid, num_tents):
-                        lo = mid
-                    else:
-                        hi = mid
-                ns_spacing = lo
-
-            # Auto-balance for very sparse layouts: when ns_spacing/2 > radius the
-            # stagger offset exceeds the field radius, so alternate rows have no
-            # valid positions and all shelters land in a straight line. Fix:
-            # (1) filter row_list to in-field columns (r_max overshoot builds
-            #     columns on both sides of the pivot; asymmetric fields may have
-            #     no shelters at all in the out-of-field side, making the index-
-            #     based column selection pick empty columns);
-            # (2) reduce lateral bay columns to round(sqrt(num_tents)) so the
-            #     binary search finds a spacing where the stagger fits inside the
-            #     field.
-            # Threshold ns_spacing > 2*radius means stagger offset > field radius.
-            if (not _cols_reduced
-                    and ns_spacing > radius * 2.0
-                    and len(row_list) > 1):
-                # Step 1: restrict to columns that lie within the field boundary.
-                if boundary_enu:
-                    _ab_lat_c = [e * cos_r + n * sin_r for e, n in boundary_enu]
-                    _ab_lat_min, _ab_lat_max = min(_ab_lat_c), max(_ab_lat_c)
-                    _ab_infield = [rc for rc in row_list
-                                   if _ab_lat_min <= rc[0] <= _ab_lat_max]
-                else:
-                    # Circular field: radius includes a 1.05× buffer; undo it.
-                    _ab_infield = [rc for rc in row_list
-                                   if abs(rc[0]) < radius / 1.05]
-                if len(_ab_infield) >= 2:
-                    row_list = _ab_infield
-                # Step 2: reduce to target column count.
-                _target_cols = max(1, round(math.sqrt(float(num_tents))))
-                if _target_cols < len(row_list):
-                    if _target_cols == 1:
-                        row_list = [row_list[len(row_list) // 2]]
-                    else:
-                        _ab_stride = (len(row_list) - 1) / (_target_cols - 1)
-                        _ab_idxs = sorted(
-                            {int(round(i * _ab_stride)) for i in range(_target_cols)})
-                        row_list = [row_list[i] for i in _ab_idxs]
-                # Re-run binary search. _count_at_least captures row_list by
-                # reference so automatically uses the refined column set.
+            # ── N-S spacing for the green-zone grid ─────────────────────────
+            # All shelter-count modes place through this SAME path so every
+            # shelter lands in a green zone (pass edge, female bay, clear of
+            # kill/track/outside-round). Only the spacing source differs:
+            #   • explicit-spacing mode → the user's spacing, used as-is;
+            #   • target-count mode     → binary-searched to hit the count;
+            #   • auto (neither)        → ~1 shelter per acre.
+            if user_spacing:
+                ns_spacing = max(1.0, float(sp_raw) * conv)
+            elif num_tents:
+                # Find the largest N-S spacing that still yields >= num_tents.
                 lo, hi = 1.0, radius * 2.0
                 if not _count_at_least(lo, num_tents):
                     ns_spacing = lo
                 else:
-                    for _ in range(32):
+                    for _ in range(32):   # 32 halvings ≈ sub-µm precision, plenty
                         mid = (lo + hi) / 2
                         if _count_at_least(mid, num_tents):
                             lo = mid
                         else:
                             hi = mid
                     ns_spacing = lo
+
+                # Auto-balance for very sparse layouts: when ns_spacing/2 > radius
+                # the stagger offset exceeds the field radius, so alternate rows
+                # have no valid positions and all shelters land in a straight
+                # line. Fix: (1) filter row_list to in-field columns; (2) reduce
+                # lateral bay columns to round(sqrt(num_tents)) so the binary
+                # search finds a spacing where the stagger fits inside the field.
+                if (not _cols_reduced
+                        and ns_spacing > radius * 2.0
+                        and len(row_list) > 1):
+                    # Step 1: restrict to columns within the field boundary.
+                    if boundary_enu:
+                        _ab_lat_c = [e * cos_r + n * sin_r for e, n in boundary_enu]
+                        _ab_lat_min, _ab_lat_max = min(_ab_lat_c), max(_ab_lat_c)
+                        _ab_infield = [rc for rc in row_list
+                                       if _ab_lat_min <= rc[0] <= _ab_lat_max]
+                    else:
+                        # Circular field: radius includes a 1.05× buffer; undo it.
+                        _ab_infield = [rc for rc in row_list
+                                       if abs(rc[0]) < radius / 1.05]
+                    if len(_ab_infield) >= 2:
+                        row_list = _ab_infield
+                    # Step 2: reduce to target column count.
+                    _target_cols = max(1, round(math.sqrt(float(num_tents))))
+                    if _target_cols < len(row_list):
+                        if _target_cols == 1:
+                            row_list = [row_list[len(row_list) // 2]]
+                        else:
+                            _ab_stride = (len(row_list) - 1) / (_target_cols - 1)
+                            _ab_idxs = sorted(
+                                {int(round(i * _ab_stride)) for i in range(_target_cols)})
+                            row_list = [row_list[i] for i in _ab_idxs]
+                    # Re-run binary search; _count_at_least captures row_list by
+                    # reference so it uses the refined column set.
+                    lo, hi = 1.0, radius * 2.0
+                    if not _count_at_least(lo, num_tents):
+                        ns_spacing = lo
+                    else:
+                        for _ in range(32):
+                            mid = (lo + hi) / 2
+                            if _count_at_least(mid, num_tents):
+                                lo = mid
+                            else:
+                                hi = mid
+                        ns_spacing = lo
+            else:
+                # Auto: ~1 shelter per acre along the sprayer-pass-edge columns.
+                ns_spacing = max(1.0, calculate_spacing(radius, sprayer_width))
 
             # Generate the final grid at the chosen spacing. Stagger and row
             # grouping both key off the row's visual index, not k. Cells in the
