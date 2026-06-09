@@ -7126,7 +7126,7 @@ class BeetentApp(ctk.CTk):
         pw = self.winfo_width(); ph = self.winfo_height()
         px = self.winfo_rootx(); py = self.winfo_rooty()
         is_single = len(selected) == 1
-        dw, dh = 440, 225
+        dw, dh = 540, 230
         dlg.geometry(f"{dw}x{dh}+{px+(pw-dw)//2}+{py+(ph-dh)//2}")
 
         pad = ctk.CTkFrame(dlg, fg_color="transparent")
@@ -7140,11 +7140,11 @@ class BeetentApp(ctk.CTk):
             ctk.CTkLabel(pad, text=f"{len(selected)} fields selected",
                          text_color=UI_MUTED).pack(anchor="w", pady=(0,8))
 
-        ctk.CTkLabel(pad, text="Pin Labels:").pack(anchor="w")
-        label_var = tk.StringVar(value="Shelter Numbers")
+        ctk.CTkLabel(pad, text="Prepared for:").pack(anchor="w")
+        role_var = tk.StringVar(value="Agronomist")
         ctk.CTkSegmentedButton(pad,
-                               values=["Shelter Numbers", "Tray Counts", "None"],
-                               variable=label_var).pack(anchor="w", pady=(2,10))
+                               values=["Agronomist", "Flag/Shelter Crew", "Bee Delivery"],
+                               variable=role_var).pack(anchor="w", pady=(2,10), fill="x")
 
         # Save path — file for single, folder for batch
         def _versioned_pdf_name(directory, base_stem):
@@ -7198,9 +7198,12 @@ class BeetentApp(ctk.CTk):
         self.wait_window(dlg)
         if not result["go"]: return
 
-        label_mode = {"Shelter Numbers": "shelters",
-                      "Tray Counts":     "trays",
-                      "None":            "off"}[label_var.get()]
+        role = {"Agronomist":        "agronomist",
+                "Flag/Shelter Crew": "flag",
+                "Bee Delivery":      "bee"}[role_var.get()]
+        # Each role fixes the pin labels: agronomist/bee → tray counts,
+        # flag/shelter crew → shelter numbers.
+        label_mode = {"agronomist": "trays", "flag": "shelters", "bee": "trays"}[role]
 
         if is_single:
             co0, yr0, nm0 = selected[0]
@@ -7221,6 +7224,7 @@ class BeetentApp(ctk.CTk):
         self._pdf_queue      = list(selected)
         self._pdf_paths      = pdf_paths
         self._pdf_label_mode = label_mode
+        self._pdf_role       = role
         self._pdf_done       = []
         self._process_next_pdf()
 
@@ -7277,7 +7281,8 @@ class BeetentApp(ctk.CTk):
             save_path = self._pdf_paths.get((co, yr, name), "")
             if save_path:
                 try:
-                    self._build_field_pdf(cached_img, self._pdf_label_mode, save_path)
+                    self._build_field_pdf(cached_img, self._pdf_label_mode, save_path,
+                                          role=getattr(self, "_pdf_role", "agronomist"))
                     self._pdf_done.append(save_path)
                 except Exception:
                     import traceback as _tb
@@ -7399,7 +7404,8 @@ class BeetentApp(ctk.CTk):
 
         if map_img is not None and save_path:
             try:
-                self._build_field_pdf(map_img, self._pdf_label_mode, save_path)
+                self._build_field_pdf(map_img, self._pdf_label_mode, save_path,
+                                      role=getattr(self, "_pdf_role", "agronomist"))
                 self._pdf_done.append(save_path)
                 # Save for future runs (next generation of this field is instant)
                 self._pdf_save_cache(map_img, co, yr, name)
@@ -7412,8 +7418,17 @@ class BeetentApp(ctk.CTk):
         self._pdf_queue.pop(0)
         self._process_next_pdf()
 
-    def _build_field_pdf(self, map_img, label_mode, save_path):
-        """Construct and write the Field Summary PDF to *save_path*."""
+    def _build_field_pdf(self, map_img, label_mode, save_path, role="agronomist"):
+        """Construct and write the Field Summary PDF to *save_path*.
+
+        role tailors the content for the job:
+          - "agronomist": full detail; tray-count pins; drop "Gap Between Bays"
+            when it's 0 ft and drop "Shelters in Outside Pass".
+          - "flag" (Flag/Shelter Crew): shelter-number pins; field details only
+            (no gallons / trays-per / distribution / outside-pass rows).
+          - "bee" (Bee Delivery): tray-count pins; drop the planting/spray/row
+            geometry rows and the outside-pass row.
+        The bottom data tables auto-size their rows to fill the page."""
         import fpdf as _fpdf
         import tempfile, math as _math
 
@@ -7504,6 +7519,9 @@ class BeetentApp(ctk.CTk):
         label_disp = {"shelters": "Shelter Numbers",
                       "trays":    "Tray Counts",
                       "off":      "None"}[label_mode]
+        role_disp = {"agronomist": "Agronomist",
+                     "flag":       "Flag / Shelter Crew",
+                     "bee":        "Bee Delivery"}.get(role, str(role).title())
 
         # ── Colour palette ─────────────────────────────────────────────────
         NAVY  = (30,  58,  95)
@@ -7646,7 +7664,7 @@ class BeetentApp(ctk.CTk):
         # Caption below map
         cap_y = MAP_Y + MAP_H + 2
         _txt(ML, cap_y, CW, 4,
-             f"Yellow pins = shelter positions  ·  Labels: {label_disp}",
+             f"Pins = shelter positions  ·  Labels: {label_disp}  ·  Prepared for: {role_disp}",
              'Helvetica', 'I', 7.5, MGRAY, 'C')
 
         # ── SECTION HEADER BAR ─────────────────────────────────────────────
@@ -7658,22 +7676,11 @@ class BeetentApp(ctk.CTk):
              "BEE ALLOCATION", 'Helvetica', 'B', 8.5, WHITE, 'L')
 
         # ── DATA TABLES ───────────────────────────────────────────────────
-        ROW_H  = 6.4
         tbl_y  = sec_y + 9.5
         HALF   = (CW - 5) / 2   # each panel ~90mm
         LGAP   = 3               # gap between panels (label side)
 
-        def _data_row(px, py, pw, label, value, alt=False, small_val=False):
-            _fill(px, py, pw, ROW_H, ALTBG if alt else WHITE)
-            # Label
-            _txt(px + 2.5, py + 1.3, pw * 0.50, ROW_H - 1.5,
-                 label, 'Helvetica', '', 8, MGRAY, 'L')
-            # Value
-            vs = 7 if small_val else 8
-            _txt(px + pw * 0.50, py + 1.3, pw * 0.48, ROW_H - 1.5,
-                 value, 'Helvetica', 'B', vs, NAVY, 'R')
-
-        # Left panel — Field Details
+        # Full panels, then drop rows per role.
         left_rows = [
             ("Legal Description", lld),
             ("Acres",             acres_disp),
@@ -7689,13 +7696,6 @@ class BeetentApp(ctk.CTk):
         ]
         if uploaded_disp:
             left_rows.append(("Uploaded Data", uploaded_disp))
-
-        for i, (lbl, val) in enumerate(left_rows):
-            _data_row(ML, tbl_y + i * ROW_H, HALF,
-                      lbl, val, alt=(i % 2 == 1),
-                      small_val=(lbl == "Planter Layout" and len(val) > 18))
-
-        # Right panel — Bee Allocation
         right_rows = [
             ("Total Shelters",         shelters_disp),
             ("Gals / Acre",            gpa_disp),
@@ -7706,16 +7706,60 @@ class BeetentApp(ctk.CTk):
             ("Tray Distribution",      dist_disp),
             ("Shelters in Outside Pass", outside_disp),
         ]
+
+        try: _gap_zero = (not gap_s) or float(gap_s) == 0
+        except ValueError: _gap_zero = False
+        rm_left, rm_right = set(), set()
+        if role == "agronomist":
+            if _gap_zero: rm_left.add("Gap Between Bays")
+            rm_right.add("Shelters in Outside Pass")
+        elif role == "flag":
+            rm_right.update(["Gals / Acre", "Total Gals", "Gals / Tray",
+                             "Trays per Shelter", "Tray Distribution",
+                             "Shelters in Outside Pass"])
+        elif role == "bee":
+            rm_left.update(["Planting Angle", "Spraying Angle", "Sprayer Width",
+                            "Row Spacing", "Gap Between Bays"])
+            rm_right.add("Shelters in Outside Pass")
+        left_rows  = [(l, v) for (l, v) in left_rows  if l not in rm_left]
+        right_rows = [(l, v) for (l, v) in right_rows if l not in rm_right]
+
+        # Auto-size each panel's rows to fill the band down to the footer, so
+        # dropped rows don't leave the page empty. Capped so rows never look
+        # absurd; font scales with row height.
+        avail_h = (PH - 13) - tbl_y
+
+        def _panel_metrics(n):
+            if n <= 0:
+                return 0.0, 8.0, 8.0
+            rh = max(6.2, min(12.5, avail_h / n))
+            lbl_sz = max(8.0, min(10.5, rh * 0.95))
+            val_sz = max(8.0, min(11.0, rh))
+            return rh, lbl_sz, val_sz
+
+        def _row(px, py, pw, label, value, alt, rh, lbl_sz, val_sz, small_val=False):
+            _fill(px, py, pw, rh, ALTBG if alt else WHITE)
+            ty = py + (rh - 4) / 2.0
+            _txt(px + 2.5, ty, pw * 0.50, 4, label, 'Helvetica', '', lbl_sz, MGRAY, 'L')
+            vs = (val_sz - 1) if small_val else val_sz
+            _txt(px + pw * 0.50, ty, pw * 0.48, 4, value, 'Helvetica', 'B', vs, NAVY, 'R')
+
+        lrh, llbl, lval = _panel_metrics(len(left_rows))
+        for i, (lbl, val) in enumerate(left_rows):
+            _row(ML, tbl_y + i * lrh, HALF, lbl, val, (i % 2 == 1),
+                 lrh, llbl, lval,
+                 small_val=(lbl == "Planter Layout" and len(str(val)) > 18))
+
         rx2 = ML + HALF + LGAP + 2
         pw2 = HALF - LGAP
-
+        rrh, rlbl, rval = _panel_metrics(len(right_rows))
         for i, (lbl, val) in enumerate(right_rows):
-            _data_row(rx2, tbl_y + i * ROW_H, pw2,
-                      lbl, val, alt=(i % 2 == 1))
+            _row(rx2, tbl_y + i * rrh, pw2, lbl, val, (i % 2 == 1),
+                 rrh, rlbl, rval)
 
-        # Thin vertical line between panels
+        # Divider between panels spans the whole table band.
         mid_x = ML + HALF + (LGAP + 2) / 2
-        _vline(mid_x, sec_y, tbl_y + len(left_rows) * ROW_H, DBDR, 0.3)
+        _vline(mid_x, sec_y, PH - 13, DBDR, 0.3)
 
         # ── FOOTER ────────────────────────────────────────────────────────
         foot_y = PH - 9
