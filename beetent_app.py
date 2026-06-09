@@ -1901,10 +1901,12 @@ class BeetentApp(ctk.CTk):
         self.map_widget.set_position(DEFAULT_LAT,DEFAULT_LON)
         self.map_widget.set_zoom(DEFAULT_ZOOM)
 
-        # Always-visible field name, overlaid top-right of the map so the
-        # current field is clear even when the side panels are collapsed.
+        # Always-visible field name, overlaid top-right of the satellite
+        # imagery (the map widget itself, BELOW the toolbar) so it never covers
+        # the toolbar's ✔ Save / context buttons. Visible even when the side
+        # panels are collapsed.
         self.map_field_label = ctk.CTkLabel(
-            self.map_frame, text="", anchor="e",
+            self.map_widget, text="", anchor="e",
             fg_color="transparent", text_color="#1E90FF",
             font=ctk.CTkFont(family=FONT_HEADING, size=16, weight="bold"))
         # Placed/hidden by _update_map_field_label (hidden until a field loads).
