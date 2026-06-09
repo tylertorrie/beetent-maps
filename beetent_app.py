@@ -486,6 +486,30 @@ def _subdivide_ring(poly_enu, max_seg):
                 out.append((ax + t * (bx - ax), ay + t * (by - ay)))
     return out
 
+def perimeter_offset_line(poly_enu, depth):
+    """Closed polyline offset inward from EACH boundary edge by depth metres,
+    connected edge-to-edge. Robust where a global polygon inset would
+    self-intersect and collapse (concave necks, finely-traced edges), so the
+    line follows the whole boundary. Returns a list of ENU points."""
+    n = len(poly_enu)
+    if n < 3:
+        return []
+    area2 = sum(poly_enu[i][0]*poly_enu[(i+1) % n][1] -
+                poly_enu[(i+1) % n][0]*poly_enu[i][1] for i in range(n))
+    wind = 1 if area2 > 0 else -1
+    pts = []
+    for i in range(n):
+        ax, ay = poly_enu[i]; bx, by = poly_enu[(i+1) % n]
+        dx, dy = bx-ax, by-ay; L = math.hypot(dx, dy)
+        if L < 1e-9:
+            continue
+        nx, ny = wind*(-dy/L), wind*(dx/L)
+        pts.append((ax + depth*nx, ay + depth*ny))
+        pts.append((bx + depth*nx, by + depth*ny))
+    if pts:
+        pts.append(pts[0])   # close the ring
+    return pts
+
 def perimeter_band_quads(poly_enu, d_in, d_out):
     """Per-edge inward-offset band between depths d_in and d_out metres.
 
@@ -5323,16 +5347,18 @@ class BeetentApp(ctk.CTk):
 
         if not self.show_passes.get(): return
 
-        # Outer sprayer limit (one sprayer-width inset from boundary) — always
-        # drawn when a boundary exists; the outside round is always part of the
-        # sprayer operation.
+        # Outer sprayer limit = inner edge of the outside round (one sprayer
+        # width in from the boundary) — always drawn with the sprayer passes;
+        # the outside round is part of the sprayer operation. Drawn PER EDGE so
+        # it follows the whole boundary (a global inset collapses on concave /
+        # finely-traced fields and leaves gaps, e.g. the NW corner).
         if bp and len(bp) >= 3:
-            inset=inset_polygon_enu(poly_enu,width_m)
-            if len(inset)>=3:
-                lpts=[enu_to_latlon(e,n,plat,plon) for e,n in inset]
+            line = perimeter_offset_line(poly_enu, width_m)
+            if len(line) >= 2:
+                lpts=[enu_to_latlon(e,n,plat,plon) for e,n in line]
                 try:
-                    self.outer_sprayer_poly=self.map_widget.set_polygon(
-                        lpts,fill_color=None,outline_color="#33FF66",border_width=2)
+                    self.outer_sprayer_poly=self.map_widget.set_path(
+                        lpts, color="#33FF66", width=2)
                 except Exception: pass
 
         rot=math.radians((0-angle+180)%360-180)
@@ -5881,18 +5907,14 @@ class BeetentApp(ctk.CTk):
             #     middles) so it still breaks at row ends and stays clear of
             #     interior tires. Inner-boundary cutouts handled by skipping any
             #     quad whose centre falls inside one.
+            # (The continuous inner-EDGE LINE of the outside round is drawn with
+            # the regular sprayer passes in _redraw_passes, so it appears with
+            # the Sprayer layer without needing this overlay toggled on.)
             _inner_cuts = inner_polys_enu or []
-            _ib_line = []
             # Subdivide so each quad's lateral span stays well under out_band,
             # keeping the kill-stripe span test accurate without thinning fill.
             _ib_src = _subdivide_ring(poly_enu, max(1.0, out_band * 0.5))
             for q in perimeter_band_quads(_ib_src, max(0.0, width_m - out_band), width_m):
-                # The inner edge of the outside round (depth = full width) is
-                # q[3]→q[2]. Collect every edge into ONE continuous polyline —
-                # the "inside edge line" of the perimeter sprayer pass — so it
-                # never gaps (e.g. the NW corner). Drawn unbroken below.
-                _ib_line.append(enu_to_latlon(q[3][0], q[3][1], plat, plon))
-                _ib_line.append(enu_to_latlon(q[2][0], q[2][1], plat, plon))
                 # Fill only where the WHOLE quad sits inside one green pass-edge
                 # band. Using the full lateral span (not just the centre) keeps
                 # an angled edge's quad from straddling a kill middle and
@@ -5910,10 +5932,6 @@ class BeetentApp(ctk.CTk):
                 lp = [enu_to_latlon(e, n, plat, plon) for e, n in q]
                 try: _add(self.map_widget.set_polygon(lp, fill_color=GREEN,
                                                       outline_color=GREEN, border_width=0))
-                except Exception: pass
-            if len(_ib_line) >= 2:
-                _ib_line.append(_ib_line[0])   # close the ring
-                try: _add(self.map_widget.set_path(_ib_line, color=GREEN, width=2))
                 except Exception: pass
 
         # ── Outside round: red tire ring ────────────────────────────────────
