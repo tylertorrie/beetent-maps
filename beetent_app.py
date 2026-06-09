@@ -467,6 +467,25 @@ def _remove_inset_spikes(poly, _d=0):
             return _remove_inset_spikes(keep, _d+1)
     return poly
 
+def _subdivide_ring(poly_enu, max_seg):
+    """Insert points so no edge is longer than max_seg metres. Keeps per-edge
+    band quads short so a lateral kill-stripe test on the quad centre is
+    accurate (a long angled edge's quad would otherwise straddle a pass middle)."""
+    if max_seg <= 0:
+        return list(poly_enu)
+    out = []
+    n = len(poly_enu)
+    for i in range(n):
+        ax, ay = poly_enu[i]; bx, by = poly_enu[(i + 1) % n]
+        out.append((ax, ay))
+        d = math.hypot(bx - ax, by - ay)
+        if d > max_seg:
+            k = int(d / max_seg)
+            for j in range(1, k + 1):
+                t = j / (k + 1.0)
+                out.append((ax + t * (bx - ax), ay + t * (by - ay)))
+    return out
+
 def perimeter_band_quads(poly_enu, d_in, d_out):
     """Per-edge inward-offset band between depths d_in and d_out metres.
 
@@ -5863,13 +5882,27 @@ class BeetentApp(ctk.CTk):
             #     interior tires. Inner-boundary cutouts handled by skipping any
             #     quad whose centre falls inside one.
             _inner_cuts = inner_polys_enu or []
-            for q in perimeter_band_quads(poly_enu, max(0.0, width_m - out_band), width_m):
+            _ib_line = []
+            # Subdivide so each quad's lateral span stays well under out_band,
+            # keeping the kill-stripe span test accurate without thinning fill.
+            _ib_src = _subdivide_ring(poly_enu, max(1.0, out_band * 0.5))
+            for q in perimeter_band_quads(_ib_src, max(0.0, width_m - out_band), width_m):
+                # The inner edge of the outside round (depth = full width) is
+                # q[3]→q[2]. Collect every edge into ONE continuous polyline —
+                # the "inside edge line" of the perimeter sprayer pass — so it
+                # never gaps (e.g. the NW corner). Drawn unbroken below.
+                _ib_line.append(enu_to_latlon(q[3][0], q[3][1], plat, plon))
+                _ib_line.append(enu_to_latlon(q[2][0], q[2][1], plat, plon))
+                # Fill only where the WHOLE quad sits inside one green pass-edge
+                # band. Using the full lateral span (not just the centre) keeps
+                # an angled edge's quad from straddling a kill middle and
+                # crossing an interior tire.
+                lats = [(px - sse)*ldx + (py - ssn)*ldy for px, py in q]
+                edge = round((sum(lats)/4.0) / width_m) * width_m
+                if max(abs(min(lats) - edge), abs(max(lats) - edge)) > out_band:
+                    continue                                  # straddles a pass middle
                 cx = (q[0][0]+q[1][0]+q[2][0]+q[3][0]) / 4.0
                 cy = (q[0][1]+q[1][1]+q[2][1]+q[3][1]) / 4.0
-                lat = (cx - sse)*ldx + (cy - ssn)*ldy        # pass-grid lateral
-                m = lat % width_m
-                if min(m, width_m - m) > out_band:           # in a pass kill middle
-                    continue
                 if any(any(a <= 0.0 <= b for (a, b) in
                            clip_line_to_polygon_intervals(cx, cy, tdx, tdy, ring))
                        for ring in _inner_cuts):
@@ -5877,6 +5910,10 @@ class BeetentApp(ctk.CTk):
                 lp = [enu_to_latlon(e, n, plat, plon) for e, n in q]
                 try: _add(self.map_widget.set_polygon(lp, fill_color=GREEN,
                                                       outline_color=GREEN, border_width=0))
+                except Exception: pass
+            if len(_ib_line) >= 2:
+                _ib_line.append(_ib_line[0])   # close the ring
+                try: _add(self.map_widget.set_path(_ib_line, color=GREEN, width=2))
                 except Exception: pass
 
         # ── Outside round: red tire ring ────────────────────────────────────
