@@ -872,11 +872,11 @@ class _ExportTypePicker(ctk.CTkToplevel):
         self.grab_set()
         self.result = None      # dict or None if cancelled
 
-        self._agps_var    = ctk.BooleanVar(value=True)
-        self._jd_var      = ctk.BooleanVar(value=True)
-        self._kml_var     = ctk.BooleanVar(value=True)
-        self._geojson_var = ctk.BooleanVar(value=True)
-        self._bnd_var     = ctk.BooleanVar(value=True)
+        self._agps_var    = ctk.BooleanVar(value=False)
+        self._jd_var      = ctk.BooleanVar(value=False)
+        self._kml_var     = ctk.BooleanVar(value=False)
+        self._geojson_var = ctk.BooleanVar(value=False)
+        self._bnd_var     = ctk.BooleanVar(value=False)
         self._main_vars = [self._agps_var, self._jd_var,
                            self._kml_var, self._geojson_var, self._bnd_var]
 
