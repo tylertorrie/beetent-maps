@@ -127,5 +127,7 @@
   ],
   "shelter_buffer_m": "1.524",
   "shelters_in_outside_pass": "Yes",
-  "shelter_at_pivot": false
+  "shelter_at_pivot": false,
+  "sprayer_shift_e_m": -15.544800000000002,
+  "sprayer_shift_n_m": 0.0
 }
