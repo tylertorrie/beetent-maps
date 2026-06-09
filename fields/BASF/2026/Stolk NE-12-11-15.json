@@ -1934,7 +1934,7 @@
   "lld": "NE-12-11-15-W4",
   "acres_per_shelter": "2",
   "shelter_rows": "",
-  "pass_edge_buffer_ft": "4",
+  "pass_edge_buffer_ft": "0",
   "total_rows": "20",
   "row_layout": "centered",
   "custom_row_mask": "",
