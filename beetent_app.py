@@ -467,6 +467,33 @@ def _remove_inset_spikes(poly, _d=0):
             return _remove_inset_spikes(keep, _d+1)
     return poly
 
+def perimeter_band_quads(poly_enu, d_in, d_out):
+    """Per-edge inward-offset band between depths d_in and d_out metres.
+
+    Each boundary edge contributes ONE quad, so the band always follows the
+    whole boundary — robust where a global polygon inset would self-intersect
+    and collapse (concave necks narrower than the band, finely-traced edges).
+    Used to draw the outside-round zones (perimeter sprayer pass) so they
+    render all the way around any field shape. Returns a list of 4-point ENU
+    polygons.
+    """
+    n = len(poly_enu)
+    if n < 3:
+        return []
+    area2 = sum(poly_enu[i][0]*poly_enu[(i+1) % n][1] -
+                poly_enu[(i+1) % n][0]*poly_enu[i][1] for i in range(n))
+    wind = 1 if area2 > 0 else -1   # inward normal sign from winding
+    quads = []
+    for i in range(n):
+        ax, ay = poly_enu[i]; bx, by = poly_enu[(i+1) % n]
+        dx, dy = bx-ax, by-ay; L = math.hypot(dx, dy)
+        if L < 1e-9:
+            continue
+        nx, ny = wind*(-dy/L), wind*(dx/L)
+        quads.append([(ax+d_in*nx, ay+d_in*ny), (bx+d_in*nx, by+d_in*ny),
+                      (bx+d_out*nx, by+d_out*ny), (ax+d_out*nx, ay+d_out*ny)])
+    return quads
+
 def inset_polygon_enu(poly_enu, dist):
     """Offset every edge of poly_enu inward by dist metres.
 
@@ -5759,33 +5786,26 @@ class BeetentApp(ctk.CTk):
             #     way around (override). The outside round is driven once and the
             #     operator turns before leaving the field, so a shelter on the
             #     very outer edge is safe even where an interior pass crosses —
-            #     this band is NOT broken at row ends.
-            _outer_cut = inset_polygon_enu(poly_enu, out_band)
-            if _outer_cut and len(_outer_cut) >= 3:
-                _ring = (list(poly_enu) + [poly_enu[0], _outer_cut[0]]
-                         + list(reversed(_outer_cut)) + [_outer_cut[0], poly_enu[0]])
-                _lr = [enu_to_latlon(e, n, plat, plon) for e, n in _ring]
-                try: _add(self.map_widget.set_polygon(_lr, fill_color=GREEN,
+            #     this band is NOT broken at row ends. Drawn PER BOUNDARY EDGE
+            #     so it follows any field shape (a global inset would collapse on
+            #     concave necks / finely-traced edges and leave gaps).
+            for q in perimeter_band_quads(poly_enu, 0.0, out_band):
+                lp = [enu_to_latlon(e, n, plat, plon) for e, n in q]
+                try: _add(self.map_widget.set_polygon(lp, fill_color=GREEN,
                                                       outline_color=GREEN, border_width=0))
-                except Exception: pass
-                _le = [enu_to_latlon(e, n, plat, plon) for e, n in _outer_cut]
-                _le.append(_le[0])
-                try: _add(self.map_widget.set_path(_le, color=GREEN, width=2))
                 except Exception: pass
 
         # ── Outside round: red tire ring ────────────────────────────────────
-        # The outside round's own tire/drive zone (its green edge bands are
-        # drawn above as part of the lateral edge-band system, so they obey the
-        # machine-to-edge clearance like every other green band).
+        # The perimeter pass's machine/tire drive zone. Drawn PER BOUNDARY EDGE
+        # (not from a global inset) so it renders all the way around any shape —
+        # including concave necks narrower than the sprayer, where an inset
+        # would self-intersect and drop sections.
         if show_tire:
             half = width_m / 2.0
-            outer_tire = inset_polygon_enu(poly_enu, max(0.3, half - TIRE_HALF))
-            inner_tire = inset_polygon_enu(poly_enu, half + TIRE_HALF)
-            if len(outer_tire) >= 3 and len(inner_tire) >= 3:
-                ring = (list(outer_tire) + [outer_tire[0], inner_tire[0]]
-                        + list(reversed(inner_tire)) + [inner_tire[0], outer_tire[0]])
-                lpts = [enu_to_latlon(e, n, plat, plon) for e, n in ring]
-                try: _add(self.map_widget.set_polygon(lpts, fill_color=RED,
+            for q in perimeter_band_quads(poly_enu, max(0.0, half - TIRE_HALF),
+                                          half + TIRE_HALF):
+                lp = [enu_to_latlon(e, n, plat, plon) for e, n in q]
+                try: _add(self.map_widget.set_polygon(lp, fill_color=RED,
                                                       outline_color=RED, border_width=0))
                 except Exception: pass
 
