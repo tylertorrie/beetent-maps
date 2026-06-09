@@ -5142,10 +5142,19 @@ class BeetentApp(ctk.CTk):
         for r in range(-max_rows,max_rows+1):
             lat_e=r*width_m; lat_n=0
             pe=lat_e*cos_r-lat_n*sin_r; pn=lat_n*cos_r+lat_e*sin_r
-            if (len(outside_round_inner) >= 3
-                    and not clip_line_to_polygon_intervals(
-                        lat_e * ldx, lat_e * ldy, tdx, tdy, outside_round_inner)):
-                continue   # this edge line is fully inside the outside round
+            # Skip a pass-edge line only when BOTH passes it borders lie fully
+            # inside the outside round. Sampling the span on both sides of the
+            # edge (not just the single edge line) keeps passes that only
+            # partly poke out of the round and still spray uncovered interior.
+            if len(outside_round_inner) >= 3:
+                _covers = False
+                for _i in range(13):
+                    _cx = lat_e - width_m + (2.0 * width_m) * _i / 12.0
+                    if clip_line_to_polygon_intervals(
+                            _cx * ldx, _cx * ldy, tdx, tdy, outside_round_inner):
+                        _covers = True; break
+                if not _covers:
+                    continue   # both bordering passes fully inside the round
             pe+=sse; pn+=ssn   # apply sprayer Shift (lateral part moves passes)
 
             # All inside-segments of the pass line against the outer boundary.
@@ -5479,10 +5488,20 @@ class BeetentApp(ctk.CTk):
 
         outside_round_inner = inset_polygon_enu(poly_enu, width_m)
 
-        def _band_inside_round(cx):
-            if len(outside_round_inner) < 3: return False
-            pe, pn = cx * ldx, cx * ldy
-            return not clip_line_to_polygon_intervals(pe, pn, tdx, tdy, outside_round_inner)
+        def _pass_covers_interior(x_lo, x_hi):
+            """True if any part of the lateral pass span [x_lo, x_hi] reaches
+            the field interior beyond the outside round — i.e. the pass still
+            sprays ground the perimeter round does not cover, so it must be
+            drawn. Sampling several lines across the span (not just the centre)
+            keeps passes that only PARTLY poke out of the round."""
+            if len(outside_round_inner) < 3:
+                return True
+            for i in range(7):
+                cx = x_lo + (x_hi - x_lo) * i / 6.0
+                if clip_line_to_polygon_intervals(cx * ldx, cx * ldy, tdx, tdy,
+                                                  outside_round_inner):
+                    return True
+            return False
 
         inner_polys_enu = []
         for inner in (self.current_field.get("boundary_inner") or []):
@@ -5493,7 +5512,7 @@ class BeetentApp(ctk.CTk):
         if show_tire:
             for r in range(-max_rows, max_rows + 1):
                 cx = (r + 0.5) * width_m
-                if _band_inside_round(cx): continue
+                if not _pass_covers_interior(r * width_m, (r + 1) * width_m): continue
                 for band in self._band_polygon_enu(cx - TIRE_HALF, cx + TIRE_HALF,
                                                    tdx, tdy, ldx, ldy, poly_enu,
                                                    inner_polys_enu=inner_polys_enu):
@@ -5523,7 +5542,7 @@ class BeetentApp(ctk.CTk):
         if show_band and max_band_m > 0:
             actual_band = min(buffer_m, max_band_m)
             for r in range(-max_rows, max_rows + 1):
-                if _band_inside_round((r + 0.5) * width_m): continue
+                if not _pass_covers_interior(r * width_m, (r + 1) * width_m): continue
                 le = r * width_m; re_ = (r + 1) * width_m
                 _fill_band(le, le + actual_band)
                 _fill_band(re_ - actual_band, re_)
@@ -5563,12 +5582,20 @@ class BeetentApp(ctk.CTk):
                     try: _add(self.map_widget.set_path(lpts_r, color=GREEN, width=2))
                     except Exception: pass
 
-                # Allowance band on the INNER side of the perimeter pass: the
-                # edge-band-wide strip just inside the round's inner edge where
-                # shelters MAY intrude. Filled between safe_poly (outer limit,
-                # = width − edge band in from the boundary) and the round's
-                # inner edge (a full width in). The no-go strip from the
-                # boundary out to safe_poly is intentionally left unshaded.
+                # The perimeter pass is treated like any other pass: a green
+                # good-zone band on EACH edge, with the driven middle (red tire)
+                # left clear between them.
+                #
+                # Outer edge band — boundary in to out_band (the boom's outer
+                # reach). Shelters may sit here, right against the field edge.
+                g_outer_inner = inset_polygon_enu(poly_enu, out_band)
+                if g_outer_inner and len(g_outer_inner) < 3:
+                    g_outer_inner = None
+                _fill_ring(poly_enu, g_outer_inner)
+                if g_outer_inner is not None:
+                    _ring_edge(g_outer_inner)
+                # Inner edge band — safe_poly (= width − edge band in from the
+                # boundary) to the round's inner edge (a full width in).
                 g_inner_edge = inset_polygon_enu(poly_enu, width_m)
                 if g_inner_edge and len(g_inner_edge) < 3:
                     g_inner_edge = None
