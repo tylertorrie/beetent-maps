@@ -332,6 +332,57 @@ def haversine_m(lat1,lon1,lat2,lon2):
     a=math.sin(dlat/2)**2+math.cos(math.radians(lat1))*math.cos(math.radians(lat2))*math.sin(dlon/2)**2
     return 2*R*math.asin(math.sqrt(a))
 
+def despike_ring(ring, max_short_seg_m=2.0, min_reversal_deg=120.0, dup_eps_m=0.3):
+    """Clean tracing artifacts from a boundary ring (list of (lat, lon)).
+
+    Removes:
+      • near-duplicate consecutive points (segment shorter than dup_eps_m), and
+      • short "doubling-back" spikes — a vertex with a sharp reversal
+        (turn ≥ min_reversal_deg) AND a short adjacent segment
+        (≤ max_short_seg_m), i.e. the path darts out and straight back.
+
+    Conservative by design: a genuine corner has long segments on both sides,
+    so it is never removed. A closed-ring duplicate end point is preserved.
+    Returns a NEW list of [lat, lon]; falls back to the input if too small.
+    """
+    pts = [(float(p[0]), float(p[1])) for p in ring]
+    if len(pts) < 4:
+        return [list(p) for p in pts]
+    # Strip a trailing duplicate of the first point (closed-ring form), then
+    # treat the remainder as a cyclic ring; re-close at the end if it was closed.
+    closed = (abs(pts[0][0] - pts[-1][0]) < 1e-12 and
+              abs(pts[0][1] - pts[-1][1]) < 1e-12)
+    if closed:
+        pts = pts[:-1]
+    if len(pts) < 4:
+        return [list(p) for p in ring]
+    mlat = sum(p[0] for p in pts) / len(pts)
+    pd_lat = 111111.0
+    pd_lon = 111111.0 * math.cos(math.radians(mlat))
+    def _seg(a, b):
+        return math.hypot((b[1]-a[1])*pd_lon, (b[0]-a[0])*pd_lat)
+    def _turn(a, p, b):
+        v1 = ((p[1]-a[1])*pd_lon, (p[0]-a[0])*pd_lat)
+        v2 = ((b[1]-p[1])*pd_lon, (b[0]-p[0])*pd_lat)
+        m1 = math.hypot(*v1); m2 = math.hypot(*v2)
+        if m1 == 0 or m2 == 0: return 180.0
+        c = max(-1.0, min(1.0, (v1[0]*v2[0] + v1[1]*v2[1]) / (m1*m2)))
+        return math.degrees(math.acos(c))
+    changed = True
+    while changed and len(pts) >= 4:
+        changed = False
+        n = len(pts)
+        for i in range(n):
+            a = pts[(i-1) % n]; p = pts[i]; b = pts[(i+1) % n]
+            l1 = _seg(a, p); l2 = _seg(p, b)
+            if min(l1, l2) < dup_eps_m:                      # near-duplicate
+                del pts[i]; changed = True; break
+            if _turn(a, p, b) >= min_reversal_deg and min(l1, l2) <= max_short_seg_m:
+                del pts[i]; changed = True; break            # doubling-back spike
+    if closed:
+        pts = pts + [pts[0]]
+    return [list(p) for p in pts]
+
 def circle_pts(lat,lon,r_m,n=90):
     pts=[]
     for i in range(n):
@@ -3425,8 +3476,10 @@ class BeetentApp(ctk.CTk):
                     s += x1 * y2 - x2 * y1
                 return abs(s) * 0.5
             polys.sort(key=_abs_area, reverse=True)
-            outer = polys[0]
-            inners = polys[1:]
+            # Clean tracing artifacts (near-duplicate points + short doubling-
+            # back spikes) from every imported ring.
+            outer = despike_ring(polys[0])
+            inners = [despike_ring(r) for r in polys[1:]]
             self.current_field["boundary_polygon"] = [list(p) for p in outer]
             self.current_field["boundary_inner"] = [[list(pt) for pt in inner] for inner in inners]
             self.boundary_pts = outer
@@ -3652,6 +3705,9 @@ class BeetentApp(ctk.CTk):
     def _close_boundary(self):
         if len(self.boundary_pts)<3: self._status("Need ≥ 3 points."); return
         self._selected_bnd_vertex=None
+        # Clean tracing artifacts (near-duplicate points + short doubling-back
+        # spikes from stray clicks) before committing the drawn polygon.
+        self.boundary_pts=[tuple(p) for p in despike_ring(self.boundary_pts)]
         self.current_field["boundary_polygon"]=[list(p) for p in self.boundary_pts]
         self.click_mode=None
         self._hide_context_btn()
