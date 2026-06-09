@@ -1167,6 +1167,23 @@ class BeetentApp(ctk.CTk):
 
         cur_edge = self.fv["pass_edge_buffer_ft"].get() or "25"
         cur_tire = self.fv["tire_width_ft"].get() or "14"
+        try: sw_ft = float(self.fv["Sprayer_width"].get() or 0)
+        except (ValueError, TypeError): sw_ft = 0.0
+
+        def _to_ft(s):   # displayed unit → stored feet
+            try: v = float(s.strip())
+            except (ValueError, TypeError): return None
+            if v < 0: return None
+            return v / 0.3048 if use_m else v
+
+        def _max_edge_ft():
+            # The edge zone runs from a pass edge inward; the tire drive zone
+            # sits in the pass centre. Max edge zone before the two meet is
+            # half the sprayer width minus half the tire width. (tire_var is
+            # resolved at call time, after it is created below.)
+            t_ft = _to_ft(tire_var.get())
+            if t_ft is None: t_ft = float(cur_tire or 14)
+            return max(0.0, sw_ft / 2.0 - t_ft / 2.0)
 
         win = ctk.CTkToplevel(self)
         win.title("Sprayer Edge Zone & Tire Width")
@@ -1191,17 +1208,35 @@ class BeetentApp(ctk.CTk):
         ctk.CTkEntry(trow, textvariable=tire_var, width=90).pack(side="left", padx=(2, 4))
         ctk.CTkLabel(trow, text=unit, width=24, anchor="w").pack(side="left")
 
-        def _to_ft(s):   # displayed unit → stored feet
-            try: v = float(s.strip())
-            except (ValueError, TypeError): return None
-            if v < 0: return None
-            return v / 0.3048 if use_m else v
+        # Live max: depends on this field's sprayer width and the tire width
+        # entered above, so it updates as the tire width changes.
+        maxlbl = ctk.CTkLabel(win, text="", text_color=UI_ACCENT,
+                              font=ctk.CTkFont(size=12))
+        maxlbl.pack(padx=24, pady=(6, 2))
+
+        def _refresh_max(*_):
+            if sw_ft <= 0:
+                maxlbl.configure(text="Set the sprayer width to bound the edge zone.")
+                return
+            maxlbl.configure(text="Max edge zone: %g %s  (sprayer %g − tire, ÷2)"
+                             % (_to_disp(_max_edge_ft()), unit, _to_disp(sw_ft)))
+        tire_var.trace_add("write", _refresh_max)
+        _refresh_max()
 
         def do_apply():
             e_ft = _to_ft(edge_var.get())
             t_ft = _to_ft(tire_var.get())
             if e_ft is None or t_ft is None:
-                self._status("Enter valid widths (≥ 0)."); return
+                self._status("Enter valid widths (>= 0)."); return
+            m_ft = max(0.0, sw_ft / 2.0 - t_ft / 2.0)
+            if sw_ft > 0 and e_ft > m_ft + 1e-6:
+                tkinter.messagebox.showerror(
+                    "Edge zone too wide",
+                    "The sprayer edge zone can be at most %g %s for a %g %s sprayer "
+                    "with a %g %s tire width — any wider and it would overlap the "
+                    "machine's drive (tire) zone."
+                    % (_to_disp(m_ft), unit, _to_disp(sw_ft), unit, _to_disp(t_ft), unit))
+                return
             self.fv["pass_edge_buffer_ft"].set("%g" % e_ft)   # write-trace → _on_form_change
             self.fv["tire_width_ft"].set("%g" % t_ft)
             win.destroy()
