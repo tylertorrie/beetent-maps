@@ -1527,7 +1527,7 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
             # candidate. ~150K validity calls × 87 edges × subtraction =
             # the difference between sub-second and minute-long freezes.
             _bnd_edges = None
-            if boundary_enu and outside_pass:
+            if boundary_enu:
                 _bnd_edges = []
                 n_b = len(boundary_enu)
                 for i in range(n_b):
@@ -1548,6 +1548,30 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
             _outpass_lo = _op_edge_pf
             _outpass_hi = sprayer_width - _op_edge_pf
 
+            def _in_outer_band_pf(east, north, d_sq):
+                # Within the outer edge band of the field boundary (the very
+                # outside edge). The outside round is driven once and the
+                # operator turns before leaving the field, so the outer edge is
+                # safe even where an interior pass would otherwise cross — it is
+                # exempt from the interior pass kill zone.
+                if _op_edge_pf <= 0:
+                    return False
+                if _bnd_edges is not None:
+                    min_d2 = float('inf')
+                    for ax, ay, dx_, dy_, seg2 in _bnd_edges:
+                        if seg2 > 0:
+                            t = ((east - ax) * dx_ + (north - ay) * dy_) / seg2
+                            if t < 0.0: t = 0.0
+                            elif t > 1.0: t = 1.0
+                            px = ax + t * dx_; py = ay + t * dy_
+                        else:
+                            px, py = ax, ay
+                        ddx = east - px; ddy = north - py
+                        d2 = ddx*ddx + ddy*ddy
+                        if d2 < min_d2: min_d2 = d2
+                    return math.sqrt(min_d2) <= _op_edge_pf
+                return (radius - math.sqrt(d_sq)) <= _op_edge_pf
+
             def _pf_valid(east, north):
                 # Cheapest checks first — pivot inner and main-pass kill zone
                 # are constant-time. The round-trip lat/lon safety check that
@@ -1562,7 +1586,7 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                     r_idx = round(lat_e / sprayer_width)
                     d_pc = lat_e - r_idx * sprayer_width
                     if d_pc < 0: d_pc = -d_pc
-                    if d_pc < pass_dead_half_pf:
+                    if d_pc < pass_dead_half_pf and not _in_outer_band_pf(east, north, d_sq):
                         return False
                 if _pivot_tracks_t:
                     d = math.sqrt(d_sq)
@@ -1909,6 +1933,18 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
 
             _pivot_tracks_sg = tuple(pivot_tracks) if pivot_tracks else ()
 
+            def _in_outer_band(east, north, d_sq):
+                # Within the outer edge band of the field boundary (the very
+                # outside edge). The outside round is driven once and the
+                # operator turns before leaving the field, so the outer edge is
+                # safe even where an interior pass would otherwise cross — it is
+                # exempt from the interior pass kill zone.
+                if op_edge_m <= 0:
+                    return False
+                if boundary_enu:
+                    return _min_dist_to_bnd(east, north) <= op_edge_m
+                return (radius - math.sqrt(d_sq)) <= op_edge_m
+
             def _base_valid(east, north):
                 # HARD constraints — a cell failing one of these may be slid
                 # ("snapped") along the bay to a nearby valid spot.
@@ -1925,7 +1961,7 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                     frac = lat_e / sprayer_width
                     frac -= math.floor(frac)                    # position in pass [0,1)
                     d_center = abs(frac - 0.5) * sprayer_width   # dist from pass centre
-                    if d_center < pass_dead_half:
+                    if d_center < pass_dead_half and not _in_outer_band(east, north, d_sq):
                         return False
                 if _pivot_tracks_sg:
                     d = math.sqrt(d_sq)

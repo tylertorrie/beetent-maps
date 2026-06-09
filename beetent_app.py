@@ -5557,20 +5557,23 @@ class BeetentApp(ctk.CTk):
                 le = r * width_m; re_ = (r + 1) * width_m
                 _fill_band(le, le + out_band)
                 _fill_band(re_ - out_band, re_)
-            #   • Outer edge band against the boundary: the SAME lateral edge
-            #     bands, clipped to the thin outer ring [0, band] of the outside
-            #     round (the boundary minus its inset by band). This keeps the
-            #     "green all the way around" look while breaking at every row
-            #     end, so it never crowds a tire. No bright edge lines here —
-            #     they would streak across the field.
+            #   • Outer edge band against the boundary: kept CONTINUOUS all the
+            #     way around (override). The outside round is driven once and the
+            #     operator turns before leaving the field, so a shelter on the
+            #     very outer edge is safe even where an interior pass crosses —
+            #     this band is NOT broken at row ends.
             _outer_cut = inset_polygon_enu(poly_enu, out_band)
             if _outer_cut and len(_outer_cut) >= 3:
-                for r in range(-max_rows, max_rows + 1):
-                    le = r * width_m; re_ = (r + 1) * width_m
-                    _fill_band(le, le + out_band, clip_poly=poly_enu,
-                               cutouts=[_outer_cut], draw_edges=False)
-                    _fill_band(re_ - out_band, re_, clip_poly=poly_enu,
-                               cutouts=[_outer_cut], draw_edges=False)
+                _ring = (list(poly_enu) + [poly_enu[0], _outer_cut[0]]
+                         + list(reversed(_outer_cut)) + [_outer_cut[0], poly_enu[0]])
+                _lr = [enu_to_latlon(e, n, plat, plon) for e, n in _ring]
+                try: _add(self.map_widget.set_polygon(_lr, fill_color=GREEN,
+                                                      outline_color=GREEN, border_width=0))
+                except Exception: pass
+                _le = [enu_to_latlon(e, n, plat, plon) for e, n in _outer_cut]
+                _le.append(_le[0])
+                try: _add(self.map_widget.set_path(_le, color=GREEN, width=2))
+                except Exception: pass
 
         # ── Outside round: red tire ring ────────────────────────────────────
         # The outside round's own tire/drive zone (its green edge bands are
