@@ -7,7 +7,7 @@
   "lld": "SE-14-9-15-W4",
   "Spray_angle": "0",
   "Sprayer_width": "165",
-  "shelter_mode": "acres_per_shelter",
+  "shelter_mode": "trays_2",
   "num_structures": "",
   "shelters_per_acre": "",
   "acres_per_shelter": "2",
