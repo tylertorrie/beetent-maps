@@ -1337,14 +1337,17 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
             offset_m = MALE_BAY_OFFSET_FT * 0.3048
             bay_laterals = male_bay_shelter_laterals(
                 nf_i, nm_i, layout, custom, total_rows_i, rs_m, offset_m, radius)
-            runs = mask_runs(resolve_row_mask(nf_i, nm_i, layout, custom, total_rows_i) or '', 'M')
-            if bay_laterals and runs:
-                pass_w = total_rows_i * rs_m
-                tent_row_width = pass_w / len(runs)   # true mean male-bay spacing
-                lat_offset = 0.0                      # offset baked into bay_laterals
+            if bay_laterals:
+                # Shelter COLUMNS are spaced at the sprayer-boom width (one row per
+                # sprayer pass — the "at the edge of sprayer booms" rule), and each
+                # column is snapped to the nearest male-bay position (bay_laterals,
+                # = 5 ft west of a male bay) by the placement loops below. Using the
+                # boom width here (not the male-bay spacing) keeps the lateral column
+                # density sane so the N-S spacing fills the field evenly.
+                tent_row_width = sprayer_width
+                lat_offset = 0.0
             else:
-                # Fallback: odd/empty mask → old female+male period.
-                bay_laterals = None
+                # Fallback: odd/empty mask → old female+male period, no bay snap.
                 try: gap_m = max(0.0, float(field_dict.get('bay_gap_in') or 0)) * 0.0254
                 except (ValueError, TypeError): gap_m = 0.0
                 tent_row_width = (nf_i + 1) * rs_m + (nm_i + 1) * rs_m + 2.0 * gap_m
@@ -2123,11 +2126,20 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
             # drives the stagger. (Fallback for non-bay fields: the old per-pass
             # snap to k*tent_row_width + lat_offset.)
             row_list = []   # (pre_e, row_index) — row_index also drives the stagger
+            _seen_rows = set()
             if bay_laterals:
-                for ki, pre_e in enumerate(x for x in bay_laterals if abs(x) <= radius):
-                    row_list.append((pre_e, ki))
+                # One column per sprayer pass, each snapped to the nearest male-bay
+                # position (5 ft west of a male bay). Boom-width column spacing keeps
+                # the grid balanced; the snap honours the male-bay rule exactly.
+                for r in range(-r_max, r_max + 1):
+                    edge = r * sprayer_width
+                    pre_e = min(bay_laterals, key=lambda v: abs(v - edge))
+                    key = round(pre_e, 3)
+                    if key in _seen_rows:   # adjacent passes snapping to one bay
+                        continue
+                    _seen_rows.add(key)
+                    row_list.append((pre_e, len(row_list)))
             else:
-                _seen_rows = set()
                 for r in range(-r_max, r_max + 1):
                     edge = r * sprayer_width
                     k = round((edge - lat_offset) / tent_row_width)
@@ -2392,12 +2404,22 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
         if spacing <= 0:
             return []
 
-        # Lateral row positions: one per male bay (5 ft west of each male bay's
-        # west edge) when bay params are present, else the uniform r·eff_row_width
-        # grid. (pre_e, parity) — parity alternates per row for the stagger.
+        # Lateral row positions: one column per sprayer pass (boom-width spacing),
+        # each snapped to the nearest male-bay position (5 ft west of a male bay)
+        # when bay params are present; else the uniform r·eff_row_width grid.
+        # (pre_e, parity) — parity alternates per row for the stagger.
         if bay_laterals:
-            row_pre = [(x, ri % 2) for ri, x in
-                       enumerate(v for v in bay_laterals if abs(v) <= radius)]
+            _seen = set(); row_pre = []
+            _rmax = int(radius / sprayer_width) + 1
+            for r in range(-_rmax, _rmax + 1):
+                x = min(bay_laterals, key=lambda v: abs(v - r * sprayer_width))
+                if abs(x) > radius:
+                    continue
+                key = round(x, 3)
+                if key in _seen:
+                    continue
+                _seen.add(key)
+                row_pre.append((x, len(row_pre) % 2))
         else:
             row_pre = [(r * eff_row_width + lat_offset, r % 2)
                        for r in range(-int(radius / eff_row_width),
