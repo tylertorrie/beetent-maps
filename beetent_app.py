@@ -1093,6 +1093,9 @@ class BeetentApp(ctk.CTk):
         self.planter_number_paths = []
         self.planter_number_markers = []
         self._pp_font_by_zoom = {}   # cache: pass-number label font size per zoom
+        # Measuring tool (ruler) — multi-point, snaps to shelter pins.
+        self._measure_pts = []        # [(lat,lon), ...]
+        self._measure_overlays = []   # paths + distance-label markers
         # Inner boundary outline overlays (drawn by _redraw_boundary, but the
         # list lives here so _clear_all_overlays can wipe them too).
         self.boundary_inner_polys = []
@@ -2566,6 +2569,9 @@ class BeetentApp(ctk.CTk):
 
         ctk.CTkButton(bb, text="↶ Reset Move", width=110, fg_color="#4a2a00",
                       command=self._undo_shelter_move).pack(side="left", padx=(0,4))
+
+        ctk.CTkButton(bb, text="📏 Measure", width=100, fg_color="#0a6b6b",
+                      command=self._mode_measure).pack(side="left", padx=(0,4))
 
         # Context action button (only shown when a mode needs a "Done" action)
         self.btn_context = ctk.CTkButton(bb, text="", width=130, fg_color="#225588",
@@ -4811,6 +4817,10 @@ class BeetentApp(ctk.CTk):
         return "break"  # prevent arrow keys from scrolling the sidebar
 
     def _on_escape(self,event=None):
+        if self.click_mode == "measure":
+            self._clear_measure(); self.click_mode = None; self._hide_context_btn()
+            self._status("Measurement cleared.")
+            return
         if self._selected_bnd_vertex is not None:
             self._deselect_bnd_vertex()
         else:
@@ -4937,9 +4947,113 @@ class BeetentApp(ctk.CTk):
         n=len(self.current_field.get("pivot_tracks") or [])
         self._status(f"{n} pivot track(s) saved.")
 
+    # ── Measuring tool (ruler) ──────────────────────────────────────────────────
+    def _text_marker(self, lat, lon, text, color, size=12):
+        """A bare on-map text label (no pin) that tracks pan/zoom — used by the
+        measuring tool. Mirrors the pin-hiding patch used for pass-number labels."""
+        m = self.map_widget.set_marker(lat, lon, text=text, text_color=color,
+                                       marker_color_circle=color,
+                                       marker_color_outside=color,
+                                       font=(FONT_LABEL, size))
+        canvas = self.map_widget.canvas
+        _orig = m.draw
+        m.text_y_offset = 0
+
+        def _draw(event=None, _m=m, _c=canvas, _od=_orig):
+            _od(event)
+            for attr in ("polygon", "big_circle", "canvas_image", "canvas_icon"):
+                it = getattr(_m, attr, None)
+                if it:
+                    try: _c.itemconfigure(it, state="hidden")
+                    except Exception: pass
+            if _m.canvas_text:
+                try: _c.itemconfigure(_m.canvas_text, anchor="center")
+                except Exception: pass
+        m.draw = _draw
+        try: m.draw()
+        except Exception: pass
+        return m
+
+    def _mode_measure(self):
+        self._close_all_popups()
+        self._clear_measure()
+        self.click_mode = "measure"
+        self._show_context_btn("✔ Done Measuring", self._finish_measure)
+        self._status("Measure: click points (snaps to shelters). Esc to clear, ✔ Done to keep.")
+
+    def _finish_measure(self):
+        if self.click_mode == "measure":
+            self.click_mode = None
+        self._hide_context_btn()
+        if len(self._measure_pts) >= 2:
+            self._status("Measurement kept on map — 📏 Measure again to start over.")
+        else:
+            self._clear_measure(); self._status("")
+
+    def _clear_measure(self):
+        for o in self._measure_overlays:
+            try: o.delete()
+            except Exception: pass
+        self._measure_overlays = []
+        self._measure_pts = []
+
+    def _measure_snap(self, lat, lon):
+        """Snap a click to the nearest shelter pin within ~15 px, else as-is."""
+        pts = self.shelter_positions or []
+        if not pts: return (lat, lon)
+        thresh = 15.0 * (self._pixel_scale() or 5.0)
+        best, best_d = None, thresh
+        for (sla, slo) in pts:
+            d = haversine_m(lat, lon, sla, slo)
+            if d < best_d:
+                best_d, best = d, (sla, slo)
+        return best if best else (lat, lon)
+
+    def _fmt_dist(self, m):
+        ft = m / 0.3048
+        return (f"{m:.1f} m ({ft:.0f} ft)" if self.unit_var.get() == "Metric"
+                else f"{ft:.0f} ft ({m:.1f} m)")
+
+    def _redraw_measure(self):
+        for o in self._measure_overlays:
+            try: o.delete()
+            except Exception: pass
+        self._measure_overlays = []
+        pts = self._measure_pts
+        if len(pts) >= 2:
+            try:
+                self._measure_overlays.append(self.map_widget.set_path(
+                    [(la, lo) for la, lo in pts], color="#00E5FF", width=2))
+            except Exception: pass
+        metric = self.unit_var.get() == "Metric"
+        for i in range(1, len(pts)):
+            la1, lo1 = pts[i-1]; la2, lo2 = pts[i]
+            seg = haversine_m(la1, lo1, la2, lo2)
+            lbl = (f"{seg:.1f} m" if metric else f"{seg/0.3048:.0f} ft")
+            try:
+                self._measure_overlays.append(self._text_marker(
+                    (la1+la2)/2.0, (lo1+lo2)/2.0, lbl, "#00E5FF", size=12))
+            except Exception: pass
+
     def _on_map_click(self,coords):
         lat,lon=coords
         mode=self.click_mode
+
+        if mode=="measure":
+            slat, slon = self._measure_snap(lat, lon)
+            self._measure_pts.append((slat, slon))
+            self._redraw_measure()
+            n = len(self._measure_pts)
+            if n < 2:
+                self._status("Measure: 1 point set — click another. Esc to clear.")
+            else:
+                total = sum(haversine_m(self._measure_pts[i-1][0], self._measure_pts[i-1][1],
+                                        self._measure_pts[i][0], self._measure_pts[i][1])
+                            for i in range(1, n))
+                last = haversine_m(self._measure_pts[-2][0], self._measure_pts[-2][1],
+                                   self._measure_pts[-1][0], self._measure_pts[-1][1])
+                self._status(f"Segment {self._fmt_dist(last)}  •  Total {self._fmt_dist(total)}  ({n} pts)")
+            return
 
         if mode=="pivot":
             self.fv["PP_Latitude"].set(f"{lat:.7f}"); self.fv["PP_Longitude"].set(f"{lon:.7f}")
@@ -7802,6 +7916,7 @@ class BeetentApp(ctk.CTk):
             except Exception: pass
         self.sprayer_path_overlays=[]
         self._clear_planter_numbers()
+        self._clear_measure()
         self._clear_pass_buffer_overlay()
         self._clear_shelters()
 
