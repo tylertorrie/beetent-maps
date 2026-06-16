@@ -546,6 +546,19 @@ def _circle_lonlat(lat, lon, r_m, n=24):
     return ring
 
 
+def _square_lonlat(lat, lon, side_m):
+    """Closed ring of (lon, lat) for an axis-aligned square of total side `side_m`
+    centred on (lat, lon) — i.e. the shelter pin sits dead centre and the square
+    extends side_m/2 in each direction. (Shelter buffer zones are squares now.)"""
+    cos_lat = math.cos(math.radians(lat)) or 1e-9
+    h = side_m / 2.0
+    dlat = h / 111111.0
+    dlon = h / (111111.0 * cos_lat)
+    return [[lon - dlon, lat - dlat], [lon + dlon, lat - dlat],
+            [lon + dlon, lat + dlat], [lon - dlon, lat + dlat],
+            [lon - dlon, lat - dlat]]
+
+
 def _make_geojson_with_buffers(lonlat_list, field_name, include_buffers=False,
                                buffer_radius_m=1.524):
     """GeoJSON FeatureCollection: shelter points, plus optional buffer-circle
@@ -564,7 +577,7 @@ def _make_geojson_with_buffers(lonlat_list, field_name, include_buffers=False,
         })
     if include_buffers and buffer_radius_m and buffer_radius_m > 0:
         for i, (lon, lat) in enumerate(lonlat_list):
-            ring = _circle_lonlat(lat, lon, buffer_radius_m, 24)
+            ring = _square_lonlat(lat, lon, buffer_radius_m)
             features.append({
                 "type": "Feature",
                 "geometry": {"type": "Polygon", "coordinates": [ring]},
@@ -680,7 +693,7 @@ def export_field_outputs(positions_latlon, pivotpoint, out_dir, field_name,
         w.field('name', 'C', size=32)
         w.field('type', 'C', size=16)
         for i, (lat, lon) in enumerate(positions_latlon):
-            ring = _circle_lonlat(lat, lon, buffer_radius_m, 24)
+            ring = _square_lonlat(lat, lon, buffer_radius_m)
             w.poly([ring])
             w.record(i + 1, "Buffer_%d" % (i + 1), "interior")
         w.close()

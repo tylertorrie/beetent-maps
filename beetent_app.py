@@ -390,6 +390,15 @@ def circle_pts(lat,lon,r_m,n=90):
         pts.append((lat+r_m/111111*math.cos(b), lon+r_m/(111111*math.cos(math.radians(lat)))*math.sin(b)))
     return pts
 
+def square_pts(lat,lon,side_m):
+    """Axis-aligned square of total side `side_m` centred on (lat,lon) — the pin
+    sits dead centre, extending side_m/2 each way. Used for shelter buffer zones."""
+    h=side_m/2.0
+    dlat=h/111111.0
+    dlon=h/(111111.0*math.cos(math.radians(lat)) or 1e-9)
+    return [(lat-dlat,lon-dlon),(lat-dlat,lon+dlon),
+            (lat+dlat,lon+dlon),(lat+dlat,lon-dlon),(lat-dlat,lon-dlon)]
+
 def polygon_area_m2(latlon_polygon):
     """Shoelace area in square metres for a lat/lon polygon. Uses ENU centred
     on the polygon centroid so distortion stays minimal at any latitude."""
@@ -7308,7 +7317,7 @@ class BeetentApp(ctk.CTk):
             except Exception: pass
             if show_circles:
                 try:
-                    poly = self.map_widget.set_polygon(circle_pts(lat, lon, BUFFER_M, n=36),
+                    poly = self.map_widget.set_polygon(square_pts(lat, lon, BUFFER_M),
                             fill_color=None, outline_color="#1E90FF", border_width=1)
                     self.shelter_circle_polys.append(poly)
                 except Exception: pass
@@ -7484,7 +7493,7 @@ class BeetentApp(ctk.CTk):
             if show_circles:
                 try:
                     p=self.map_widget.set_polygon(
-                        circle_pts(lat,lon,BUFFER_M,n=36),
+                        square_pts(lat,lon,BUFFER_M),
                         fill_color=None,outline_color="#FF4400",border_width=1)
                     self.shelter_circle_polys.append(p)
                 except Exception: pass
