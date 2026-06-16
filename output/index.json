@@ -569,5 +569,27 @@
     "role": "flag",
     "generated": "2026-06-16T07:56:06",
     "size": 557985
+  },
+  {
+    "id": "exports/Shelter Maps_BASF_v4",
+    "kind": "export",
+    "name": "Shelter Maps_BASF_v4",
+    "relpath": "exports/Shelter Maps_BASF_v4",
+    "is_dir": true,
+    "companies": [
+      "BASF"
+    ],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "Giesbricht NW 35-10-16"
+    ],
+    "types": [
+      "AgGPS"
+    ],
+    "role": null,
+    "generated": "2026-06-16T07:56:45",
+    "size": 40080
   }
 ]
