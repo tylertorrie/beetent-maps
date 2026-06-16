@@ -232,12 +232,7 @@
   "sprayer_routes_around_inner": true,
   "bays_through_inner": false,
   "manual_shelter_pins": [],
-  "shelter_overrides": {
-    "38": [
-      49.79663981333625,
-      -111.57943008969748
-    ]
-  },
+  "shelter_overrides": {},
   "shelter_rows": "",
   "Planting_angle": "90",
   "bay_gap_in": "0",
