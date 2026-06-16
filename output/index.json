@@ -1008,5 +1008,27 @@
     "role": "flag",
     "generated": "2026-06-16T14:33:40",
     "size": 471486
+  },
+  {
+    "id": "pdfs/NW 1-10-15 2026 Shelter Map 3.pdf",
+    "kind": "pdf",
+    "name": "NW 1-10-15 2026 Shelter Map 3.pdf",
+    "relpath": "pdfs/NW 1-10-15 2026 Shelter Map 3.pdf",
+    "is_dir": false,
+    "companies": [
+      "Proven Seeds"
+    ],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "NW 1-10-15"
+    ],
+    "types": [
+      "PDF"
+    ],
+    "role": "flag",
+    "generated": "2026-06-16T14:35:47",
+    "size": 530340
   }
 ]
