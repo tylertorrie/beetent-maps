@@ -36,7 +36,9 @@
   "gals_per_tray": "2",
   "tray_distribution": "even",
   "boundary_polygon": null,
-  "pivot_tracks": [],
+  "pivot_tracks": [
+    54.72
+  ],
   "corner_arms": [],
   "boundary_inner": [],
   "access_road_boundary": [],
