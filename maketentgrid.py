@@ -2366,42 +2366,29 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
             if not raw:
                 return ([], []) if return_rows else []
 
-            # ── Centre short OUTER along-pass lines on the field ──────────────
-            # (user: "outer rows should be centred"). Group placed cells into
-            # their along-pass lines; a line much shorter than the longest is an
-            # edge line whose cells were pushed to one end by the tapering
-            # boundary + outside-round band. Re-pick its bay rows so the shelters
-            # straddle the field's lateral centre. We keep clear of tracks / inner
-            # exclusions (_base_valid) but relax the outside-round band so the few
-            # edge shelters can sit centred rather than bunched at one end.
+            # ── Tidy ragged OUTER columns (user: outer rows must look balanced) ─
+            # Group placed cells into their along-pass lines. A line much shorter
+            # than the longest is an edge sliver where the tapering boundary +
+            # outside-round band only left room at one end. If such a sliver holds
+            # just 1–2 shelters it reads as an off-balance clump, so drop it; the
+            # field-centred column grid keeps the rest symmetric.
             if boundary_enu and ns_spacing > 0 and len(row_list) > 1:
-                _lat_b = [e * cos_r + n * sin_r for e, n in boundary_enu]
-                lat_center = (min(_lat_b) + max(_lat_b)) / 2.0
-                bay_rows = sorted({pe for pe, _ in row_list})
                 _lines = defaultdict(list)
                 for (e, n, _r) in raw:
                     pn = -e * sin_r + n * cos_r
-                    _lines[round(pn / ns_spacing)].append((e, n, pn))
-                _spans = {k: (max(e * cos_r + n * sin_r for e, n, _ in v) -
-                              min(e * cos_r + n * sin_r for e, n, _ in v))
+                    _lines[round(pn / ns_spacing)].append((e, n))
+                _spans = {k: (max(e * cos_r + n * sin_r for e, n in v) -
+                              min(e * cos_r + n * sin_r for e, n in v))
                           for k, v in _lines.items()}
                 _full = max(_spans.values()) if _spans else 0.0
                 rebuilt = []
                 for k, cells in _lines.items():
-                    if _full > 0 and _spans[k] < 0.55 * _full:
-                        pn = cells[0][2]
-                        cand = [pe for pe in bay_rows
-                                if _inside(pe * cos_r - pn * sin_r, pn * cos_r + pe * sin_r)
-                                and _base_valid(pe * cos_r - pn * sin_r, pn * cos_r + pe * sin_r)]
-                        if len(cand) >= len(cells):
-                            cand.sort(key=lambda pe: abs(pe - lat_center))
-                            for pe in sorted(cand[:len(cells)]):
-                                rebuilt.append((pe * cos_r - pn * sin_r,
-                                                pn * cos_r + pe * sin_r, round(pe, 0)))
-                            continue
-                    for (e, n, _pn) in cells:
+                    if _full > 0 and _spans[k] < 0.55 * _full and len(cells) <= 2:
+                        continue                    # drop the tiny edge sliver
+                    for (e, n) in cells:
                         rebuilt.append((e, n, round(e * cos_r + n * sin_r, 0)))
-                raw = rebuilt
+                if rebuilt:
+                    raw = rebuilt
 
             ldx, ldy = cos_r, sin_r
             tdx, tdy = -sin_r, cos_r
