@@ -7,7 +7,6 @@
     "total_gals",
     "total_trays",
     "shelters",
-    "buffer",
-    "has_boundary"
+    "buffer"
   ]
 }
