@@ -1941,5 +1941,6 @@
   "boundary_inner": [],
   "shelters_in_outside_pass": "Yes",
   "shelter_at_pivot": false,
-  "tire_width_ft": "14"
+  "tire_width_ft": "14",
+  "shelter_buffer_m": "3.048"
 }
