@@ -9324,63 +9324,75 @@ class BeetentApp(ctk.CTk):
                   str(self.current_field.get("year",""))==yr and
                   str(self.current_field.get("Name",""))==name)
 
-        # ── Fast path: use cached map image ────────────────────────────────
-        cached_img, cache_ok = self._pdf_load_cache(co, yr, name)
-        if cache_ok:
-            save_path = self._pdf_paths.get((co, yr, name), "")
-            if save_path:
-                try:
-                    self._build_field_pdf(cached_img, self._pdf_label_mode, save_path,
-                                          role=getattr(self, "_pdf_role", "agronomist"))
-                    self._pdf_done.append(save_path)
-                    self._archive_pdf_to_library(
-                        save_path, co, yr, name,
-                        getattr(self, "_pdf_role", "agronomist"))
-                except Exception:
-                    import traceback as _tb
-                    _s = _tb.format_exc()
-                    tkinter.messagebox.showerror("PDF Error",
-                        _s[-900:] if len(_s) > 900 else _s)
-            self._pdf_queue.pop(0)
-            self.after(50, self._process_next_pdf)
-            return
-
-        # ── Slow path: tile polling ─────────────────────────────────────────
+        # Always re-capture: the old image cache served stale / partially-loaded
+        # maps from earlier runs. Activate the field, frame it tightly so every
+        # element fills the page, then wait for the satellite tiles to FULLY load
+        # (real tkintermapview load queues) before screenshotting.
         if not is_cur:
             self._activate_field_impl(co, yr, name)
         self.update()
-        # Poll canvas stability instead of a fixed delay
-        self._pdf_poll_start    = time.time()
-        self._pdf_poll_prev     = None
-        self._pdf_poll_stable   = 0
-        self.after(400, self._pdf_poll_tiles)
+        self._pdf_fit_field()          # zoom/pan so all elements fill the frame
+        self.update()
+        self._pdf_poll_start  = time.time()
+        self._pdf_poll_stable = 0
+        self.after(300, self._pdf_poll_tiles)
+
+    def _pdf_fit_field(self):
+        """Frame the map tightly around EVERY element of the current field
+        (boundary, inner/access/wet polygons, shelters, entrance/parking pins,
+        pivot-track extent) with a small margin, so the field fills the PDF map
+        instead of sitting tiny in a wide view. Falls back to _zoom_to_field."""
+        f = self.current_field
+        lats, lons = [], []
+        rings = ([f.get("boundary_polygon")]
+                 + (f.get("wet_zones") or [])
+                 + (f.get("boundary_inner") or [])
+                 + (f.get("access_road_boundary") or []))
+        for ring in rings:
+            for p in (ring or []):
+                try: lats.append(float(p[0])); lons.append(float(p[1]))
+                except (TypeError, ValueError, IndexError): pass
+        for pin in (f.get("entrance_pin"), f.get("parking_pin")):
+            if pin:
+                try: lats.append(float(pin[0])); lons.append(float(pin[1]))
+                except (TypeError, ValueError, IndexError): pass
+        for (la, lo) in (self.shelter_positions or []):
+            lats.append(la); lons.append(lo)
+        try:   # pivot-track circles can extend past the boundary
+            plat = float(f.get("PP_Latitude")); plon = float(f.get("PP_Longitude"))
+            tracks = [float(r) for r in (f.get("pivot_tracks") or [])]
+            if tracks:
+                R = 6378137.0; rad = max(tracks)
+                dla = rad / R * 180.0 / math.pi
+                dlo = rad / (R * max(0.1, math.cos(math.radians(plat)))) * 180.0 / math.pi
+                lats += [plat - dla, plat + dla]; lons += [plon - dlo, plon + dlo]
+        except (TypeError, ValueError): pass
+        if len(lats) < 2:
+            self._zoom_to_field(); return
+        min_la, max_la = min(lats), max(lats)
+        min_lo, max_lo = min(lons), max(lons)
+        m_la = (max_la - min_la) * 0.08 or 0.0004     # ~8% margin
+        m_lo = (max_lo - min_lo) * 0.08 or 0.0004
+        try:
+            self.map_widget.fit_bounding_box((max_la + m_la, min_lo - m_lo),
+                                             (min_la - m_la, max_lo + m_lo))
+        except Exception:
+            self._zoom_to_field()
 
     def _pdf_poll_tiles(self):
-        """Fire every 300 ms; proceed once map tiles stop changing or time out."""
-        STABLE_NEED = 3        # 3 identical frames = stable
-        MAX_WAIT    = 8.0      # hard ceiling (seconds)
-        INTERVAL    = 300      # ms between checks
+        """Proceed once the satellite tiles have FULLY loaded (the tkintermapview
+        load queues are empty) — not just visually stable. Hard ceiling at 15 s."""
+        MAX_WAIT    = 15.0
+        INTERVAL    = 250      # ms between checks
+        STABLE_NEED = 2        # queues empty on 2 consecutive checks
 
-        try:
-            from PIL import ImageGrab
-            cw  = self.map_widget
-            try: sc = self.winfo_fpixels('1i') / 96.0
-            except Exception: sc = 1.0
-            bx = int(cw.winfo_rootx() * sc); by = int(cw.winfo_rooty() * sc)
-            bw = int(cw.winfo_width()  * sc); bh = int(cw.winfo_height() * sc)
-            th = ImageGrab.grab(bbox=(bx, by, bx+bw, by+bh)).resize((80, 60))
-            h  = hash(th.tobytes())
-        except Exception:
-            h = None
+        mw = self.map_widget
+        loaded = (len(getattr(mw, "image_load_queue_tasks", []) or []) == 0 and
+                  len(getattr(mw, "image_load_queue_results", []) or []) == 0)
+        self._pdf_poll_stable = (self._pdf_poll_stable + 1) if loaded else 0
 
-        if h is not None and h == self._pdf_poll_prev:
-            self._pdf_poll_stable += 1
-        else:
-            self._pdf_poll_stable = 0
-        self._pdf_poll_prev = h
-
-        if self._pdf_poll_stable >= STABLE_NEED or \
-                (time.time() - self._pdf_poll_start) >= MAX_WAIT:
+        elapsed = time.time() - self._pdf_poll_start
+        if (self._pdf_poll_stable >= STABLE_NEED and elapsed >= 0.6) or elapsed >= MAX_WAIT:
             self._pdf_pre_screenshot()
         else:
             self.after(INTERVAL, self._pdf_poll_tiles)
