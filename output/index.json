@@ -613,5 +613,27 @@
     "role": "flag",
     "generated": "2026-06-16T09:34:00",
     "size": 550284
+  },
+  {
+    "id": "pdfs/Stolk NE-12-11-15 2026 Shelter Map.pdf",
+    "kind": "pdf",
+    "name": "Stolk NE-12-11-15 2026 Shelter Map.pdf",
+    "relpath": "pdfs/Stolk NE-12-11-15 2026 Shelter Map.pdf",
+    "is_dir": false,
+    "companies": [
+      "BASF"
+    ],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "Stolk NE-12-11-15"
+    ],
+    "types": [
+      "PDF"
+    ],
+    "role": "flag",
+    "generated": "2026-06-16T09:34:24",
+    "size": 489661
   }
 ]
