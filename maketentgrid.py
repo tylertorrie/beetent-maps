@@ -594,7 +594,9 @@ def export_field_outputs(positions_latlon, pivotpoint, out_dir, field_name,
                          include_buffers=True, buffer_radius_m=1.524,
                          outer_boundary=None,
                          write_agps=True, write_jd=True, write_kml=True,
-                         write_geojson=True, write_boundary=True, angle=0):
+                         write_geojson=True, write_boundary=True, angle=0,
+                         entrance_pin=None, parking_pin=None,
+                         wet_zones=None, write_wet_kml=False):
     """Write the per-field export files from already-computed shelter positions
     (so the output matches exactly what get_tent_positions drew on the map).
 
@@ -711,6 +713,24 @@ def export_field_outputs(positions_latlon, pivotpoint, out_dir, field_name,
         bnd_kml = simplekml.Kml()
         pol = bnd_kml.newpolygon(name="%s Boundary" % field_name)
         pol.outerboundaryis = [(lon, lat) for lat, lon in outer_boundary]
+        # Entrance / parking pins — always included in the boundary KML so the
+        # crew sees where to enter and park alongside the field outline.
+        try:
+            if entrance_pin:
+                bnd_kml.newpoint(name="Entrance",
+                                 coords=[(float(entrance_pin[1]), float(entrance_pin[0]))])
+            if parking_pin:
+                bnd_kml.newpoint(name="Parking",
+                                 coords=[(float(parking_pin[1]), float(parking_pin[0]))])
+        except (TypeError, ValueError, IndexError):
+            pass
+        # Wet zones — only when the caller opted in (user is asked at export time).
+        if write_wet_kml and wet_zones:
+            for i, ring in enumerate(wet_zones, 1):
+                if not ring or len(ring) < 3:
+                    continue
+                wp = bnd_kml.newpolygon(name="Wet Zone %d" % i)
+                wp.outerboundaryis = [(lon, lat) for lat, lon in ring]
         writer.writestr(os.path.join(bnd_kml_dir, "%s_Boundary.kml" % field_name),
                         bnd_kml.kml())
 

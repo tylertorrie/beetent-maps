@@ -669,6 +669,9 @@ def blank_field(company="",year=""):
                 boundary_polygon=None,pivot_tracks=[],corner_arms=[],
                 boundary_inner=[],            # list of inner-exclusion polygons (JD-style "interior boundaries")
                 access_road_boundary=[],      # pivot access road(s) — same exclusion as inner, labelled separately
+                wet_zones=[],                 # informational wet-spot polygons (NOT exclusions) — shown to crews
+                entrance_pin=None,            # [lat,lon] where the crew should enter the field
+                parking_pin=None,             # [lat,lon] where to park the trucks
                 sprayer_routes_around_inner=True,   # sprayer pass lines break around inner boundaries when True
                 bays_through_inner=False,     # when True, planter bays draw through inner boundaries instead of clipping
                 shelter_at_pivot=False,
@@ -1103,6 +1106,12 @@ class BeetentApp(ctk.CTk):
         # Inner boundary outline overlays (drawn by _redraw_boundary, but the
         # list lives here so _clear_all_overlays can wipe them too).
         self.boundary_inner_polys = []
+        # Wet zones (informational hazard polygons) + entrance/parking pins.
+        self.show_wet_zones  = tk.BooleanVar(value=True)
+        self.show_field_info = tk.BooleanVar(value=True)
+        self.wet_zone_polys     = []   # drawn wet-zone polygons
+        self.field_info_markers = []   # entrance + parking markers
+        self.wet_pts            = []   # in-progress wet-zone vertices
         # Corner tracks (a.k.a. corner arms) — polygon paths and circles drawn
         # at absolute lat/lon (don't follow the pivot when it's moved). Used
         # for swing-arm pivot tracks, shelter belts, etc. that should exclude
@@ -2529,6 +2538,16 @@ class BeetentApp(ctk.CTk):
             ("Add Pivot Access Road", self._mode_add_access_road),
             ("Edit Access Road",      self._mode_edit_access_road),
             ("Delete Access Road",    self._mode_delete_access_road),
+            ("—  Wet Zones  —",       lambda: None),
+            ("Add Wet Zone",          self._mode_add_wet_zone),
+            ("Edit Wet Zone",         self._mode_edit_wet_zone),
+            ("Delete Wet Zone",       self._mode_delete_wet_zone),
+            ("Toggle Wet Zones",      self._toggle_wet_zones),
+            ("—  Additional Field Info  —", lambda: None),
+            ("Set Entrance Pin",      self._mode_set_entrance),
+            ("Set Parking Pin",       self._mode_set_parking),
+            ("Delete Entrance / Parking", self._delete_field_info_pin),
+            ("Toggle Field Info",     self._toggle_field_info),
         ], color="#5a3a8a",
            toggle_var=self.boundary_visible_var, toggle_fn=self._set_boundary_visible)
         self._bnd_btn.pack(side="left", padx=(0,4))
@@ -4582,6 +4601,165 @@ class BeetentApp(ctk.CTk):
                       command=do_delete).pack(pady=(4,2))
         ctk.CTkButton(win, text="Cancel", command=win.destroy).pack()
 
+    # ── Wet zones (informational hazard polygons; mirror inner-boundary flow) ────
+    def _mode_add_wet_zone(self):
+        """Click-to-add-vertices for a new wet-spot polygon (informational only)."""
+        self._close_all_popups()
+        self.click_mode = "wet_zone"
+        self.wet_pts = []
+        for m in self.boundary_markers:
+            try: m.delete()
+            except Exception: pass
+        self.boundary_markers = []
+        self._show_context_btn("✔ Save Wet Zone", self._close_wet_zone)
+        self._status("Click map to outline a wet spot. ✔ Save when done.")
+
+    def _close_wet_zone(self):
+        if len(getattr(self, "wet_pts", [])) < 3:
+            self._status("Need ≥ 3 points for a wet zone."); return
+        self.current_field.setdefault("wet_zones", []).append(
+            [list(p) for p in self.wet_pts])
+        self.wet_pts = []
+        self.click_mode = None
+        self._hide_context_btn()
+        for m in self.boundary_markers:
+            try: m.delete()
+            except Exception: pass
+        self.boundary_markers = []
+        self.show_wet_zones.set(True)
+        self._redraw_wet_zones()
+        n = len(self.current_field["wet_zones"])
+        self._status(f"Wet zone #{n} saved. Save Field to keep.")
+
+    def _mode_edit_wet_zone(self):
+        self._close_all_popups()
+        rings = self.current_field.get("wet_zones") or []
+        if not rings: self._status("No wet zones to edit."); return
+        idx = 0 if len(rings) == 1 else self._pick_ring_index("Edit Wet Zone", rings, "Wet Zone")
+        if idx is None: return
+        self._edit_target = ("wet", idx); self._begin_ring_edit()
+
+    def _mode_delete_wet_zone(self):
+        self._close_all_popups()
+        zones = self.current_field.get("wet_zones") or []
+        if not zones:
+            self._status("No wet zones to delete."); return
+        win = ctk.CTkToplevel(self); win.title("Delete Wet Zone")
+        win.geometry("320x240"); win.grab_set()
+        ctk.CTkLabel(win, text="Select wet zone to delete:").pack(pady=(12, 4))
+        lb = tk.Listbox(win, bg=UI_CARD, fg=UI_TEXT, selectbackground=UI_SELECT,
+                        selectforeground=UI_TEXT, relief="flat", font=(FONT_BODY, 11),
+                        height=6, activestyle="none", highlightthickness=1,
+                        highlightbackground=UI_BORDER)
+        for i, ring in enumerate(zones):
+            lb.insert(tk.END, f"Wet Zone #{i+1}: {len(ring)} pts")
+        lb.pack(fill="x", padx=10, pady=4)
+        def do_delete():
+            sel = lb.curselection()
+            if not sel: return
+            del self.current_field["wet_zones"][sel[0]]
+            self._redraw_wet_zones(); win.destroy()
+            self._status("Wet zone deleted. Save Field to keep.")
+        ctk.CTkButton(win, text="Delete Selected", fg_color="#6b1a1a",
+                      command=do_delete).pack(pady=(4, 2))
+        ctk.CTkButton(win, text="Cancel", command=win.destroy).pack()
+
+    def _toggle_wet_zones(self):
+        self._close_all_popups()
+        self.show_wet_zones.set(not self.show_wet_zones.get())
+        self._redraw_wet_zones()
+        self._status("Wet zones " + ("shown." if self.show_wet_zones.get() else "hidden."))
+
+    def _redraw_wet_zones(self):
+        for o in self.wet_zone_polys:
+            try: o.delete()
+            except Exception: pass
+        self.wet_zone_polys = []
+        if not self.show_wet_zones.get():
+            return
+        for ring in (self.current_field.get("wet_zones") or []):
+            if not ring or len(ring) < 3: continue
+            try:
+                o = self.map_widget.set_polygon(
+                    [(pt[0], pt[1]) for pt in ring],
+                    fill_color="#1E90FF", outline_color="#0A3D7A", border_width=2)
+                self.wet_zone_polys.append(o)
+            except Exception:
+                pass
+
+    # ── Additional field info: entrance + parking pins (mirror the pivot pin) ────
+    def _mode_set_entrance(self):
+        self._close_all_popups()
+        self.click_mode = "set_entrance"
+        self._status("Click the map to set the ENTRANCE pin.")
+
+    def _mode_set_parking(self):
+        self._close_all_popups()
+        self.click_mode = "set_parking"
+        self._status("Click the map to set the PARKING pin.")
+
+    def _toggle_field_info(self):
+        self._close_all_popups()
+        self.show_field_info.set(not self.show_field_info.get())
+        self._redraw_field_info()
+        self._status("Field info pins " +
+                     ("shown." if self.show_field_info.get() else "hidden."))
+
+    def _on_field_info_drag(self, which, lat, lon):
+        self.current_field[which] = [lat, lon]
+        self._redraw_field_info()
+        self._status(f"{'Entrance' if which=='entrance_pin' else 'Parking'} moved — Save Field to keep.")
+
+    def _delete_field_info_pin(self):
+        self._close_all_popups()
+        have = [(k, lbl) for k, lbl in (("entrance_pin", "Entrance"),
+                                        ("parking_pin", "Parking"))
+                if self.current_field.get(k)]
+        if not have:
+            self._status("No entrance/parking pins to delete."); return
+        win = ctk.CTkToplevel(self); win.title("Delete Field Info Pin")
+        win.grab_set()
+        ctk.CTkLabel(win, text="Remove which pin?").pack(padx=24, pady=(16, 8))
+        def rm(k):
+            self.current_field[k] = None
+            self._redraw_field_info(); win.destroy()
+            self._status("Pin removed. Save Field to keep.")
+        for k, lbl in have:
+            ctk.CTkButton(win, text=lbl, height=34,
+                          command=lambda kk=k: rm(kk)).pack(fill="x", padx=24, pady=3)
+        ctk.CTkButton(win, text="Cancel", height=32, fg_color="#555",
+                      command=win.destroy).pack(fill="x", padx=24, pady=(8, 16))
+        _center_on_parent(win, self)
+
+    def _redraw_field_info(self):
+        for m in self.field_info_markers:
+            try: m.delete()
+            except Exception: pass
+        self.field_info_markers = []
+        self._unregister_drag_prefix("fieldinfo_")
+        if not self.show_field_info.get():
+            return
+        specs = [("entrance_pin", "Entrance", "#16A34A", "#0B5D27"),
+                 ("parking_pin",  "Parking",  "#F59E0B", "#8A5E00")]
+        for key, label, cc, oc in specs:
+            p = self.current_field.get(key)
+            if not p:
+                continue
+            try:
+                lat, lon = float(p[0]), float(p[1])
+            except (TypeError, ValueError, IndexError):
+                continue
+            try:
+                m = self.map_widget.set_marker(lat, lon, text=label,
+                                               marker_color_circle=cc,
+                                               marker_color_outside=oc)
+                self.field_info_markers.append(m)
+                self._register_drag(f"fieldinfo_{key}", lat, lon, label, cc, oc,
+                                    lambda la, lo, k=key: self._on_field_info_drag(k, la, lo),
+                                    marker=m)
+            except Exception:
+                pass
+
     def _mode_edit_boundary(self):
         self._close_all_popups()
         bp=self.current_field.get("boundary_polygon")
@@ -4595,7 +4773,8 @@ class BeetentApp(ctk.CTk):
         kind=getattr(self,"_edit_target",("outer",None))[0]
         return {"outer":("#FFD700","#B8860B"),
                 "inner":("#FF6600","#993300"),
-                "road": ("#FF2D95","#8A0F50")}.get(kind,("#FFD700","#B8860B"))
+                "road": ("#FF2D95","#8A0F50"),
+                "wet":  ("#1E90FF","#0A3D7A")}.get(kind,("#FFD700","#B8860B"))
 
     def _show_edit_save_btn(self):
         if getattr(self,"_edit_target",("outer",None))[0]=="outer":
@@ -4613,6 +4792,9 @@ class BeetentApp(ctk.CTk):
             ring=self.current_field.get("boundary_polygon") or []
         elif kind=="inner":
             rings=self.current_field.get("boundary_inner") or []
+            ring=rings[idx] if (idx is not None and 0<=idx<len(rings)) else []
+        elif kind=="wet":
+            rings=self.current_field.get("wet_zones") or []
             ring=rings[idx] if (idx is not None and 0<=idx<len(rings)) else []
         else:
             rings=self.current_field.get("access_road_boundary") or []
@@ -4660,6 +4842,9 @@ class BeetentApp(ctk.CTk):
         elif kind=="inner":
             lst=self.current_field.setdefault("boundary_inner",[])
             if idx is not None and 0<=idx<len(lst): lst[idx]=pts
+        elif kind=="wet":
+            lst=self.current_field.setdefault("wet_zones",[])
+            if idx is not None and 0<=idx<len(lst): lst[idx]=pts
         elif kind=="road":
             lst=self.current_field.setdefault("access_road_boundary",[])
             if idx is not None and 0<=idx<len(lst): lst[idx]=pts
@@ -4676,11 +4861,13 @@ class BeetentApp(ctk.CTk):
         self._unregister_drag_prefix("bnd_")
         self._clear_boundary_markers()
         self._redraw_boundary()
+        self._redraw_wet_zones()
         if self.show_shelters.get(): self._redraw_shelters()
         if self.show_passes.get():   self._redraw_passes()
         if self.show_bays.get():     self._redraw_bays()
         kind=getattr(self,"_edit_target",("outer",None))[0]
-        self._status(("Inner boundary" if kind=="inner" else "Access road")
+        self._status({"inner":"Inner boundary","wet":"Wet zone",
+                      "road":"Access road"}.get(kind,"Ring")
                      + " updated. Save Field to keep.")
 
     def _pick_ring_index(self, title, rings, label):
@@ -5007,13 +5194,10 @@ class BeetentApp(ctk.CTk):
             self.click_mode = None
         try: self.map_widget.canvas.unbind("<Motion>")
         except Exception: pass
-        self._clear_rubber()
         self._measure_unit_btn.pack_forget()
         self._hide_context_btn()
-        if len(self._measure_pts) >= 2:
-            self._status("Measurement kept on map — 📏 Measure again to start over.")
-        else:
-            self._clear_measure(); self._status("")
+        self._clear_measure()    # wipe the ruler off the map when done
+        self._status("")
 
     def _clear_rubber(self):
         cvs = self.map_widget.canvas
@@ -5223,6 +5407,27 @@ class BeetentApp(ctk.CTk):
                                             marker_color_circle="#FF2D95",
                                             marker_color_outside="#8A0F50")
             self.boundary_markers.append(m)
+
+        elif mode=="wet_zone":
+            self.wet_pts.append((lat,lon))
+            m = self.map_widget.set_marker(lat, lon, text=str(len(self.wet_pts)),
+                                            marker_color_circle="#1E90FF",
+                                            marker_color_outside="#0A3D7A")
+            self.boundary_markers.append(m)
+
+        elif mode=="set_entrance":
+            self.current_field["entrance_pin"] = [lat, lon]
+            self.show_field_info.set(True)
+            self.click_mode = None
+            self._redraw_field_info()
+            self._status(f"Entrance pin set: {lat:.5f}, {lon:.5f} — Save Field to keep.")
+
+        elif mode=="set_parking":
+            self.current_field["parking_pin"] = [lat, lon]
+            self.show_field_info.set(True)
+            self.click_mode = None
+            self._redraw_field_info()
+            self._status(f"Parking pin set: {lat:.5f}, {lon:.5f} — Save Field to keep.")
 
         elif mode=="boundary_circle":
             try:
@@ -8021,7 +8226,7 @@ class BeetentApp(ctk.CTk):
     # ── Full overlay refresh ───────────────────────────────────────────────────
     def _redraw_all(self):
         self._redraw_pivot()
-        self._redraw_boundary(); self._redraw_tracks(); self._redraw_passes(); self._redraw_bays(); self._redraw_corner_arms(); self._redraw_planter_passes(); self._redraw_planter_pass_numbers(); self._redraw_sprayer_passes(); self._redraw_pass_buffer_overlay(); self._redraw_shelters()
+        self._redraw_boundary(); self._redraw_wet_zones(); self._redraw_field_info(); self._redraw_tracks(); self._redraw_passes(); self._redraw_bays(); self._redraw_corner_arms(); self._redraw_planter_passes(); self._redraw_planter_pass_numbers(); self._redraw_sprayer_passes(); self._redraw_pass_buffer_overlay(); self._redraw_shelters()
 
     def _clear_all_overlays(self):
         if self.pivot_marker: self.pivot_marker.delete(); self.pivot_marker=None
@@ -8045,6 +8250,15 @@ class BeetentApp(ctk.CTk):
         self.sprayer_path_overlays=[]
         self._clear_planter_numbers()
         self._clear_measure()
+        for o in self.wet_zone_polys:
+            try: o.delete()
+            except Exception: pass
+        self.wet_zone_polys = []
+        for m in self.field_info_markers:
+            try: m.delete()
+            except Exception: pass
+        self.field_info_markers = []
+        self._unregister_drag_prefix("fieldinfo_")
         self._clear_pass_buffer_overlay()
         self._clear_shelters()
 
@@ -8687,6 +8901,18 @@ class BeetentApp(ctk.CTk):
                 if res is None:
                     self._status("Export cancelled."); return
 
+        # ── Wet zones in the boundary KML? (only ask when some exist) ──────
+        # Entrance/parking pins always ride in the boundary KML; wet zones are
+        # optional, so we ask once — but only if a selected field actually has any.
+        include_wet_kml = False
+        if opts.get("boundary"):
+            if any((load_field(c, y, name) or {}).get("wet_zones")
+                   for c, y, name in selected_fields):
+                include_wet_kml = tkinter.messagebox.askyesno(
+                    "Wet zones in KML",
+                    "Some selected fields have wet zones.\n\n"
+                    "Include the wet-zone polygons in the boundary KML as well?")
+
         # ── Output name: "Shelter Maps_<Company>_v<N>" ─────────────────────
         # Version N auto-increments: scan Downloads for existing exports of
         # this company and use the next free number. The export is delivered
@@ -8749,6 +8975,10 @@ class BeetentApp(ctk.CTk):
                         write_geojson=opts["geojson"],
                         write_boundary=opts["boundary"],
                         angle=_ab_angle,
+                        entrance_pin=f.get("entrance_pin"),
+                        parking_pin=f.get("parking_pin"),
+                        wet_zones=f.get("wet_zones"),
+                        write_wet_kml=include_wet_kml,
                     )
                     ok+=1
                     self.after(0,lambda n=fname,k=len(positions):self._log("  ✓ %s (%d shelters)"%(n,k)))
@@ -9156,7 +9386,13 @@ class BeetentApp(ctk.CTk):
             self.after(INTERVAL, self._pdf_poll_tiles)
 
     def _pdf_pre_screenshot(self):
-        """Enable shelters + set label mode, then wait for canvas to settle."""
+        """Enable shelters + wet zones + field-info pins, set label mode, then
+        wait for the canvas to settle. Wet zones / pins draw BEFORE the shelters
+        so the yellow pins sit on top of the blue wet zones in the screenshot."""
+        self._pdf_old_wet  = self.show_wet_zones.get()
+        self._pdf_old_info = self.show_field_info.get()
+        self.show_wet_zones.set(True); self.show_field_info.set(True)
+        self._redraw_wet_zones(); self._redraw_field_info()
         self.show_shelters.set(True)
         self.shelters_visible_var.set(True)
         self._pdf_old_mode  = self.pin_label_mode
@@ -9220,8 +9456,12 @@ class BeetentApp(ctk.CTk):
             tkinter.messagebox.showerror("Screenshot Failed", str(ex))
             map_img = None
 
-        # Restore label mode immediately
+        # Restore label mode + wet-zone / field-info toggles immediately
         self.pin_label_mode = self._pdf_old_mode
+        if getattr(self, "_pdf_old_wet", True) != self.show_wet_zones.get():
+            self.show_wet_zones.set(self._pdf_old_wet); self._redraw_wet_zones()
+        if getattr(self, "_pdf_old_info", True) != self.show_field_info.get():
+            self.show_field_info.set(self._pdf_old_info); self._redraw_field_info()
         self._redraw_shelters()
 
         if map_img is not None and save_path:
@@ -9492,8 +9732,16 @@ class BeetentApp(ctk.CTk):
              f"Pins = shelter positions  ·  Labels: {label_disp}  ·  Prepared for: {role_disp}",
              'Helvetica', 'I', 7.5, MGRAY, 'C')
 
+        # ── WET-SPOT ALERT (only when the field has wet zones) ─────────────
+        wet_alert = bool(self.current_field.get("wet_zones"))
+        if wet_alert:
+            _fill(ML, cap_y + 4.5, CW, 6.0, (200, 30, 30))
+            _txt(ML, cap_y + 5.2, CW, 5.0,
+                 "ALERT: WET SPOTS IN THIS FIELD - watch the blue zones on the map.",
+                 'Helvetica', 'B', 9, WHITE, 'C')
+
         # ── SECTION HEADER BAR ─────────────────────────────────────────────
-        sec_y = cap_y + 6
+        sec_y = cap_y + 6 + (7.0 if wet_alert else 0.0)
         _fill(0, sec_y, PW, 8.5, NAVY)
         _txt(ML + 2, sec_y + 1.5, CW * 0.48, 5.5,
              "FIELD DETAILS", 'Helvetica', 'B', 8.5, WHITE)
