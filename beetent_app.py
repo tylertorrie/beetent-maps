@@ -1062,6 +1062,7 @@ class BeetentApp(ctk.CTk):
         self._drag_track_idx = None   # index of pivot track being resized by band-drag
         self._pending_corner_idx = None  # corner arm clicked on press (for release popup)
         self._pending_boundary_click = False  # outer boundary edge clicked (for release popup)
+        self._edit_target = ("outer", None)   # which ring vertex-editing targets
         self._drag_last_latlon = None
         self._drag_start_xy = None
         self._drag_moved = False
@@ -1477,9 +1478,12 @@ class BeetentApp(ctk.CTk):
             ("Draw Outer",                self._mode_boundary),
             ("Draw Circle Outer Boundary", self._mode_boundary_circle),
             ("Upload File",           self._upload_boundary),
+            ("Edit Outer Boundary",   self._mode_edit_boundary),
             ("Add Inner Boundary",    self._mode_add_inner_boundary),
+            ("Edit Inner Boundary",   self._mode_edit_inner_boundary),
             ("Delete Inner",          self._mode_delete_inner_boundary),
             ("Add Pivot Access Road", self._mode_add_access_road),
+            ("Edit Access Road",      self._mode_edit_access_road),
             ("Delete Access Road",    self._mode_delete_access_road),
         ], color="#5a3a8a",
            toggle_var=self.boundary_visible_var, toggle_fn=self._set_boundary_visible)
@@ -3508,26 +3512,137 @@ class BeetentApp(ctk.CTk):
         bp=self.current_field.get("boundary_polygon")
         if not bp or len(bp)<3:
             self._status("Draw a boundary first."); return
-        self.boundary_pts=[tuple(p) for p in bp]
+        self._edit_target=("outer",None)
+        self._begin_ring_edit()
+
+    # ── Generalised ring editing (outer boundary / inner / access road) ──────
+    def _edit_marker_colors(self):
+        kind=getattr(self,"_edit_target",("outer",None))[0]
+        return {"outer":("#FFD700","#B8860B"),
+                "inner":("#FF6600","#993300"),
+                "road": ("#FF2D95","#8A0F50")}.get(kind,("#FFD700","#B8860B"))
+
+    def _show_edit_save_btn(self):
+        if getattr(self,"_edit_target",("outer",None))[0]=="outer":
+            self._show_context_btn("✔ Save Boundary", self._close_boundary)
+        else:
+            self._show_context_btn("✔ Save", self._save_ring_edit)
+
+    def _begin_ring_edit(self):
+        """Load the targeted ring (self._edit_target) into the shared vertex-
+        edit machinery: per-vertex draggable/selectable markers, preview, and
+        the right Save action. Outer keeps its existing save (despike + acres);
+        inner/road save back to their ring."""
+        kind,idx=getattr(self,"_edit_target",("outer",None))
+        if kind=="outer":
+            ring=self.current_field.get("boundary_polygon") or []
+        elif kind=="inner":
+            rings=self.current_field.get("boundary_inner") or []
+            ring=rings[idx] if (idx is not None and 0<=idx<len(rings)) else []
+        else:
+            rings=self.current_field.get("access_road_boundary") or []
+            ring=rings[idx] if (idx is not None and 0<=idx<len(rings)) else []
+        if len(ring)<3:
+            self._status("Nothing to edit."); return
+        self.boundary_pts=[tuple(p) for p in ring]
         self._clear_boundary_overlays()
         self._unregister_drag_prefix("bnd_")
         self.boundary_markers=[]
+        # When editing an inner ring / access road, keep the outer boundary
+        # drawn for context (boundary_inner_polys is cleared on save/redraw, and
+        # the edit preview uses boundary_poly so it won't clobber this).
+        if kind!="outer":
+            bpc=self.current_field.get("boundary_polygon")
+            if bpc and len(bpc)>=3:
+                try:
+                    o=self.map_widget.set_polygon([tuple(p) for p in bpc],
+                        fill_color=None, outline_color="#00CED1", border_width=1)
+                    self.boundary_inner_polys.append(o)
+                except Exception: pass
+        cc,oc=self._edit_marker_colors()
         for i,(lat,lon) in enumerate(self.boundary_pts):
             m=self.map_widget.set_marker(lat,lon,text=str(i+1),
-                                          marker_color_circle="#FFD700",marker_color_outside="#B8860B",
+                                          marker_color_circle=cc,marker_color_outside=oc,
                                           command=self._make_bnd_vertex_cb(i))
             self.boundary_markers.append(m)
-            # Pass marker so _b1_motion can drag the pin's canvas items
-            # live with the cursor (rather than only snapping on release).
-            self._register_drag(f"bnd_{i}",lat,lon,str(i+1),"#FFD700","#B8860B",
+            self._register_drag(f"bnd_{i}",lat,lon,str(i+1),cc,oc,
                                 lambda la,lo,i=i: self._on_bnd_vertex_drag(i,la,lo),
                                 marker=m)
         self._update_bnd_preview()
         self.click_mode="boundary_edit"
         self._selected_bnd_vertex=None
-        self._show_context_btn("✔ Save Boundary", self._close_boundary)
-        self._status("Click a vertex to select (drag to move, 🗑 Delete to remove). "
-                     "Click the map to add a vertex (joins the nearest two). Esc to deselect. ✔ Save when finished.")
+        self._show_edit_save_btn()
+        names={"outer":"boundary","inner":"inner boundary","road":"access road"}
+        self._status(f"Editing {names.get(kind,'boundary')}: click a vertex (drag to move, "
+                     "🗑 Delete to remove). Click the map to add a vertex. Esc to deselect. ✔ Save when done.")
+
+    def _commit_boundary_pts(self):
+        """Write the in-progress vertices back to whichever ring is being edited."""
+        kind,idx=getattr(self,"_edit_target",("outer",None))
+        pts=[list(p) for p in self.boundary_pts]
+        if kind=="outer":
+            self.current_field["boundary_polygon"]=pts
+        elif kind=="inner":
+            lst=self.current_field.setdefault("boundary_inner",[])
+            if idx is not None and 0<=idx<len(lst): lst[idx]=pts
+        elif kind=="road":
+            lst=self.current_field.setdefault("access_road_boundary",[])
+            if idx is not None and 0<=idx<len(lst): lst[idx]=pts
+
+    def _save_ring_edit(self):
+        """Save action for inner/access-road edits (outer uses _close_boundary)."""
+        if len(getattr(self,"boundary_pts",[]))<3:
+            self._status("Need ≥ 3 vertices."); return
+        self.boundary_pts=[tuple(p) for p in despike_ring(self.boundary_pts)]
+        self._commit_boundary_pts()
+        self._selected_bnd_vertex=None
+        self.click_mode=None
+        self._hide_context_btn()
+        self._unregister_drag_prefix("bnd_")
+        self._clear_boundary_markers()
+        self._redraw_boundary()
+        if self.show_shelters.get(): self._redraw_shelters()
+        if self.show_passes.get():   self._redraw_passes()
+        if self.show_bays.get():     self._redraw_bays()
+        kind=getattr(self,"_edit_target",("outer",None))[0]
+        self._status(("Inner boundary" if kind=="inner" else "Access road")
+                     + " updated. Save Field to keep.")
+
+    def _pick_ring_index(self, title, rings, label):
+        win=ctk.CTkToplevel(self); win.title(title); win.geometry("320x240"); win.grab_set()
+        ctk.CTkLabel(win, text=f"Select {label.lower()} to edit:").pack(pady=(12,4))
+        lb=tk.Listbox(win, bg=UI_CARD, fg=UI_TEXT, selectbackground=UI_SELECT,
+                      selectforeground=UI_TEXT, relief="flat", font=(FONT_BODY,11),
+                      height=6, activestyle="none", highlightthickness=1,
+                      highlightbackground=UI_BORDER)
+        for i,ring in enumerate(rings):
+            lb.insert(tk.END, f"{label} #{i+1}: {len(ring)} pts")
+        lb.pack(fill="x", padx=10, pady=4)
+        chosen={"i":None}
+        def go():
+            sel=lb.curselection()
+            if sel: chosen["i"]=sel[0]
+            win.destroy()
+        ctk.CTkButton(win, text="Edit Selected", command=go).pack(pady=(4,2))
+        ctk.CTkButton(win, text="Cancel", command=win.destroy).pack()
+        self.wait_window(win)
+        return chosen["i"]
+
+    def _mode_edit_inner_boundary(self):
+        self._close_all_popups()
+        rings=self.current_field.get("boundary_inner") or []
+        if not rings: self._status("No inner boundary to edit."); return
+        idx=0 if len(rings)==1 else self._pick_ring_index("Edit Inner Boundary", rings, "Inner")
+        if idx is None: return
+        self._edit_target=("inner",idx); self._begin_ring_edit()
+
+    def _mode_edit_access_road(self):
+        self._close_all_popups()
+        rings=self.current_field.get("access_road_boundary") or []
+        if not rings: self._status("No access road to edit."); return
+        idx=0 if len(rings)==1 else self._pick_ring_index("Edit Access Road", rings, "Access Road")
+        if idx is None: return
+        self._edit_target=("road",idx); self._begin_ring_edit()
 
     def _make_bnd_vertex_cb(self,idx):
         def cb(marker):
@@ -3550,7 +3665,7 @@ class BeetentApp(ctk.CTk):
         if self._selected_bnd_vertex is not None:
             self._redraw_bnd_vertex(self._selected_bnd_vertex,selected=False)
         self._selected_bnd_vertex=None
-        self._show_context_btn("✔ Save Boundary",self._close_boundary)
+        self._show_edit_save_btn()
         self._status("Click a vertex to select (drag to move, 🗑 Delete to remove). "
                      "Click the map to add a vertex (joins the nearest two). ✔ Save when finished.")
 
@@ -3559,8 +3674,9 @@ class BeetentApp(ctk.CTk):
         lat,lon=self.boundary_pts[idx]
         try: self.boundary_markers[idx].delete()
         except Exception: pass
-        cc="#FF6600" if selected else "#FFD700"
-        oc="#CC3300" if selected else "#B8860B"
+        base_cc, base_oc = self._edit_marker_colors()
+        cc="#00E0FF" if selected else base_cc   # selected = bright cyan highlight
+        oc="#0077AA" if selected else base_oc
         m=self.map_widget.set_marker(lat,lon,text=str(idx+1),
                                       marker_color_circle=cc,marker_color_outside=oc,
                                       command=self._make_bnd_vertex_cb(idx))
@@ -3573,11 +3689,11 @@ class BeetentApp(ctk.CTk):
         idx=self._selected_bnd_vertex
         if idx is None: return
         if len(self.boundary_pts)<=3:
-            self._status("Cannot delete — boundary needs at least 3 vertices."); return
+            self._status("Cannot delete — a boundary needs at least 3 vertices."); return
         self.boundary_pts.pop(idx)
-        self.current_field["boundary_polygon"]=[list(p) for p in self.boundary_pts]
+        self._commit_boundary_pts()
         self._selected_bnd_vertex=None
-        self._mode_edit_boundary()
+        self._begin_ring_edit()
         self._status(f"Vertex deleted. {len(self.boundary_pts)} vertices remain.")
 
     def _try_insert_bnd_vertex(self, lat, lon):
@@ -3599,9 +3715,9 @@ class BeetentApp(ctk.CTk):
                 best_cost=cost; best_edge=i
         ins=best_edge+1
         pts.insert(ins,(lat,lon))
-        self.current_field["boundary_polygon"]=[list(p) for p in pts]
+        self._commit_boundary_pts()
         self._selected_bnd_vertex=None
-        self._mode_edit_boundary()      # rebuild markers + numbering
+        self._begin_ring_edit()         # rebuild markers + numbering
         self._select_bnd_vertex(ins)    # highlight the new vertex for dragging
         self._status(f"Vertex added ({len(pts)} total) — drag to position, "
                      "🗑 Delete to remove. ✔ Save when done.")
@@ -3978,8 +4094,9 @@ class BeetentApp(ctk.CTk):
     def _update_bnd_preview(self):
         if self.boundary_poly: self.boundary_poly.delete()
         if len(self.boundary_pts)>=2:
+            outline = self._edit_marker_colors()[0]   # match the ring being edited
             self.boundary_poly=self.map_widget.set_polygon(
-                self.boundary_pts,fill_color=None,outline_color="#FFD700",border_width=2)
+                self.boundary_pts,fill_color=None,outline_color=outline,border_width=2)
 
     def _redraw_boundary(self):
         if self.boundary_poly: self.boundary_poly.delete(); self.boundary_poly=None
@@ -4018,24 +4135,24 @@ class BeetentApp(ctk.CTk):
     def _on_bnd_vertex_drag(self,idx,lat,lon):
         if self._selected_bnd_vertex==idx:
             self._selected_bnd_vertex=None
-            self._show_context_btn("✔ Save Boundary",self._close_boundary)
+            self._show_edit_save_btn()
         self.boundary_pts[idx]=(lat,lon)
         try: self.boundary_markers[idx].delete()
         except Exception: pass
+        cc,oc=self._edit_marker_colors()
         m=self.map_widget.set_marker(lat,lon,text=str(idx+1),
-                                      marker_color_circle="#FFD700",marker_color_outside="#B8860B",
+                                      marker_color_circle=cc,marker_color_outside=oc,
                                       command=self._make_bnd_vertex_cb(idx))
         self.boundary_markers[idx]=m
-        self._register_drag(f"bnd_{idx}",lat,lon,str(idx+1),"#FFD700","#B8860B",
+        self._register_drag(f"bnd_{idx}",lat,lon,str(idx+1),cc,oc,
                             lambda la,lo,i=idx: self._on_bnd_vertex_drag(i,la,lo),
                             marker=m)
         self._update_bnd_preview()
-        # Live-update bays / passes / track clipping so the user sees the
-        # downstream effect of the move without having to hit "Save Boundary".
-        # Commit the in-progress points into the field so the redraw helpers
-        # (which read current_field["boundary_polygon"]) see the new shape.
+        # Live-update downstream so the user sees the effect without hitting
+        # Save. Commit the in-progress points into whichever ring is being
+        # edited so the redraw helpers see the new shape.
         if len(self.boundary_pts) >= 3:
-            self.current_field["boundary_polygon"] = [list(p) for p in self.boundary_pts]
+            self._commit_boundary_pts()
             if self.show_passes.get(): self._redraw_passes()
             if self.show_bays.get():   self._redraw_bays()
             if self.show_tracks.get(): self._redraw_tracks(skip_shelters=True)
