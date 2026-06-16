@@ -7059,8 +7059,10 @@ class BeetentApp(ctk.CTk):
 
                 # ── Package as a single .zip so it shows a size in Explorer ──
                 # Folders never report a size in the Size column; a .zip does,
-                # so the latest export sorts to the top by size (or date).
-                final_path=out_dir
+                # so the latest export sorts to the top by size (or date). The
+                # unzipped folder is kept for now so we can offer a USB copy;
+                # _finish_export removes it afterwards.
+                zipped=False
                 try:
                     if os.path.isdir(out_dir):
                         if zip_path.exists():
@@ -7071,44 +7073,156 @@ class BeetentApp(ctk.CTk):
                                 for fn in files:
                                     fp=os.path.join(root,fn)
                                     zf.write(fp,os.path.relpath(fp,out_dir))
-                        shutil.rmtree(out_dir,ignore_errors=True)
-                        final_path=zip_path
-                        _sz=zip_path.stat().st_size
-                        _szmb=_sz/(1024*1024)
+                        zipped=True
+                        _szmb=zip_path.stat().st_size/(1024*1024)
                         self.after(0,lambda s=_szmb:self._log("  Packaged → %s (%.1f MB)"%(zip_path.name,s)))
                 except Exception:
                     import traceback as _tb
                     self.after(0,lambda m=_tb.format_exc():self._log("  (zip skipped: %s)"%m.splitlines()[-1]))
-                    final_path=out_dir
 
-                self.after(0,lambda fp=final_path:tkinter.messagebox.showinfo("Done",
-                    "%d field(s) exported to:\n%s\n\n"
-                    "Extract the .zip, then:\n"
-                    "\n"
-                    "Trimble: copy AgGPS\\ folder to USB root.\n"
-                    "\n"
-                    "John Deere (John Deere Shelter Buffer Zones\\ folder):\n"
-                    "  Upload Files → Internal Boundaries → drop\n"
-                    "    {field}_Shelter_Buffer_Zones_shp.zip\n"
-                    "\n"
-                    "Google Earth: open Shelter Pins KML\\{field}_Shelter_Pins.kml.\n"
-                    "\n"
-                    "Boundary Files\\ has the field boundary as shapefile and KML\n"
-                    "(fields without a drawn boundary are skipped)."
-                    %(ok,fp)))
-                # Open Downloads with the new .zip selected so it's easy to find.
-                try:
-                    if final_path.suffix.lower()==".zip":
-                        self.after(0,lambda fp=final_path:subprocess.Popen(
-                            ["explorer","/select,",str(fp)]))
-                    else:
-                        self.after(0,lambda fp=final_path:os.startfile(str(fp)))
-                except Exception: pass
+                # Finish on the main thread: Done dialog, offer USB copy, clean
+                # up the folder, then OPEN THE EXPORT FILE ITSELF (not Downloads).
+                self.after(0, lambda od=out_dir, zp=(zip_path if zipped else None), k=ok:
+                           self._finish_export(od, zp, k, len(selected_fields)))
             except Exception:
                 import traceback as tb; msg=tb.format_exc()
                 self.after(0,lambda:self._log("ERROR:\n"+msg))
                 self.after(0,lambda:tkinter.messagebox.showerror("Error",msg[:600]))
         threading.Thread(target=run,daemon=True).start()
+
+    # ── Export finish + USB copy ────────────────────────────────────────────
+    def _finish_export(self, out_dir, zip_path, ok, total):
+        """Main-thread finish for an export: Done dialog, optional copy to a
+        plugged-in USB, clean up the unzipped folder, then OPEN THE EXPORT FILE
+        itself (the .zip) rather than the Downloads folder."""
+        out_dir = Path(out_dir)
+        final_path = Path(zip_path) if (zip_path and Path(zip_path).exists()) else out_dir
+        tkinter.messagebox.showinfo("Done",
+            "%d field(s) exported to:\n%s\n\n"
+            "The export is a .zip — extract it, then:\n"
+            "\n"
+            "Trimble: copy AgGPS\\ folder to USB root.\n"
+            "\n"
+            "John Deere (John Deere Shelter Buffer Zones\\ folder):\n"
+            "  Upload Files → Internal Boundaries → drop\n"
+            "    {field}_Shelter_Buffer_Zones_shp.zip\n"
+            "\n"
+            "Google Earth: open Shelter Pins KML\\{field}_Shelter_Pins.kml.\n"
+            "\n"
+            "Boundary Files\\ has the field boundary as shapefile and KML\n"
+            "(fields without a drawn boundary are skipped)."
+            % (ok, final_path))
+
+        # Offer to copy straight onto a plugged-in USB (while the folder of
+        # loose files still exists — equipment reads them from the USB root).
+        try:
+            if out_dir.is_dir():
+                self._offer_usb_copy(out_dir)
+        except Exception:
+            pass
+
+        # Keep only the .zip in Downloads.
+        try:
+            if zip_path and Path(zip_path).exists() and out_dir.is_dir():
+                shutil.rmtree(out_dir, ignore_errors=True)
+        except Exception:
+            pass
+
+        # Open the export file itself so the user doesn't have to hunt for it.
+        try:
+            os.startfile(str(final_path))
+        except Exception:
+            pass
+
+    @staticmethod
+    def _volume_label(root):
+        """Best-effort volume label for a drive root like 'E:\\' (Windows)."""
+        try:
+            import ctypes
+            buf = ctypes.create_unicode_buffer(256)
+            ctypes.windll.kernel32.GetVolumeInformationW(
+                ctypes.c_wchar_p(root), buf, 256, None, None, None, None, 0)
+            return buf.value or ""
+        except Exception:
+            return ""
+
+    def _removable_drives(self):
+        """List of (root, label) for removable (USB-stick) drives on Windows.
+        Removable = DRIVE_REMOVABLE (2); USB hard drives report FIXED and are
+        intentionally not matched."""
+        drives = []
+        try:
+            import ctypes
+            k = ctypes.windll.kernel32
+            bitmask = k.GetLogicalDrives()
+            for i in range(26):
+                if not (bitmask >> i) & 1:
+                    continue
+                root = f"{chr(65 + i)}:\\"
+                try:
+                    if k.GetDriveTypeW(ctypes.c_wchar_p(root)) == 2:   # DRIVE_REMOVABLE
+                        drives.append((root, self._volume_label(root)))
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        return drives
+
+    def _pick_drive_dialog(self, drives):
+        """Modal chooser when more than one USB is plugged in. Returns a drive
+        root or None."""
+        win = ctk.CTkToplevel(self); win.title("Copy to USB"); win.grab_set()
+        ctk.CTkLabel(win, text="Copy the export to which USB drive?",
+                     font=ctk.CTkFont(family=FONT_HEADING, size=14)).pack(padx=24, pady=(16, 8))
+        chosen = {"root": None}
+        for root, label in drives:
+            disp = root + (f"  ({label})" if label else "")
+            def _pick(r=root):
+                chosen["root"] = r; win.destroy()
+            ctk.CTkButton(win, text=disp, height=34, command=_pick).pack(
+                fill="x", padx=24, pady=3)
+        ctk.CTkButton(win, text="Skip", height=32, fg_color="#555",
+                      command=win.destroy).pack(fill="x", padx=24, pady=(8, 16))
+        _center_on_parent(win, self)
+        self.wait_window(win)
+        return chosen["root"]
+
+    def _offer_usb_copy(self, out_dir):
+        """If a USB stick is plugged in, offer to copy the export's files onto
+        it (overwriting same-named files), so they're ready at the USB root."""
+        drives = self._removable_drives()
+        if not drives:
+            return
+        if len(drives) == 1:
+            root, label = drives[0]
+            disp = root + (f"  ({label})" if label else "")
+            if not tkinter.messagebox.askyesno(
+                    "Copy to USB",
+                    f"USB drive {disp} detected.\n\n"
+                    f"Copy the exported files onto it now?\n"
+                    f"(Files with the same name will be overwritten.)"):
+                return
+            target = root
+        else:
+            target = self._pick_drive_dialog(drives)
+            if not target:
+                return
+        try:
+            n = 0
+            for item in os.listdir(out_dir):
+                s = os.path.join(out_dir, item)
+                d = os.path.join(target, item)
+                if os.path.isdir(s):
+                    shutil.copytree(s, d, dirs_exist_ok=True)   # overwrite/merge
+                else:
+                    shutil.copy2(s, d)
+                n += 1
+            tkinter.messagebox.showinfo("Copied to USB",
+                f"Copied {n} item(s) to {target}")
+            self._status(f"Export copied to {target}")
+        except Exception as ex:
+            tkinter.messagebox.showerror("USB Copy Failed",
+                f"Couldn't copy to {target}:\n{ex}")
 
     # ── Field Summary PDF ──────────────────────────────────────────────────────
     def _export_field_pdf(self):
