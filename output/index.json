@@ -8,7 +8,9 @@
     "companies": [
       "BASF"
     ],
-    "years": [],
+    "years": [
+      "2026"
+    ],
     "fields": [],
     "types": [
       "Boundary"
@@ -26,7 +28,9 @@
     "companies": [
       "BASF"
     ],
-    "years": [],
+    "years": [
+      "2026"
+    ],
     "fields": [],
     "types": [
       "JD"
@@ -44,7 +48,9 @@
     "companies": [
       "BASF"
     ],
-    "years": [],
+    "years": [
+      "2026"
+    ],
     "fields": [],
     "types": [
       "AgGPS"
@@ -62,7 +68,9 @@
     "companies": [
       "Hytech"
     ],
-    "years": [],
+    "years": [
+      "2026"
+    ],
     "fields": [],
     "types": [
       "AgGPS"
@@ -78,7 +86,9 @@
     "relpath": "exports/Shelter Maps_MultiCompany_v1",
     "is_dir": true,
     "companies": [],
-    "years": [],
+    "years": [
+      "2026"
+    ],
     "fields": [
       "Giesbricht NW 35-10-16",
       "NW 1-10-15",
@@ -105,7 +115,9 @@
     "relpath": "exports/Shelter Maps_MultiCompany_v2",
     "is_dir": true,
     "companies": [],
-    "years": [],
+    "years": [
+      "2026"
+    ],
     "fields": [],
     "types": [
       "AgGPS"
@@ -123,7 +135,9 @@
     "companies": [
       "RVR"
     ],
-    "years": [],
+    "years": [
+      "2026"
+    ],
     "fields": [],
     "types": [
       "AgGPS"
@@ -141,7 +155,9 @@
     "companies": [
       "RVR"
     ],
-    "years": [],
+    "years": [
+      "2026"
+    ],
     "fields": [],
     "types": [
       "AgGPS"
@@ -159,7 +175,9 @@
     "companies": [
       "RVR"
     ],
-    "years": [],
+    "years": [
+      "2026"
+    ],
     "fields": [],
     "types": [
       "AgGPS"
@@ -177,7 +195,9 @@
     "companies": [
       "RVR"
     ],
-    "years": [],
+    "years": [
+      "2026"
+    ],
     "fields": [],
     "types": [
       "AgGPS"
