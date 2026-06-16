@@ -2366,27 +2366,40 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
             if not raw:
                 return ([], []) if return_rows else []
 
-            # ── Tidy ragged OUTER columns (user: outer rows must look balanced) ─
-            # Group placed cells into their along-pass lines. A line much shorter
-            # than the longest is an edge sliver where the tapering boundary +
-            # outside-round band only left room at one end. If such a sliver holds
-            # just 1–2 shelters it reads as an off-balance clump, so drop it; the
-            # field-centred column grid keeps the rest symmetric.
+            # ── Keep OUTER columns symmetric about the field centre (user: equal
+            # rows each half) ─────────────────────────────────────────────────
+            # Group cells into columns indexed ±c from the centre column (c=0 is
+            # the field-centred line). A column is a "sliver" if it's much shorter
+            # than the fullest column AND holds only 1–2 shelters (an
+            # un-centerable clump at the tapering edge). Keep an outer column only
+            # as a MIRROR PAIR: +c and −c are both kept only if both exist and
+            # neither is a sliver — otherwise drop both, so each half always has
+            # the same number of columns.
             if boundary_enu and ns_spacing > 0 and len(row_list) > 1:
-                _lines = defaultdict(list)
+                # Stagger puts a visual column every ns_spacing/2 (odd rows are
+                # offset half a step), so index columns by that finer pitch — else
+                # two visual columns merge into one key and slivers go undetected.
+                col_pitch = ns_spacing / 2.0
+                cols = defaultdict(list)
                 for (e, n, _r) in raw:
                     pn = -e * sin_r + n * cos_r
-                    _lines[round(pn / ns_spacing)].append((e, n))
-                _spans = {k: (max(e * cos_r + n * sin_r for e, n in v) -
-                              min(e * cos_r + n * sin_r for e, n in v))
-                          for k, v in _lines.items()}
-                _full = max(_spans.values()) if _spans else 0.0
-                rebuilt = []
-                for k, cells in _lines.items():
-                    if _full > 0 and _spans[k] < 0.55 * _full and len(cells) <= 2:
-                        continue                    # drop the tiny edge sliver
-                    for (e, n) in cells:
-                        rebuilt.append((e, n, round(e * cos_r + n * sin_r, 0)))
+                    cols[round((pn - pn_center) / col_pitch)].append((e, n))
+                spans = {c: (max(e * cos_r + n * sin_r for e, n in v) -
+                             min(e * cos_r + n * sin_r for e, n in v))
+                         for c, v in cols.items()}
+                full = max(spans.values()) if spans else 0.0
+
+                def _sliver(c):
+                    return (c not in cols or
+                            (full > 0 and spans[c] < 0.55 * full and len(cols[c]) <= 2))
+
+                keep = {0} if 0 in cols else set()
+                for m in range(1, max((abs(c) for c in cols), default=0) + 1):
+                    if (m in cols and -m in cols
+                            and not _sliver(m) and not _sliver(-m)):
+                        keep.add(m); keep.add(-m)
+                rebuilt = [(e, n, round(e * cos_r + n * sin_r, 0))
+                           for c, v in cols.items() if c in keep for (e, n) in v]
                 if rebuilt:
                     raw = rebuilt
 
