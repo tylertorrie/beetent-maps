@@ -5372,9 +5372,11 @@ class BeetentApp(ctk.CTk):
     def _set_planter_visible(self, on):
         self.planter_visible_var.set(on)
         self.show_bays.set(on); self.show_planter_passes.set(on)
+        self.show_planter_numbers.set(on)   # numbered passes follow the Planter toggle
         if on: self._redraw_bays()
         else:  self._clear_bays()
         self._redraw_planter_passes()
+        self._redraw_planter_pass_numbers()
 
     def _set_shelters_visible(self, on):
         self.shelters_visible_var.set(on)
@@ -6458,13 +6460,13 @@ class BeetentApp(ctk.CTk):
             ivs = clip_line_to_polygon_intervals(pe, pn, tdx, tdy, poly_enu)
             if not ivs:
                 continue
-            t1, t2 = max(ivs, key=lambda iv: iv[1] - iv[0])   # widest segment
-            nA = pn + t1 * tdy            # ENU north at each endpoint
-            nB = pn + t2 * tdy
-            if nA >= nB:
-                te = t1 - 0.6 * pass_w    # north end at t1 → push further north
-            else:
-                te = t2 + 0.6 * pass_w
+            # Label at the NORTHERNMOST point across ALL segments (a concave field
+            # near a corner can split a pass into several intervals — picking the
+            # widest one would drop the label mid-field instead of at the top).
+            ends = [t for iv in ivs for t in iv]
+            t_n = max(ends, key=lambda t: pn + t * tdy)   # endpoint with greatest north
+            d = 1.0 if tdy >= 0 else -1.0                 # along-track dir of +north
+            te = t_n + d * 0.6 * pass_w                   # nudge just past the boundary
             mlat, mlon = enu_to_latlon(pe + te * tdx, pn + te * tdy, plat, plon)
             label = self._pass_number(c0, pass_w)
             txt = ("+%d" % label) if label > 0 else ("%d" % label)
@@ -8318,9 +8320,15 @@ class BeetentApp(ctk.CTk):
         self._status("☁ App update downloaded — click 🔄 Restart to apply.")
 
     def _restart_app(self):
-        """Restart the process in-place to apply a pulled update."""
+        """Restart the process in-place to apply a pulled update. Prefer the
+        windowless interpreter (pythonw.exe) so the restart never pops a console."""
         try:
-            os.execv(sys.executable, [sys.executable] + sys.argv)
+            exe = sys.executable
+            if exe.lower().endswith("python.exe"):
+                pyw = exe[:-len("python.exe")] + "pythonw.exe"
+                if os.path.exists(pyw):
+                    exe = pyw
+            os.execv(exe, [exe] + sys.argv)
         except Exception:
             tkinter.messagebox.showinfo("Restart Required",
                 "Please close and reopen the app to apply the update.")

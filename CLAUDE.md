@@ -10,9 +10,14 @@ exports GPS coordinates, and generates PDF maps.
 
 ## Running the app
 
+Launch **windowless** with `pythonw.exe` so no console window opens (the app is
+designed for this — it wraps subprocess to hide git console flashes). There's a
+"Bee Tent Maps" desktop shortcut pointing at pythonw for the user.
+
 ```powershell
 cd C:\Users\tyler\beetent-maps   # or wherever cloned
-python beetent_app.py
+pythonw beetent_app.py           # windowless (preferred)
+# python beetent_app.py          # only for debugging — opens a console window
 ```
 
 Dependencies: `customtkinter tkintermapview pillow requests fpdf2`
