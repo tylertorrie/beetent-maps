@@ -1183,6 +1183,8 @@ class BeetentApp(ctk.CTk):
         self.after(300, self._bind_drag_system)
         self.after(1000, self._git_pull)            # pull latest on startup
         self.after(300_000, self._check_for_app_update)  # then check every 5 min
+        self._autosave_last = None                  # auto-save change-detection baseline
+        self.after(2500, self._autosave_tick)       # quietly persist map/field edits
 
     # ── Window icon / logo ──────────────────────────────────────────────────
     def _set_window_icon(self):
@@ -4284,6 +4286,9 @@ class BeetentApp(ctk.CTk):
         else:
             self.current_field.setdefault("corner_arms", [])
         self.current_field.setdefault("shelter_overrides",{})
+        # Baseline the auto-saver to the freshly loaded state so it only writes
+        # once the user actually changes something (and never re-saves on load).
+        self._autosave_last = self._field_snapshot()
 
     def _field_from_form(self):
         f=self.current_field
@@ -4739,9 +4744,11 @@ class BeetentApp(ctk.CTk):
         self._unregister_drag_prefix("fieldinfo_")
         if not self.show_field_info.get():
             return
-        specs = [("entrance_pin", "Entrance", "#16A34A", "#0B5D27"),
-                 ("parking_pin",  "Parking",  "#F59E0B", "#8A5E00")]
-        for key, label, cc, oc in specs:
+        # Single letter centred in the pin (like the shelter numbers): E / P.
+        specs = [("entrance_pin", "E", "#16A34A", "#0B5D27"),
+                 ("parking_pin",  "P", "#F59E0B", "#8A5E00")]
+        canvas = self.map_widget.canvas
+        for key, letter, cc, oc in specs:
             p = self.current_field.get(key)
             if not p:
                 continue
@@ -4750,11 +4757,25 @@ class BeetentApp(ctk.CTk):
             except (TypeError, ValueError, IndexError):
                 continue
             try:
-                m = self.map_widget.set_marker(lat, lon, text=label,
+                m = self.map_widget.set_marker(lat, lon, text=letter,
                                                marker_color_circle=cc,
-                                               marker_color_outside=oc)
+                                               marker_color_outside=oc,
+                                               text_color="#FFFFFF",
+                                               font=(FONT_LABEL, 12, "bold"))
+                # Pull the text up into the circle centre and keep it centred on
+                # every pan/zoom redraw (same trick as the shelter-pin numbers).
+                _orig = m.draw
+                def _draw_centered(event=None, _m=m, _c=canvas, _od=_orig):
+                    _od(event)
+                    if _m.canvas_text:
+                        try: _c.itemconfig(_m.canvas_text, anchor="center")
+                        except Exception: pass
+                m.text_y_offset = -31
+                m.draw = _draw_centered
+                try: m.draw()
+                except Exception: pass
                 self.field_info_markers.append(m)
-                self._register_drag(f"fieldinfo_{key}", lat, lon, label, cc, oc,
+                self._register_drag(f"fieldinfo_{key}", lat, lon, letter, cc, oc,
                                     lambda la, lo, k=key: self._on_field_info_drag(k, la, lo),
                                     marker=m)
             except Exception:
@@ -8706,6 +8727,43 @@ class BeetentApp(ctk.CTk):
                 self.after(0,lambda:self._status(""))
         threading.Thread(target=run,daemon=True).start()
 
+    def _field_snapshot(self):
+        """Stable JSON string of the current field (form synced in) for change
+        detection by the auto-saver. None if it can't be built."""
+        try:
+            return json.dumps(self._field_from_form(), sort_keys=True, default=str)
+        except Exception:
+            return None
+
+    def _autosave_tick(self):
+        """Every few seconds, quietly persist the current field if it changed —
+        so boundary draws, pin placements, shelter moves, etc. stick without the
+        Save button. Reschedules itself. Only auto-saves fields that already
+        exist on disk (created once via Save) so a half-typed new name can't
+        spawn an orphan file."""
+        self.after(2500, self._autosave_tick)
+        f = self._field_from_form()
+        name = (f.get("Name") or "").strip(); co = (f.get("company") or "").strip()
+        if not name or not co or invalid_field_name_chars(name) or invalid_field_name_chars(co):
+            return
+        yr = (f.get("year") or "").strip()
+        if not yr or yr == ALL_YEARS:
+            yr = str(datetime.date.today().year); f["year"] = yr
+        if not (DATA_DIR / co / str(yr) / (name + ".json")).exists():
+            return                                  # not created yet → manual Save first
+        try: snap = json.dumps(f, sort_keys=True, default=str)
+        except Exception: return
+        if getattr(self, "_autosave_last", None) is None:
+            self._autosave_last = snap              # baseline; current state already on disk
+            return
+        if snap == self._autosave_last:
+            return                                  # nothing changed
+        try: save_field(f)
+        except Exception: return
+        self._autosave_last = snap
+        self._refresh_field_list()
+        self._git_push(f"auto-save: {name}")
+
     def _save_field(self):
         f=self._field_from_form()
         if not f.get("Name"):
@@ -8758,6 +8816,8 @@ class BeetentApp(ctk.CTk):
         self._refresh_field_list()
         self._status(f"Saved: {f['Name']}" + (" (new company)" if new_company else ""))
         self._git_push(f"save field: {f['Name']}")
+        try: self._autosave_last = json.dumps(f, sort_keys=True, default=str)
+        except Exception: self._autosave_last = None
 
     def _load_csv(self):
         path=tkinter.filedialog.askopenfilename(filetypes=[("CSV","*.csv"),("All","*.*")])
