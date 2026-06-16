@@ -21,7 +21,7 @@ Install with: `python -m pip install customtkinter tkintermapview pillow request
 ## Repository
 
 - **GitHub:** https://github.com/tylertorrie/beetent-maps
-- **Remote name:** `github`
+- **Remote name:** `origin`
 - **Branch:** `master`
 - Token stored in the git remote URL (Windows Credential Manager also has it)
 
