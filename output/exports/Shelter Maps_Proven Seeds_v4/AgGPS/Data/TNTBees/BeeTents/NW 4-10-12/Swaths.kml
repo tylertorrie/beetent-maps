@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2">
+    <Document id="1">
+        <Placemark id="3">
+            <name>AB Line</name>
+            <LineString id="2">
+                <coordinates>-111.5793427,49.79666600252359,0.0 -111.5793427,49.797565439518934,0.0</coordinates>
+            </LineString>
+        </Placemark>
+    </Document>
+</kml>

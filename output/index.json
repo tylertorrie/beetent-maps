@@ -941,5 +941,28 @@
     "role": "flag",
     "generated": "2026-06-16T14:28:35",
     "size": 539897
+  },
+  {
+    "id": "exports/Shelter Maps_Proven Seeds_v4",
+    "kind": "export",
+    "name": "Shelter Maps_Proven Seeds_v4",
+    "relpath": "exports/Shelter Maps_Proven Seeds_v4",
+    "is_dir": true,
+    "companies": [
+      "Proven Seeds"
+    ],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "NW 4-10-12",
+      "SE 16-9-13"
+    ],
+    "types": [
+      "AgGPS"
+    ],
+    "role": null,
+    "generated": "2026-06-16T14:31:59",
+    "size": 78322
   }
 ]
