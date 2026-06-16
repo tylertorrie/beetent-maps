@@ -1093,9 +1093,13 @@ class BeetentApp(ctk.CTk):
         self.planter_number_paths = []
         self.planter_number_markers = []
         self._pp_font_by_zoom = {}   # cache: pass-number label font size per zoom
-        # Measuring tool (ruler) — multi-point, snaps to shelter pins.
-        self._measure_pts = []        # [(lat,lon), ...]
-        self._measure_overlays = []   # paths + distance-label markers
+        # Measuring tool (ruler) — multi-segment, live dashed rubber-band, snaps
+        # to shelter pins, closes to a polygon (with area) when you click the start.
+        self._measure_pts = []        # [(lat,lon), ...] committed points
+        self._measure_overlays = []   # committed paths + distance/area labels
+        self._measure_rubber = []     # raw-canvas live line + length text (transient)
+        self._measure_closed = False  # True once the polyline closes into a polygon
+        self._measure_unit = "ft"     # ft | in | m | cm
         # Inner boundary outline overlays (drawn by _redraw_boundary, but the
         # list lives here so _clear_all_overlays can wipe them too).
         self.boundary_inner_polys = []
@@ -2577,6 +2581,11 @@ class BeetentApp(ctk.CTk):
         self.btn_context = ctk.CTkButton(bb, text="", width=130, fg_color="#225588",
                                           state="disabled", command=lambda: None)
         # starts hidden — _show_context_btn packs it when a mode needs it
+
+        # Measure-tool unit toggle (ft↔in / m↔cm) — shown only in measure mode.
+        self._measure_unit_btn = ctk.CTkButton(bb, text="Unit: ft", width=90,
+                                               fg_color="#0a6b6b",
+                                               command=self._measure_unit_cycle)
 
         self.map_frame=mf
 
@@ -4818,7 +4827,11 @@ class BeetentApp(ctk.CTk):
 
     def _on_escape(self,event=None):
         if self.click_mode == "measure":
-            self._clear_measure(); self.click_mode = None; self._hide_context_btn()
+            try: self.map_widget.canvas.unbind("<Motion>")
+            except Exception: pass
+            self._clear_measure(); self.click_mode = None
+            self._measure_unit_btn.pack_forget()
+            self._hide_context_btn()
             self._status("Measurement cleared.")
             return
         if self._selected_bnd_vertex is not None:
@@ -4978,24 +4991,45 @@ class BeetentApp(ctk.CTk):
         self._close_all_popups()
         self._clear_measure()
         self.click_mode = "measure"
+        # Default sub-unit follows the main system (ft for Imperial, m for Metric).
+        self._measure_unit = "m" if self.unit_var.get() == "Metric" else "ft"
+        self._measure_unit_btn.configure(text=f"Unit: {self._measure_unit}")
+        if not self._measure_unit_btn.winfo_ismapped():
+            self._measure_unit_btn.pack(side="right", padx=(4, 0))
         self._show_context_btn("✔ Done Measuring", self._finish_measure)
-        self._status("Measure: click points (snaps to shelters). Esc to clear, ✔ Done to keep.")
+        try: self.map_widget.canvas.bind("<Motion>", self._measure_motion)
+        except Exception: pass
+        self._status("Measure: click points (snaps to shelters). Click the first "
+                     "point to close into an area. Esc clears.")
 
     def _finish_measure(self):
         if self.click_mode == "measure":
             self.click_mode = None
+        try: self.map_widget.canvas.unbind("<Motion>")
+        except Exception: pass
+        self._clear_rubber()
+        self._measure_unit_btn.pack_forget()
         self._hide_context_btn()
         if len(self._measure_pts) >= 2:
             self._status("Measurement kept on map — 📏 Measure again to start over.")
         else:
             self._clear_measure(); self._status("")
 
+    def _clear_rubber(self):
+        cvs = self.map_widget.canvas
+        for it in self._measure_rubber:
+            try: cvs.delete(it)
+            except Exception: pass
+        self._measure_rubber = []
+
     def _clear_measure(self):
+        self._clear_rubber()
         for o in self._measure_overlays:
             try: o.delete()
             except Exception: pass
         self._measure_overlays = []
         self._measure_pts = []
+        self._measure_closed = False
 
     def _measure_snap(self, lat, lon):
         """Snap a click to the nearest shelter pin within ~15 px, else as-is."""
@@ -5009,10 +5043,80 @@ class BeetentApp(ctk.CTk):
                 best_d, best = d, (sla, slo)
         return best if best else (lat, lon)
 
-    def _fmt_dist(self, m):
-        ft = m / 0.3048
-        return (f"{m:.1f} m ({ft:.0f} ft)" if self.unit_var.get() == "Metric"
-                else f"{ft:.0f} ft ({m:.1f} m)")
+    def _measure_unit_cycle(self):
+        """Toggle the measure sub-unit: ft↔in (Imperial) or m↔cm (Metric)."""
+        if self.unit_var.get() == "Metric":
+            self._measure_unit = "cm" if self._measure_unit == "m" else "m"
+        else:
+            self._measure_unit = "in" if self._measure_unit == "ft" else "ft"
+        self._measure_unit_btn.configure(text=f"Unit: {self._measure_unit}")
+        self._redraw_measure(); self._update_measure_status()
+
+    def _fmt_len(self, m):
+        """Format a length (metres) in the current measure sub-unit."""
+        u = self._measure_unit
+        if u == "in": return f"{m/0.0254:,.0f} in"
+        if u == "cm": return f"{m*100:,.0f} cm"
+        if u == "m":  return f"{m:,.1f} m"
+        return f"{m/0.3048:,.1f} ft"
+
+    def _latlon_to_canvas(self, lat, lon):
+        """Project lat/lon → canvas pixel (mirrors tkintermapview's marker math),
+        for drawing the live rubber-band line between map and cursor."""
+        from tkintermapview.utility_functions import decimal_to_osm
+        mw = self.map_widget
+        tx, ty = decimal_to_osm(lat, lon, round(mw.zoom))
+        wtw = mw.lower_right_tile_pos[0] - mw.upper_left_tile_pos[0]
+        wth = mw.lower_right_tile_pos[1] - mw.upper_left_tile_pos[1]
+        x = ((tx - mw.upper_left_tile_pos[0]) / wtw) * mw.width
+        y = ((ty - mw.upper_left_tile_pos[1]) / wth) * mw.height
+        return x, y
+
+    def _measure_motion(self, event):
+        """Live dashed line from the last point to the cursor, with live length.
+        Snaps onto the first point (to close the polygon) when the cursor is near it."""
+        if self.click_mode != "measure" or self._measure_closed or not self._measure_pts:
+            return
+        self._clear_rubber()
+        cvs = self.map_widget.canvas
+        try:
+            x0, y0 = self._latlon_to_canvas(*self._measure_pts[-1])
+        except Exception:
+            return
+        x1, y1 = event.x, event.y
+        closing = False
+        if len(self._measure_pts) >= 3:
+            try:
+                fx, fy = self._latlon_to_canvas(*self._measure_pts[0])
+                if (fx - x1)**2 + (fy - y1)**2 <= 15.0**2:
+                    x1, y1, closing = fx, fy, True
+            except Exception:
+                pass
+        self._measure_rubber.append(cvs.create_line(
+            x0, y0, x1, y1, fill="#00E5FF", width=2, dash=(5, 4)))
+        try:
+            clat, clon = self.map_widget.convert_canvas_coords_to_decimal_coords(x1, y1)
+            seg = haversine_m(self._measure_pts[-1][0], self._measure_pts[-1][1], clat, clon)
+            txt = self._fmt_len(seg) + ("   ⟲ click to close" if closing else "")
+            self._measure_rubber.append(cvs.create_text(
+                x1 + 10, y1 - 10, text=txt, fill="#00E5FF", anchor="w",
+                font=(FONT_LABEL, 11, "bold")))
+        except Exception:
+            pass
+
+    def _update_measure_status(self):
+        pts = self._measure_pts
+        if len(pts) < 2:
+            self._status("Measure: click to add points. Click the first point to "
+                         "close into an area. Esc clears.")
+            return
+        total = sum(haversine_m(pts[i-1][0], pts[i-1][1], pts[i][0], pts[i][1])
+                    for i in range(1, len(pts)))
+        msg = f"Total {self._fmt_len(total)}"
+        if self._measure_closed and len(pts) >= 4:
+            area = polygon_area_m2([[la, lo] for la, lo in pts[:-1]])
+            msg += f"   •   Area {area*10.76391:,.0f} sq ft ({area*ACRES_PER_M2:.2f} ac)"
+        self._status(msg)
 
     def _redraw_measure(self):
         for o in self._measure_overlays:
@@ -5023,16 +5127,32 @@ class BeetentApp(ctk.CTk):
         if len(pts) >= 2:
             try:
                 self._measure_overlays.append(self.map_widget.set_path(
-                    [(la, lo) for la, lo in pts], color="#00E5FF", width=2))
+                    [(la, lo) for la, lo in pts], color="#00E5FF", width=3))
             except Exception: pass
-        metric = self.unit_var.get() == "Metric"
+        # Per-segment length labels, at each segment midpoint.
         for i in range(1, len(pts)):
             la1, lo1 = pts[i-1]; la2, lo2 = pts[i]
             seg = haversine_m(la1, lo1, la2, lo2)
-            lbl = (f"{seg:.1f} m" if metric else f"{seg/0.3048:.0f} ft")
+            if seg < 0.01: continue
             try:
                 self._measure_overlays.append(self._text_marker(
-                    (la1+la2)/2.0, (lo1+lo2)/2.0, lbl, "#00E5FF", size=12))
+                    (la1+la2)/2.0, (lo1+lo2)/2.0, self._fmt_len(seg), "#00E5FF", size=12))
+            except Exception: pass
+        # Closed polygon → outline + area label at the centroid.
+        if self._measure_closed and len(pts) >= 4:
+            ring = pts[:-1]
+            try:
+                self._measure_overlays.append(self.map_widget.set_polygon(
+                    [(la, lo) for la, lo in ring], fill_color=None,
+                    outline_color="#00E5FF", border_width=2))
+            except Exception: pass
+            area = polygon_area_m2([[la, lo] for la, lo in ring])
+            clat = sum(p[0] for p in ring) / len(ring)
+            clon = sum(p[1] for p in ring) / len(ring)
+            try:
+                self._measure_overlays.append(self._text_marker(
+                    clat, clon, f"{area*10.76391:,.0f} sq ft  ·  {area*ACRES_PER_M2:.2f} ac",
+                    "#00E5FF", size=13))
             except Exception: pass
 
     def _on_map_click(self,coords):
@@ -5040,19 +5160,25 @@ class BeetentApp(ctk.CTk):
         mode=self.click_mode
 
         if mode=="measure":
+            if self._measure_closed:
+                return                      # polygon done; Esc/Measure to restart
+            n = len(self._measure_pts)
+            mpp = self._pixel_scale() or 5.0
+            # Click near the first point (≥3 pts already) → snap closed into a polygon.
+            if n >= 3:
+                d0 = haversine_m(lat, lon,
+                                 self._measure_pts[0][0], self._measure_pts[0][1])
+                if d0 <= 15.0 * mpp:
+                    self._measure_pts.append(self._measure_pts[0])
+                    self._measure_closed = True
+                    self._clear_rubber()
+                    self._redraw_measure()
+                    self._update_measure_status()
+                    return
             slat, slon = self._measure_snap(lat, lon)
             self._measure_pts.append((slat, slon))
             self._redraw_measure()
-            n = len(self._measure_pts)
-            if n < 2:
-                self._status("Measure: 1 point set — click another. Esc to clear.")
-            else:
-                total = sum(haversine_m(self._measure_pts[i-1][0], self._measure_pts[i-1][1],
-                                        self._measure_pts[i][0], self._measure_pts[i][1])
-                            for i in range(1, n))
-                last = haversine_m(self._measure_pts[-2][0], self._measure_pts[-2][1],
-                                   self._measure_pts[-1][0], self._measure_pts[-1][1])
-                self._status(f"Segment {self._fmt_dist(last)}  •  Total {self._fmt_dist(total)}  ({n} pts)")
+            self._update_measure_status()
             return
 
         if mode=="pivot":
