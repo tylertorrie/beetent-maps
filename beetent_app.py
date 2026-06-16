@@ -1703,8 +1703,8 @@ class BeetentApp(ctk.CTk):
 
         def meta_of(r, lead):
             parts = [lead,
-                     "/".join(r.get("companies", [])) or "?",
-                     "/".join(r.get("years", [])) or "?",
+                     "/".join(r.get("companies", [])) or "All Companies",
+                     "/".join(r.get("years", [])) or "All Years",
                      (r.get("generated", "") or "")[:10],
                      _fmt_size(r.get("size", 0))]
             return "  ·  ".join(p for p in parts if p)
@@ -6539,6 +6539,7 @@ class BeetentApp(ctk.CTk):
     def _redraw_planter_shift_layers(self):
         if self.show_bays.get():     self._redraw_bays()
         self._redraw_planter_passes()
+        if self.show_planter_numbers.get(): self._redraw_planter_pass_numbers()
         if self.show_shelters.get(): self._redraw_shelters()
 
     def _redraw_sprayer_shift_layers(self):
@@ -6701,11 +6702,22 @@ class BeetentApp(ctk.CTk):
         }
 
     @staticmethod
-    def _pass_number(c0, pass_w):
-        """Signed pass label for a pivot-relative pass centre c0: west (c0<0)
-        → +k, east (c0>0) → −k, no zero (pivot is the +1/−1 divide)."""
-        k = int(round(abs(c0) / pass_w + 0.5))
-        return k if c0 < 0 else -k
+    def _pass_label_for_index(i, pass_w, lat_shift):
+        """Signed pass number for pass index i (boundaries at i*pass_w+lat_shift),
+        with the pivot at lateral x=0. West (smaller x) is +, east is −.
+
+        If the pivot sits ≥5 ft INSIDE a pass, that pass is #0 and the rest
+        count ±1, ±2 outward from it. If the pivot is within 5 ft of a pass
+        boundary it's treated as the +1/−1 divide (no zero) — the default when
+        the passes aren't shifted, since the pivot then lands on a boundary."""
+        import math as _m
+        i_piv = _m.floor(-lat_shift / pass_w)        # pass containing the pivot
+        dist_low = -(i_piv * pass_w + lat_shift)     # pivot distance from its pass's lower edge
+        dist_high = pass_w - dist_low
+        if min(dist_low, dist_high) >= 5.0 * 0.3048:  # ≥5 ft inside → real #0 pass
+            return i_piv - i
+        bdiv = i_piv if dist_low <= dist_high else i_piv + 1   # nearest boundary = divide
+        return (bdiv - i) if i < bdiv else -(i - bdiv + 1)
 
     def _pass_label_font_size(self, pass_w, nchars):
         """Font size (pt) so an nchars-digit label just fits inside the planter
@@ -6785,8 +6797,7 @@ class BeetentApp(ctk.CTk):
 
         # ── One number per pass, at its north end just outside the boundary ──
         for i in range(-n_pass, n_pass + 1):
-            c0 = (i + 0.5) * pass_w          # pivot-relative centre → label
-            xc = c0 + lat_shift              # actual drawn centre
+            xc = (i + 0.5) * pass_w + lat_shift    # actual drawn pass centre
             pe, pn = xc * ldx, xc * ldy
             ivs = clip_line_to_polygon_intervals(pe, pn, tdx, tdy, poly_enu)
             if not ivs:
@@ -6799,7 +6810,7 @@ class BeetentApp(ctk.CTk):
             d = 1.0 if tdy >= 0 else -1.0                 # along-track dir of +north
             te = t_n + d * 0.6 * pass_w                   # nudge just past the boundary
             mlat, mlon = enu_to_latlon(pe + te * tdx, pn + te * tdy, plat, plon)
-            label = self._pass_number(c0, pass_w)
+            label = self._pass_label_for_index(i, pass_w, lat_shift)
             txt = ("+%d" % label) if label > 0 else ("%d" % label)
             try:
                 mk = self.map_widget.set_marker(
