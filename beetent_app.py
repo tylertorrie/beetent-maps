@@ -1578,9 +1578,26 @@ class BeetentApp(ctk.CTk):
             self._files_render_bundle()
         self._files_update_count()
 
+    def _files_back(self):
+        """Go up one level: deeper subfolder → its parent; bundle root → the
+        top all-files list; already at top → no-op."""
+        if self._files_cwd is None:
+            return
+        rec_id, sub = self._files_cwd
+        if sub:
+            self._files_set_cwd(rec_id, sub[:-1])
+        else:
+            self._files_go_top()
+
     def _fv_build_crumb(self):
         for w in self._fv_crumb.winfo_children():
             w.destroy()
+
+        # "← Back" steps up one folder (disabled at the top all-files list).
+        ctk.CTkButton(self._fv_crumb, text="← Back", width=70, height=24,
+                      fg_color="#3a3a3a", hover_color=UI_HOVER,
+                      state=("disabled" if self._files_cwd is None else "normal"),
+                      command=self._files_back).pack(side="left", padx=(0, 10))
 
         def crumb(text, cmd, last):
             ctk.CTkButton(self._fv_crumb, text=text, height=24, width=0,
@@ -1954,8 +1971,8 @@ class BeetentApp(ctk.CTk):
             ("row_spacing",   "Row spacing (in)", "num"),
             ("female_rows",   "Female rows",      "num"),
             ("male_rows",     "Male rows",        "num"),
+            ("planter_width", "Planter width",    "num"),
             ("buffer",        "Shelter buffer",   "num"),
-            ("has_boundary",  "Boundary",         "text"),
         ]
 
     def _ov_default_visible(self):
@@ -2014,11 +2031,15 @@ class BeetentApp(ctk.CTk):
         buf_m = fnum("shelter_buffer_m")
         buffer_disp = buf_m if metric else buf_m / 0.3048
 
+        rs_in = fnum("row_spacing_in", 22.0)
+        total_rows = fnum("total_rows", fnum("num_female_rows", 8.0) + fnum("num_male_rows", 2.0))
+        pw_m = total_rows * rs_in * 0.0254
+        planter_width_disp = pw_m if metric else pw_m / 0.3048
+
         def angle(key):
             s = str(f.get(key, "") or "").strip()
             return (s + "°") if s else ""
 
-        bp = f.get("boundary_polygon") or []
         return {
             "field":         str(f.get("Name", "") or ""),
             "company":       str(f.get("company", "") or ""),
@@ -2036,8 +2057,8 @@ class BeetentApp(ctk.CTk):
             "row_spacing":   fnum("row_spacing_in"),
             "female_rows":   fnum("num_female_rows"),
             "male_rows":     fnum("num_male_rows"),
+            "planter_width": round(planter_width_disp, 2),
             "buffer":        round(buffer_disp, 2),
-            "has_boundary":  "Yes" if len(bp) >= 3 else "No",
         }
 
     def _ov_display(self, key, val):
@@ -2045,7 +2066,7 @@ class BeetentApp(ctk.CTk):
         if isinstance(val, bool):
             return "Yes" if val else "No"
         if isinstance(val, (int, float)) and not isinstance(val, bool):
-            if key == "buffer":
+            if key in ("buffer", "planter_width"):
                 unit = "m" if self.unit_var.get() == "Metric" else "ft"
                 return f"{val:g} {unit}"
             if float(val) == int(val):
