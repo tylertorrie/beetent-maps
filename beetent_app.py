@@ -9356,8 +9356,10 @@ class BeetentApp(ctk.CTk):
             if pin:
                 try: lats.append(float(pin[0])); lons.append(float(pin[1]))
                 except (TypeError, ValueError, IndexError): pass
-        for (la, lo) in (self.shelter_positions or []):
-            lats.append(la); lons.append(lo)
+        # NB: do NOT use self.shelter_positions here — in a multi-field batch it
+        # still holds the PREVIOUS field's shelters (they're only recomputed later
+        # in _pdf_pre_screenshot), which would blow the bbox out to cover every
+        # field. The boundary already encloses this field's shelters.
         try:   # pivot-track circles can extend past the boundary
             plat = float(f.get("PP_Latitude")); plon = float(f.get("PP_Longitude"))
             tracks = [float(r) for r in (f.get("pivot_tracks") or [])]
