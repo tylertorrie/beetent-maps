@@ -1,0 +1,449 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2">
+    <Document id="1797">
+        <Placemark id="1799">
+            <name>Shelter 1</name>
+            <Point id="1798">
+                <coordinates>-111.93449269945451,49.73263220159683,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1801">
+            <name>Shelter 2</name>
+            <Point id="1800">
+                <coordinates>-111.93449257882838,49.73144509693548,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1803">
+            <name>Shelter 3</name>
+            <Point id="1802">
+                <coordinates>-111.93449245821026,49.73025799202958,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1805">
+            <name>Shelter 4</name>
+            <Point id="1804">
+                <coordinates>-111.93371702052706,49.72966446999139,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1807">
+            <name>Shelter 5</name>
+            <Point id="1806">
+                <coordinates>-111.93371712223076,49.730851575020864,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1809">
+            <name>Shelter 6</name>
+            <Point id="1808">
+                <coordinates>-111.93371722394122,49.73203867980575,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1811">
+            <name>Shelter 7</name>
+            <Point id="1810">
+                <coordinates>-111.9337173256584,49.73322578434608,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1813">
+            <name>Shelter 8</name>
+            <Point id="1812">
+                <coordinates>-111.93309702166337,49.73381935719608,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1815">
+            <name>Shelter 9</name>
+            <Point id="1814">
+                <coordinates>-111.93309693507365,49.73263225277719,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1817">
+            <name>Shelter 10</name>
+            <Point id="1816">
+                <coordinates>-111.93309684848967,49.7314451481137,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1819">
+            <name>Shelter 11</name>
+            <Point id="1818">
+                <coordinates>-111.93309676191143,49.73025804320565,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1821">
+            <name>Shelter 12</name>
+            <Point id="1820">
+                <coordinates>-111.93309667533893,49.72907093805305,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1823">
+            <name>Shelter 13</name>
+            <Point id="1822">
+                <coordinates>-111.9323243200779,49.72855492362706,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1825">
+            <name>Shelter 14</name>
+            <Point id="1824">
+                <coordinates>-111.93232134124531,49.7296645118248,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1827">
+            <name>Shelter 15</name>
+            <Point id="1826">
+                <coordinates>-111.93232140891025,49.730851616856015,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1829">
+            <name>Shelter 16</name>
+            <Point id="1828">
+                <coordinates>-111.93232147657969,49.73203872164265,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1831">
+            <name>Shelter 17</name>
+            <Point id="1830">
+                <coordinates>-111.9323215442536,49.73322582618473,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1833">
+            <name>Shelter 18</name>
+            <Point id="1832">
+                <coordinates>-111.93231023848057,49.73452014888943,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1835">
+            <name>Shelter 19</name>
+            <Point id="1834">
+                <coordinates>-111.93170122323475,49.733819391561234,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1837">
+            <name>Shelter 20</name>
+            <Point id="1836">
+                <coordinates>-111.93170117068944,49.732632287140895,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1839">
+            <name>Shelter 21</name>
+            <Point id="1838">
+                <coordinates>-111.93170111814761,49.73144518247597,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1841">
+            <name>Shelter 22</name>
+            <Point id="1840">
+                <coordinates>-111.93170106560927,49.730258077566496,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1843">
+            <name>Shelter 23</name>
+            <Point id="1842">
+                <coordinates>-111.93170101307442,49.72907097241246,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1845">
+            <name>Shelter 24</name>
+            <Point id="1844">
+                <coordinates>-111.93092562833702,49.728477431566475,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1847">
+            <name>Shelter 25</name>
+            <Point id="1846">
+                <coordinates>-111.93092566196097,49.729664536843316,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1849">
+            <name>Shelter 26</name>
+            <Point id="1848">
+                <coordinates>-111.93092569558715,49.730851641875574,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1851">
+            <name>Shelter 27</name>
+            <Point id="1850">
+                <coordinates>-111.93092572921555,49.73203874666326,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1853">
+            <name>Shelter 28</name>
+            <Point id="1852">
+                <coordinates>-111.93092576284619,49.733225851206385,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1855">
+            <name>Shelter 29</name>
+            <Point id="1854">
+                <coordinates>-111.93092579647904,49.734412955504936,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1857">
+            <name>Shelter 30</name>
+            <Point id="1856">
+                <coordinates>-111.93030544330624,49.73500651328553,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1859">
+            <name>Shelter 31</name>
+            <Point id="1858">
+                <coordinates>-111.93030542515457,49.733841895280825,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1861">
+            <name>Shelter 32</name>
+            <Point id="1860">
+                <coordinates>-111.9303054063032,49.73263230468796,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1863">
+            <name>Shelter 33</name>
+            <Point id="1862">
+                <coordinates>-111.93030538514043,49.73127430504335,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1865">
+            <name>Shelter 34</name>
+            <Point id="1864">
+                <coordinates>-111.93030536930509,49.7302580951121,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1867">
+            <name>Shelter 35</name>
+            <Point id="1866">
+                <coordinates>-111.9303053504575,49.729048503766904,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1869">
+            <name>Shelter 36</name>
+            <Point id="1868">
+                <coordinates>-111.93030533231187,49.727883884557976,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1871">
+            <name>Shelter 37</name>
+            <Point id="1870">
+                <coordinates>-111.92952998308789,49.72847743976976,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1873">
+            <name>Shelter 38</name>
+            <Point id="1872">
+                <coordinates>-111.92952998267533,49.72966454504695,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1875">
+            <name>Shelter 39</name>
+            <Point id="1874">
+                <coordinates>-111.92952998226274,49.73085165007955,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1877">
+            <name>Shelter 40</name>
+            <Point id="1876">
+                <coordinates>-111.92952998185012,49.732038754867574,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1879">
+            <name>Shelter 41</name>
+            <Point id="1878">
+                <coordinates>-111.92952998143747,49.733225859411036,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1881">
+            <name>Shelter 42</name>
+            <Point id="1880">
+                <coordinates>-111.9295299810248,49.734412963709936,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1883">
+            <name>Shelter 43</name>
+            <Point id="1882">
+                <coordinates>-111.92890961082821,49.73500651401601,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1885">
+            <name>Shelter 44</name>
+            <Point id="1884">
+                <coordinates>-111.92890962666719,49.73379692366758,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1887">
+            <name>Shelter 45</name>
+            <Point id="1886">
+                <coordinates>-111.92890964191626,49.73263230541838,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1889">
+            <name>Shelter 46</name>
+            <Point id="1888">
+                <coordinates>-111.92890965993166,49.73125631682828,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1891">
+            <name>Shelter 47</name>
+            <Point id="1890">
+                <coordinates>-111.92890967300019,49.73025809584245,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1893">
+            <name>Shelter 48</name>
+            <Point id="1892">
+                <coordinates>-111.92890968824625,49.729093476877985,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1895">
+            <name>Shelter 49</name>
+            <Point id="1894">
+                <coordinates>-111.92890970407998,49.72788388528827,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1897">
+            <name>Shelter 50</name>
+            <Point id="1896">
+                <coordinates>-111.92813433783877,49.72847743115886,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1899">
+            <name>Shelter 51</name>
+            <Point id="1898">
+                <coordinates>-111.9281343033897,49.729664536435685,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1901">
+            <name>Shelter 52</name>
+            <Point id="1900">
+                <coordinates>-111.92813426893835,49.73085164146792,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1903">
+            <name>Shelter 53</name>
+            <Point id="1902">
+                <coordinates>-111.9281342344847,49.73203874625559,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1905">
+            <name>Shelter 54</name>
+            <Point id="1904">
+                <coordinates>-111.92813420002878,49.73322585079869,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1907">
+            <name>Shelter 55</name>
+            <Point id="1906">
+                <coordinates>-111.92813416557057,49.734412955097234,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1909">
+            <name>Shelter 56</name>
+            <Point id="1908">
+                <coordinates>-111.92751382794201,49.73381939375258,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1911">
+            <name>Shelter 57</name>
+            <Point id="1910">
+                <coordinates>-111.92751387752992,49.73263228933216,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1913">
+            <name>Shelter 58</name>
+            <Point id="1912">
+                <coordinates>-111.92751392711455,49.731445184667145,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1915">
+            <name>Shelter 59</name>
+            <Point id="1914">
+                <coordinates>-111.92751397669589,49.730258079757576,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1917">
+            <name>Shelter 60</name>
+            <Point id="1916">
+                <coordinates>-111.92751402627394,49.729070974603445,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1919">
+            <name>Shelter 61</name>
+            <Point id="1918">
+                <coordinates>-111.9275140758487,49.72788386920474,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1921">
+            <name>Shelter 62</name>
+            <Point id="1920">
+                <coordinates>-111.92675068974495,49.72852718272853,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1923">
+            <name>Shelter 63</name>
+            <Point id="1922">
+                <coordinates>-111.92673862410541,49.72966451100953,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1925">
+            <name>Shelter 64</name>
+            <Point id="1924">
+                <coordinates>-111.92673855457737,49.730869604987404,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1927">
+            <name>Shelter 65</name>
+            <Point id="1926">
+                <coordinates>-111.93168327212334,49.72791341129274,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1929">
+            <name>Shelter 66</name>
+            <Point id="1928">
+                <coordinates>-111.92673841862141,49.73322582536935,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1931">
+            <name>Shelter 67</name>
+            <Point id="1930">
+                <coordinates>-111.92673996090889,49.73431688473294,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1933">
+            <name>Shelter 68</name>
+            <Point id="1932">
+                <coordinates>-111.92611802951316,49.733819360848344,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1935">
+            <name>Shelter 69</name>
+            <Point id="1934">
+                <coordinates>-111.92611828039351,49.73025804685744,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1937">
+            <name>Shelter 70</name>
+            <Point id="1936">
+                <coordinates>-111.9261183640092,49.72907094170469,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1939">
+            <name>Shelter 71</name>
+            <Point id="1938">
+                <coordinates>-111.92534294482374,49.72966446876849,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1941">
+            <name>Shelter 72</name>
+            <Point id="1940">
+                <coordinates>-111.92534284229485,49.730851573797906,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1943">
+            <name>Shelter 73</name>
+            <Point id="1942">
+                <coordinates>-111.92534263721669,49.733225783123025,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1945">
+            <name>Shelter 74</name>
+            <Point id="1944">
+                <coordinates>-111.92472258409434,49.73025799714209,0.0</coordinates>
+            </Point>
+        </Placemark>
+    </Document>
+</kml>

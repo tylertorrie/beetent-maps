@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2">
+    <Document id="1409">
+        <Placemark id="1411">
+            <name>Shelter 1</name>
+            <Point id="1410">
+                <coordinates>-112.20357845171242,49.783194344310694,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1413">
+            <name>Shelter 2</name>
+            <Point id="1412">
+                <coordinates>-112.2045655046299,49.783194344310694,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1415">
+            <name>Shelter 3</name>
+            <Point id="1414">
+                <coordinates>-112.20481226785927,49.78229377224796,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1417">
+            <name>Shelter 4</name>
+            <Point id="1416">
+                <coordinates>-112.20383594377785,49.782279917162406,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1419">
+            <name>Shelter 5</name>
+            <Point id="1418">
+                <coordinates>-112.20431874140053,49.78413646332103,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1421">
+            <name>Shelter 6</name>
+            <Point id="1420">
+                <coordinates>-112.2028381620243,49.78231455486888,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1423">
+            <name>Shelter 7</name>
+            <Point id="1422">
+                <coordinates>-112.20210860117226,49.78133776204888,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1425">
+            <name>Shelter 8</name>
+            <Point id="1424">
+                <coordinates>-112.20187256677895,49.78500236537099,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1427">
+            <name>Shelter 9</name>
+            <Point id="1426">
+                <coordinates>-112.2028381620243,49.78493309377655,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1429">
+            <name>Shelter 10</name>
+            <Point id="1428">
+                <coordinates>-112.20308492525368,49.781344689726865,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1431">
+            <name>Shelter 11</name>
+            <Point id="1430">
+                <coordinates>-112.20410416467934,49.78135161740387,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1433">
+            <name>Shelter 12</name>
+            <Point id="1432">
+                <coordinates>-112.20185110910683,49.78228684470568,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1435">
+            <name>Shelter 13</name>
+            <Point id="1434">
+                <coordinates>-112.2033424173191,49.78413646332103,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1437">
+            <name>Shelter 14</name>
+            <Point id="1436">
+                <coordinates>-112.202602127631,49.783187416897185,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1439">
+            <name>Shelter 15</name>
+            <Point id="1438">
+                <coordinates>-112.20161507471352,49.783208199134755,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1441">
+            <name>Shelter 16</name>
+            <Point id="1440">
+                <coordinates>-112.20235536440163,49.78412260876243,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1443">
+            <name>Shelter 17</name>
+            <Point id="1442">
+                <coordinates>-112.20140049799232,49.784143390598835,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark id="1445">
+            <name>Shelter 18</name>
+            <Point id="1444">
+                <coordinates>-112.20259139879494,49.780437155475546,0.0</coordinates>
+            </Point>
+        </Placemark>
+    </Document>
+</kml>

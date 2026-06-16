@@ -1,0 +1,509 @@
+[
+  {
+    "id": "exports/Shelter Maps_BASF_v1",
+    "kind": "export",
+    "name": "Shelter Maps_BASF_v1",
+    "relpath": "exports/Shelter Maps_BASF_v1",
+    "is_dir": true,
+    "companies": [
+      "BASF"
+    ],
+    "years": [],
+    "fields": [],
+    "types": [
+      "Boundary"
+    ],
+    "role": null,
+    "generated": "2026-06-09T16:21:26",
+    "size": 30752
+  },
+  {
+    "id": "exports/Shelter Maps_BASF_v2",
+    "kind": "export",
+    "name": "Shelter Maps_BASF_v2",
+    "relpath": "exports/Shelter Maps_BASF_v2",
+    "is_dir": true,
+    "companies": [
+      "BASF"
+    ],
+    "years": [],
+    "fields": [],
+    "types": [
+      "JD"
+    ],
+    "role": null,
+    "generated": "2026-06-09T17:39:39",
+    "size": 23680
+  },
+  {
+    "id": "exports/Shelter Maps_BASF_v3",
+    "kind": "export",
+    "name": "Shelter Maps_BASF_v3",
+    "relpath": "exports/Shelter Maps_BASF_v3",
+    "is_dir": true,
+    "companies": [
+      "BASF"
+    ],
+    "years": [],
+    "fields": [],
+    "types": [
+      "AgGPS"
+    ],
+    "role": null,
+    "generated": "2026-06-15T15:23:24",
+    "size": 40083
+  },
+  {
+    "id": "exports/Shelter Maps_Hytech_v1",
+    "kind": "export",
+    "name": "Shelter Maps_Hytech_v1",
+    "relpath": "exports/Shelter Maps_Hytech_v1",
+    "is_dir": true,
+    "companies": [
+      "Hytech"
+    ],
+    "years": [],
+    "fields": [],
+    "types": [
+      "AgGPS"
+    ],
+    "role": null,
+    "generated": "2026-06-09T09:48:50",
+    "size": 10175
+  },
+  {
+    "id": "exports/Shelter Maps_MultiCompany_v1",
+    "kind": "export",
+    "name": "Shelter Maps_MultiCompany_v1",
+    "relpath": "exports/Shelter Maps_MultiCompany_v1",
+    "is_dir": true,
+    "companies": [],
+    "years": [],
+    "fields": [
+      "Giesbricht NW 35-10-16",
+      "NW 1-10-15",
+      "NW 4-10-12",
+      "SE 14-9-15",
+      "SE 16-9-13",
+      "SE 17-9-15",
+      "SW 16-9-15",
+      "Stolk NE-12-11-15",
+      "Wordmans Carrots"
+    ],
+    "types": [
+      "KML",
+      "AgGPS"
+    ],
+    "role": null,
+    "generated": "2026-06-09T16:18:14",
+    "size": 491669
+  },
+  {
+    "id": "exports/Shelter Maps_MultiCompany_v2",
+    "kind": "export",
+    "name": "Shelter Maps_MultiCompany_v2",
+    "relpath": "exports/Shelter Maps_MultiCompany_v2",
+    "is_dir": true,
+    "companies": [],
+    "years": [],
+    "fields": [],
+    "types": [
+      "AgGPS"
+    ],
+    "role": null,
+    "generated": "2026-06-15T09:59:36",
+    "size": 103921
+  },
+  {
+    "id": "exports/Shelter Maps_RVR_v1",
+    "kind": "export",
+    "name": "Shelter Maps_RVR_v1",
+    "relpath": "exports/Shelter Maps_RVR_v1",
+    "is_dir": true,
+    "companies": [
+      "RVR"
+    ],
+    "years": [],
+    "fields": [],
+    "types": [
+      "AgGPS"
+    ],
+    "role": null,
+    "generated": "2026-06-15T19:03:08",
+    "size": 20587
+  },
+  {
+    "id": "exports/Shelter Maps_RVR_v2",
+    "kind": "export",
+    "name": "Shelter Maps_RVR_v2",
+    "relpath": "exports/Shelter Maps_RVR_v2",
+    "is_dir": true,
+    "companies": [
+      "RVR"
+    ],
+    "years": [],
+    "fields": [],
+    "types": [
+      "AgGPS"
+    ],
+    "role": null,
+    "generated": "2026-06-15T19:08:12",
+    "size": 20587
+  },
+  {
+    "id": "exports/Shelter Maps_RVR_v3",
+    "kind": "export",
+    "name": "Shelter Maps_RVR_v3",
+    "relpath": "exports/Shelter Maps_RVR_v3",
+    "is_dir": true,
+    "companies": [
+      "RVR"
+    ],
+    "years": [],
+    "fields": [],
+    "types": [
+      "AgGPS"
+    ],
+    "role": null,
+    "generated": "2026-06-15T19:11:24",
+    "size": 20587
+  },
+  {
+    "id": "exports/Shelter Maps_RVR_v4",
+    "kind": "export",
+    "name": "Shelter Maps_RVR_v4",
+    "relpath": "exports/Shelter Maps_RVR_v4",
+    "is_dir": true,
+    "companies": [
+      "RVR"
+    ],
+    "years": [],
+    "fields": [],
+    "types": [
+      "AgGPS"
+    ],
+    "role": null,
+    "generated": "2026-06-15T22:09:48",
+    "size": 20587
+  },
+  {
+    "id": "pdfs/Giesbricht NW 35-10-16 2026 Shelter Map.pdf",
+    "kind": "pdf",
+    "name": "Giesbricht NW 35-10-16 2026 Shelter Map.pdf",
+    "relpath": "pdfs/Giesbricht NW 35-10-16 2026 Shelter Map.pdf",
+    "is_dir": false,
+    "companies": [],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "Giesbricht NW 35-10-16"
+    ],
+    "types": [
+      "PDF"
+    ],
+    "role": null,
+    "generated": "2026-06-15T22:12:22",
+    "size": 558021
+  },
+  {
+    "id": "pdfs/NW 1-10-15 2026 Shelter Map 2.pdf",
+    "kind": "pdf",
+    "name": "NW 1-10-15 2026 Shelter Map 2.pdf",
+    "relpath": "pdfs/NW 1-10-15 2026 Shelter Map 2.pdf",
+    "is_dir": false,
+    "companies": [],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "NW 1-10-15"
+    ],
+    "types": [
+      "PDF"
+    ],
+    "role": null,
+    "generated": "2026-06-09T15:39:57",
+    "size": 537710
+  },
+  {
+    "id": "pdfs/NW 1-10-15 2026 Shelter Map.pdf",
+    "kind": "pdf",
+    "name": "NW 1-10-15 2026 Shelter Map.pdf",
+    "relpath": "pdfs/NW 1-10-15 2026 Shelter Map.pdf",
+    "is_dir": false,
+    "companies": [],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "NW 1-10-15"
+    ],
+    "types": [
+      "PDF"
+    ],
+    "role": null,
+    "generated": "2026-06-08T19:43:39",
+    "size": 538174
+  },
+  {
+    "id": "pdfs/NW 4-10-12 2026 Shelter Map 2.pdf",
+    "kind": "pdf",
+    "name": "NW 4-10-12 2026 Shelter Map 2.pdf",
+    "relpath": "pdfs/NW 4-10-12 2026 Shelter Map 2.pdf",
+    "is_dir": false,
+    "companies": [],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "NW 4-10-12"
+    ],
+    "types": [
+      "PDF"
+    ],
+    "role": null,
+    "generated": "2026-06-09T15:39:59",
+    "size": 556104
+  },
+  {
+    "id": "pdfs/NW 4-10-12 2026 Shelter Map.pdf",
+    "kind": "pdf",
+    "name": "NW 4-10-12 2026 Shelter Map.pdf",
+    "relpath": "pdfs/NW 4-10-12 2026 Shelter Map.pdf",
+    "is_dir": false,
+    "companies": [],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "NW 4-10-12"
+    ],
+    "types": [
+      "PDF"
+    ],
+    "role": null,
+    "generated": "2026-06-08T19:43:42",
+    "size": 559874
+  },
+  {
+    "id": "pdfs/SE 14-9-15 2026 Shelter Map 2.pdf",
+    "kind": "pdf",
+    "name": "SE 14-9-15 2026 Shelter Map 2.pdf",
+    "relpath": "pdfs/SE 14-9-15 2026 Shelter Map 2.pdf",
+    "is_dir": false,
+    "companies": [],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "SE 14-9-15"
+    ],
+    "types": [
+      "PDF"
+    ],
+    "role": null,
+    "generated": "2026-06-09T15:40:02",
+    "size": 545430
+  },
+  {
+    "id": "pdfs/SE 14-9-15 2026 Shelter Map.pdf",
+    "kind": "pdf",
+    "name": "SE 14-9-15 2026 Shelter Map.pdf",
+    "relpath": "pdfs/SE 14-9-15 2026 Shelter Map.pdf",
+    "is_dir": false,
+    "companies": [],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "SE 14-9-15"
+    ],
+    "types": [
+      "PDF"
+    ],
+    "role": null,
+    "generated": "2026-06-08T19:43:45",
+    "size": 550789
+  },
+  {
+    "id": "pdfs/SE 16-9-13 2026 Shelter Map 2.pdf",
+    "kind": "pdf",
+    "name": "SE 16-9-13 2026 Shelter Map 2.pdf",
+    "relpath": "pdfs/SE 16-9-13 2026 Shelter Map 2.pdf",
+    "is_dir": false,
+    "companies": [],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "SE 16-9-13"
+    ],
+    "types": [
+      "PDF"
+    ],
+    "role": null,
+    "generated": "2026-06-09T15:40:05",
+    "size": 504456
+  },
+  {
+    "id": "pdfs/SE 16-9-13 2026 Shelter Map.pdf",
+    "kind": "pdf",
+    "name": "SE 16-9-13 2026 Shelter Map.pdf",
+    "relpath": "pdfs/SE 16-9-13 2026 Shelter Map.pdf",
+    "is_dir": false,
+    "companies": [],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "SE 16-9-13"
+    ],
+    "types": [
+      "PDF"
+    ],
+    "role": null,
+    "generated": "2026-06-08T19:43:48",
+    "size": 516977
+  },
+  {
+    "id": "pdfs/SE 17-9-15 2026 Shelter Map 2.pdf",
+    "kind": "pdf",
+    "name": "SE 17-9-15 2026 Shelter Map 2.pdf",
+    "relpath": "pdfs/SE 17-9-15 2026 Shelter Map 2.pdf",
+    "is_dir": false,
+    "companies": [],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "SE 17-9-15"
+    ],
+    "types": [
+      "PDF"
+    ],
+    "role": null,
+    "generated": "2026-06-09T15:40:08",
+    "size": 592701
+  },
+  {
+    "id": "pdfs/SE 17-9-15 2026 Shelter Map.pdf",
+    "kind": "pdf",
+    "name": "SE 17-9-15 2026 Shelter Map.pdf",
+    "relpath": "pdfs/SE 17-9-15 2026 Shelter Map.pdf",
+    "is_dir": false,
+    "companies": [],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "SE 17-9-15"
+    ],
+    "types": [
+      "PDF"
+    ],
+    "role": null,
+    "generated": "2026-06-08T19:43:51",
+    "size": 576378
+  },
+  {
+    "id": "pdfs/Stolk SE 9-11-14 2026 Shelter Map 2.pdf",
+    "kind": "pdf",
+    "name": "Stolk SE 9-11-14 2026 Shelter Map 2.pdf",
+    "relpath": "pdfs/Stolk SE 9-11-14 2026 Shelter Map 2.pdf",
+    "is_dir": false,
+    "companies": [],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "Stolk SE 9-11-14"
+    ],
+    "types": [
+      "PDF"
+    ],
+    "role": null,
+    "generated": "2026-06-11T13:53:13",
+    "size": 481538
+  },
+  {
+    "id": "pdfs/Stolk SE 9-11-14 2026 Shelter Map.pdf",
+    "kind": "pdf",
+    "name": "Stolk SE 9-11-14 2026 Shelter Map.pdf",
+    "relpath": "pdfs/Stolk SE 9-11-14 2026 Shelter Map.pdf",
+    "is_dir": false,
+    "companies": [],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "Stolk SE 9-11-14"
+    ],
+    "types": [
+      "PDF"
+    ],
+    "role": null,
+    "generated": "2026-06-09T09:57:36",
+    "size": 551752
+  },
+  {
+    "id": "pdfs/SW 16-9-15 2026 Shelter Map 2.pdf",
+    "kind": "pdf",
+    "name": "SW 16-9-15 2026 Shelter Map 2.pdf",
+    "relpath": "pdfs/SW 16-9-15 2026 Shelter Map 2.pdf",
+    "is_dir": false,
+    "companies": [],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "SW 16-9-15"
+    ],
+    "types": [
+      "PDF"
+    ],
+    "role": null,
+    "generated": "2026-06-09T15:40:11",
+    "size": 581370
+  },
+  {
+    "id": "pdfs/SW 16-9-15 2026 Shelter Map.pdf",
+    "kind": "pdf",
+    "name": "SW 16-9-15 2026 Shelter Map.pdf",
+    "relpath": "pdfs/SW 16-9-15 2026 Shelter Map.pdf",
+    "is_dir": false,
+    "companies": [],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "SW 16-9-15"
+    ],
+    "types": [
+      "PDF"
+    ],
+    "role": null,
+    "generated": "2026-06-08T19:43:53",
+    "size": 570080
+  },
+  {
+    "id": "pdfs/Wordmans Carrots 2026 Shelter Map.pdf",
+    "kind": "pdf",
+    "name": "Wordmans Carrots 2026 Shelter Map.pdf",
+    "relpath": "pdfs/Wordmans Carrots 2026 Shelter Map.pdf",
+    "is_dir": false,
+    "companies": [],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "Wordmans Carrots"
+    ],
+    "types": [
+      "PDF"
+    ],
+    "role": null,
+    "generated": "2026-06-09T09:54:08",
+    "size": 447623
+  }
+]
