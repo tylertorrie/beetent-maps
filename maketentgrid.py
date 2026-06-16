@@ -2213,6 +2213,21 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                     row_list = [row_list[i] for i in idxs]
                     _cols_reduced = True
 
+            # Centre the along-pass spacing grid on the FIELD (not the pivot) so
+            # the shelter columns are balanced across both halves and fill the
+            # space evenly. The pivot can sit off-centre, and even when it's
+            # centred the boundary "phase" can drop an outer column on one side
+            # (a cell that lands in the excluded middle of the outside round on
+            # the west but in the allowed edge band on the east). This axis is
+            # the free spacing direction — NOT bay-constrained — so recentring
+            # it never disturbs the 5-ft-west-of-male-bay rule (that's pre_e).
+            if boundary_enu:
+                _pn_vals = [-e * sin_r + n * cos_r for e, n in boundary_enu]
+                pn_center = (min(_pn_vals) + max(_pn_vals)) / 2.0
+                pn_half   = (max(_pn_vals) - min(_pn_vals)) / 2.0
+            else:
+                pn_center = 0.0; pn_half = radius
+
             def _count_at_least(n_sp, target):
                 # True if at least `target` PLACEABLE cells exist at this spacing
                 # (valid as-is, or snappable out of a kill/track zone). Early-
@@ -2226,12 +2241,12 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                 # sprayer is wider than a bay, so k%2 wouldn't alternate
                 # consistently.
                 if n_sp <= 0: return False
-                c_max = int(radius / n_sp) + 2
+                c_max = int(pn_half / n_sp) + 2
                 total = 0
                 for idx, (pre_e, _k) in enumerate(row_list):
                     n_stagger = (n_sp / 2) if (idx % 2) else 0.0
                     for c in range(-c_max, c_max + 1):
-                        pre_n = c * n_sp + directional_offset + n_stagger
+                        pre_n = pn_center + c * n_sp + directional_offset + n_stagger
                         east  = pre_e * cos_r - pre_n * sin_r
                         north = pre_n * cos_r + pre_e * sin_r
                         if not _inside(east, north): continue
@@ -2324,11 +2339,11 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
             # corner zone are slid ("snapped") just clear to the nearest valid
             # spot.
             raw = []
-            c_max = int(radius / ns_spacing) + 2
+            c_max = int(pn_half / ns_spacing) + 2
             for idx, (pre_e, _k) in enumerate(row_list):
                 n_stagger = (ns_spacing / 2) if (idx % 2) else 0.0
                 for c in range(-c_max, c_max + 1):
-                    pre_n = c * ns_spacing + directional_offset + n_stagger
+                    pre_n = pn_center + c * ns_spacing + directional_offset + n_stagger
                     east  = pre_e * cos_r - pre_n * sin_r
                     north = pre_n * cos_r + pre_e * sin_r
                     if not _inside(east, north): continue
