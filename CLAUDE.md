@@ -32,11 +32,15 @@ Field data and code both live in the repo. The app auto-syncs:
 - **On save/delete field** → `git add fields/ && git commit && git push`
 - **On bay preset change** → same
 
+A Claude Code **Stop hook** (`.claude/settings.json`) also auto-commits and pushes
+the whole repo (`git add -A`) after each Claude turn, so code/doc changes sync to
+GitHub without a manual push. Remove or edit it via `/hooks` if undesired.
+
 To sync code changes after editing `beetent_app.py` or `maketentgrid.py`:
 ```powershell
 git add beetent_app.py maketentgrid.py
 git commit -m "description"
-git push github master
+git push origin master
 ```
 
 ## File structure

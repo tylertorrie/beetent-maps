@@ -24,10 +24,11 @@ Thumbs.db
 *.bak
 *.tmp
 
-# Claude Code worktrees and session data (keep CLAUDE.md itself)
+# Claude Code worktrees and session data (keep CLAUDE.md + shared settings.json)
 .claude/worktrees/
 .claude/projects/
 .claude/todos/
+.claude/settings.local.json
 
 # Tile cache (local SQLite, can be large)
 *.db

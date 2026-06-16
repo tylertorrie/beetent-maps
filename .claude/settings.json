@@ -1,0 +1,17 @@
+﻿{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "r='C:/Users/tyler/beetent-maps'; git -C \"$r\" add -A; if [ -n \"$(git -C \"$r\" status --porcelain)\" ]; then git -C \"$r\" commit -m \"auto-sync: $(date '+%Y-%m-%d %H:%M')\" >/dev/null 2>&1; fi; git -C \"$r\" push origin master >/dev/null 2>&1; exit 0",
+            "timeout": 60,
+            "statusMessage": "Auto-syncing to GitHub..."
+          }
+        ]
+      }
+    ]
+  }
+}
