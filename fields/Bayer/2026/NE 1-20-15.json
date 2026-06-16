@@ -31,7 +31,7 @@
   "planter_passes": null,
   "use_imported_passes": false,
   "sprayer_passes": null,
-  "gals_per_acre": "3",
+  "gals_per_acre": "2",
   "acres": "187",
   "gals_per_tray": "2",
   "tray_distribution": "even",
