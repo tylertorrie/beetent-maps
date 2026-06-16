@@ -1092,6 +1092,7 @@ class BeetentApp(ctk.CTk):
         self.show_planter_numbers = tk.BooleanVar(value=False)
         self.planter_number_paths = []
         self.planter_number_markers = []
+        self._pp_font_by_zoom = {}   # cache: pass-number label font size per zoom
         # Inner boundary outline overlays (drawn by _redraw_boundary, but the
         # list lives here so _clear_all_overlays can wipe them too).
         self.boundary_inner_polys = []
@@ -6212,14 +6213,12 @@ class BeetentApp(ctk.CTk):
             except Exception: pass
         self.planter_number_markers = []
 
-    def _redraw_planter_pass_numbers(self):
-        """Draw the planter passes (full implement width = total rows × row
-        spacing) as amber centre-lines, each labelled with its pass number
-        relative to the pivot: +1,+2… west / north, −1,−2… east / south.
-        No pass sits on the pivot — the pivot is the divide between +1 and −1."""
-        self._clear_planter_numbers()
-        if not self.show_planter_numbers.get():
-            return
+    def _planter_pass_geometry(self):
+        """Shared tiling used by BOTH the bay overlay and the numbered planter
+        passes so they can never drift apart. A planter pass is the full
+        implement width = total_rows × row_spacing; passes tile the lateral axis
+        with the pivot (x=0) sitting on a pass boundary (no pass on the pivot).
+        Returns a dict, or None if the field isn't ready."""
         try:
             plat = float(self.fv["PP_Latitude"].get())
             plon = float(self.fv["PP_Longitude"].get())
@@ -6232,55 +6231,138 @@ class BeetentApp(ctk.CTk):
             total_rows = int(self.fv["total_rows"].get() or (nf + nm))
             bp = self.current_field.get("boundary_polygon")
         except (ValueError, TypeError):
-            return
+            return None
         if not bp or len(bp) < 3:
-            return
-        pass_w = total_rows * rs * 0.0254   # full planter width, metres
+            return None
+        rs_m = rs * 0.0254
+        pass_w = total_rows * rs_m
         if pass_w <= 0:
-            return
-
+            return None
         poly_enu = [latlon_to_enu(lat, lon, plat, plon) for lat, lon in bp]
         max_r = max(math.sqrt(e * e + n * n) for e, n in poly_enu) * 1.1
         rot = math.radians((180 - angle) % 360 - 180)
         cos_r, sin_r = math.cos(rot), math.sin(rot)
-        tdx, tdy = -sin_r, cos_r     # along-pass direction
-        ldx, ldy = cos_r, sin_r      # lateral (across passes); +x = east / south
-        n_max = int(max_r / pass_w) + 2
+        bse, bsn = self._bay_shift()
+        ldx, ldy = cos_r, sin_r          # lateral (across passes); +x = east/south
+        return {
+            "plat": plat, "plon": plon, "angle": angle, "rs_m": rs_m,
+            "nf": nf, "nm": nm, "total_rows": total_rows, "pass_w": pass_w,
+            "poly_enu": poly_enu, "max_r": max_r,
+            "tdx": -sin_r, "tdy": cos_r, "ldx": ldx, "ldy": ldy,
+            "lat_shift": bse * ldx + bsn * ldy,
+            "n_pass": int(max_r / pass_w) + 2,
+        }
 
-        for k in range(1, n_max + 1):
-            # +k sits on the −x (west / north) side; −k on the +x (east / south)
-            # side. Centre of pass k is (k−0.5) widths from the pivot divide.
-            for label, x in ((k, -(k - 0.5) * pass_w), (-k, (k - 0.5) * pass_w)):
-                pe, pn = x * ldx, x * ldy
-                intervals = clip_line_to_polygon_intervals(pe, pn, tdx, tdy, poly_enu)
-                if not intervals:
-                    continue
-                for (t1, t2) in intervals:
-                    if t2 - t1 < 0.01:
-                        continue
-                    e1, n1 = pe + t1 * tdx, pn + t1 * tdy
-                    e2, n2 = pe + t2 * tdx, pn + t2 * tdy
-                    la1, lo1 = enu_to_latlon(e1, n1, plat, plon)
-                    la2, lo2 = enu_to_latlon(e2, n2, plat, plon)
-                    try:
-                        p = self.map_widget.set_path([(la1, lo1), (la2, lo2)],
-                                                     color="#FFB000", width=1)
-                        self.planter_number_paths.append(p)
-                    except Exception:
-                        pass
-                # Label at the midpoint of the longest visible segment.
-                t1, t2 = max(intervals, key=lambda iv: iv[1] - iv[0])
-                tm = (t1 + t2) / 2.0
-                mlat, mlon = enu_to_latlon(pe + tm * tdx, pn + tm * tdy, plat, plon)
-                txt = ("+%d" % label) if label > 0 else ("%d" % label)
+    @staticmethod
+    def _pass_number(c0, pass_w):
+        """Signed pass label for a pivot-relative pass centre c0: west (c0<0)
+        → +k, east (c0>0) → −k, no zero (pivot is the +1/−1 divide)."""
+        k = int(round(abs(c0) / pass_w + 0.5))
+        return k if c0 < 0 else -k
+
+    def _pass_label_font_size(self, pass_w, nchars):
+        """Font size (pt) so an nchars-digit label just fits inside the planter
+        width at the current zoom. Cached per zoom level so the per-marker draw
+        (fired on every pan/zoom) stays cheap. Returns 0 → too small, hide."""
+        z = getattr(self.map_widget, "zoom", None)
+        key = (round(z, 2) if z is not None else None, round(pass_w, 2), nchars)
+        cached = self._pp_font_by_zoom.get(key)
+        if cached is not None:
+            return cached
+        mpp = self._pixel_scale() or 5.0
+        px = pass_w / mpp                       # planter width in screen pixels
+        size = int(px / max(1, nchars) / 0.62)  # ~0.62·size px per digit
+        size = 0 if size < 6 else min(16, size)
+        self._pp_font_by_zoom[key] = size
+        return size
+
+    def _patch_pass_label_marker(self, m, pass_w, nchars):
+        """Turn a marker into a bare, map-scaled number: hide the pin, centre
+        the text on the point, and resize the font to fit the planter width on
+        every redraw (tkintermapview calls draw() on pan/zoom)."""
+        canvas = self.map_widget.canvas
+        _orig = m.draw
+        m.text_y_offset = 0
+
+        def _draw(event=None, _m=m, _c=canvas, _od=_orig, _pw=pass_w, _nc=nchars):
+            _od(event)
+            for attr in ("polygon", "big_circle", "canvas_image", "canvas_icon"):
+                it = getattr(_m, attr, None)
+                if it:
+                    try: _c.itemconfigure(it, state="hidden")
+                    except Exception: pass
+            if _m.canvas_text:
+                size = self._pass_label_font_size(_pw, _nc)
                 try:
-                    mk = self.map_widget.set_marker(
-                        mlat, mlon, text=txt,
-                        marker_color_circle="#FFB000",
-                        marker_color_outside="#8A5E00")
-                    self.planter_number_markers.append(mk)
+                    if size <= 0:
+                        _c.itemconfigure(_m.canvas_text, state="hidden")
+                    else:
+                        _c.itemconfigure(_m.canvas_text, state="normal",
+                                         anchor="center", font=(FONT_LABEL, size))
+                except Exception: pass
+        m.draw = _draw
+        try: m.draw()
+        except Exception: pass
+
+    def _redraw_planter_pass_numbers(self):
+        """Draw the planter passes as amber lines at each pass EDGE (the planter
+        outerlines), and a small number at the north end of each pass — just
+        outside the boundary, font-scaled to fit the planter width. Numbering is
+        ±N from the pivot: +1,+2… west/north, −1,−2… east/south (no zero)."""
+        self._clear_planter_numbers()
+        if not self.show_planter_numbers.get():
+            return
+        g = self._planter_pass_geometry()
+        if not g:
+            return
+        plat, plon = g["plat"], g["plon"]
+        tdx, tdy, ldx, ldy = g["tdx"], g["tdy"], g["ldx"], g["ldy"]
+        pass_w, lat_shift, poly_enu, n_pass = (g["pass_w"], g["lat_shift"],
+                                               g["poly_enu"], g["n_pass"])
+
+        # ── Edge lines at every pass boundary: x = i·pass_w + lateral shift ──
+        for i in range(-n_pass, n_pass + 2):
+            x = i * pass_w + lat_shift
+            pe, pn = x * ldx, x * ldy
+            for (t1, t2) in clip_line_to_polygon_intervals(pe, pn, tdx, tdy, poly_enu):
+                if t2 - t1 < 0.01:
+                    continue
+                la1, lo1 = enu_to_latlon(pe + t1 * tdx, pn + t1 * tdy, plat, plon)
+                la2, lo2 = enu_to_latlon(pe + t2 * tdx, pn + t2 * tdy, plat, plon)
+                try:
+                    p = self.map_widget.set_path([(la1, lo1), (la2, lo2)],
+                                                 color="#FFB000", width=1)
+                    self.planter_number_paths.append(p)
                 except Exception:
                     pass
+
+        # ── One number per pass, at its north end just outside the boundary ──
+        for i in range(-n_pass, n_pass + 1):
+            c0 = (i + 0.5) * pass_w          # pivot-relative centre → label
+            xc = c0 + lat_shift              # actual drawn centre
+            pe, pn = xc * ldx, xc * ldy
+            ivs = clip_line_to_polygon_intervals(pe, pn, tdx, tdy, poly_enu)
+            if not ivs:
+                continue
+            t1, t2 = max(ivs, key=lambda iv: iv[1] - iv[0])   # widest segment
+            nA = pn + t1 * tdy            # ENU north at each endpoint
+            nB = pn + t2 * tdy
+            if nA >= nB:
+                te = t1 - 0.6 * pass_w    # north end at t1 → push further north
+            else:
+                te = t2 + 0.6 * pass_w
+            mlat, mlon = enu_to_latlon(pe + te * tdx, pn + te * tdy, plat, plon)
+            label = self._pass_number(c0, pass_w)
+            txt = ("+%d" % label) if label > 0 else ("%d" % label)
+            try:
+                mk = self.map_widget.set_marker(
+                    mlat, mlon, text=txt, text_color="#FFB000",
+                    marker_color_circle="#FFB000", marker_color_outside="#8A5E00",
+                    font=(FONT_LABEL, 10))
+                self._patch_pass_label_marker(mk, pass_w, len(txt))
+                self.planter_number_markers.append(mk)
+            except Exception:
+                pass
 
     # ── Uploaded sprayer passes ────────────────────────────────────────────────
     def _import_sprayer_data(self):
@@ -7611,44 +7693,44 @@ class BeetentApp(ctk.CTk):
             self._redraw_bays_from_passes(plat, plon, shifted,
                                           rs, nf, nm, total_rows)
             return
-        row_m=rs*0.0254; female_m=(nf+1)*row_m; male_m=(nm+1)*row_m
-        poly_enu=[latlon_to_enu(lat,lon,plat,plon) for lat,lon in bp]
-        # Inner cutouts in ENU so bays don't render across building / slough
-        # footprints either — UNLESS the user has opted into "bays through
-        # inner" (some fields plant straight through small interior cutouts
-        # like access lanes, and the bays should stay continuous).
+        # ── Synthetic grid: snap the resolved row mask inside each planter pass ──
+        # The planter pass (full implement width) is the master unit, shared with
+        # the numbered-pass overlay via _planter_pass_geometry so the male bays
+        # always sit flush inside the amber pass edge-lines and the M/F pattern
+        # repeats identically every pass.
+        g = self._planter_pass_geometry()
+        if not g: return
         inner_polys_enu = []
         if not bool(self.current_field.get("bays_through_inner", False)):
             for inner in self._all_exclusion_rings():
                 if not inner or len(inner) < 3: continue
                 inner_polys_enu.append(
-                    [latlon_to_enu(pt[0], pt[1], plat, plon) for pt in inner])
-        max_r=max(math.sqrt(e*e+n*n) for e,n in poly_enu)*1.1
-        rot=math.radians((180-angle)%360-180)
-        cos_r,sin_r=math.cos(rot),math.sin(rot)
-        tdx=-sin_r; tdy=cos_r
-        ldx=cos_r; ldy=sin_r
-        # Repeat period grows by a gap at each male/female edge (2 per period);
-        # the male band is pushed in by one gap so a gap sits on each side.
-        unit=female_m+male_m+2*gap_m
-        # Lateral component of the planter Shift offset (movement along the bay
-        # travel direction is invisible, so only the perpendicular part counts).
-        bay_sh = bse*ldx + bsn*ldy
-        n_units=int(max_r/unit)+2
-        for i in range(-n_units,n_units+1):
-            cx=i*unit
-            # Female bays hidden — only male bays shown
-            bands = self._band_polygon_enu(
-                cx + female_m/2 + gap_m + bay_sh,
-                cx + female_m/2 + gap_m + male_m + bay_sh,
-                tdx, tdy, ldx, ldy, poly_enu,
-                inner_polys_enu=inner_polys_enu)
-            for band in bands:
-                lpts=[enu_to_latlon(e,n,plat,plon) for e,n in band]
-                try:
-                    p=self.map_widget.set_polygon(lpts,fill_color="#001F7A",outline_color="#001F7A",border_width=0)
-                    self.bay_polygons.append(p)
-                except Exception: pass
+                    [latlon_to_enu(pt[0], pt[1], g["plat"], g["plon"]) for pt in inner])
+        layout = self._row_layout_labels.get(self.row_layout_var.get(), "centered")
+        mask = self._resolve_row_mask(g["nf"], g["nm"], layout,
+                                      self.custom_mask_var.get(),
+                                      total_rows=g["total_rows"])
+        if not mask: return
+        runs = maketentgrid.mask_runs(mask, 'M')
+        if not runs: return
+        rs_m = g["rs_m"]; tr = g["total_rows"]; pass_w = g["pass_w"]
+        half = tr / 2.0
+        for i in range(-g["n_pass"], g["n_pass"] + 1):
+            xc = (i + 0.5) * pass_w + g["lat_shift"]      # pass centre
+            for (s, e) in runs:
+                # M run covers rows s..e-1; band spans the run, gap_m inset each side.
+                x1 = xc + (s - half) * rs_m + gap_m
+                x2 = xc + (e - half) * rs_m - gap_m
+                if x2 - x1 <= 0: continue
+                bands = self._band_polygon_enu(
+                    x1, x2, g["tdx"], g["tdy"], g["ldx"], g["ldy"],
+                    g["poly_enu"], inner_polys_enu=inner_polys_enu)
+                for band in bands:
+                    lpts=[enu_to_latlon(en,no,g["plat"],g["plon"]) for en,no in band]
+                    try:
+                        p=self.map_widget.set_polygon(lpts,fill_color="#001F7A",outline_color="#001F7A",border_width=0)
+                        self.bay_polygons.append(p)
+                    except Exception: pass
 
     def _redraw_bays_from_passes(self, plat, plon, planter_passes,
                                   row_spacing_in_v, nf, nm, total_rows):
