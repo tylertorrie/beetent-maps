@@ -5,7 +5,7 @@
   "PP_Latitude": "49.7966660",
   "PP_Longitude": "-111.5793427",
   "lld": "NW-4-10-12-W4",
-  "Spray_angle": "0",
+  "Spray_angle": "90",
   "Sprayer_width": "100",
   "shelter_mode": "trays_2",
   "num_structures": "100",
@@ -263,7 +263,7 @@
     ]
   },
   "shelter_rows": "",
-  "Planting_angle": "9",
+  "Planting_angle": "90",
   "bay_gap_in": "0",
   "shelters_in_outside_pass": "No",
   "shelter_at_pivot": false,
