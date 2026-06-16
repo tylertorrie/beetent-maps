@@ -46,7 +46,7 @@ git push origin master
 ## File structure
 
 ```
-beetent_app.py        — Main GUI (customtkinter + tkintermapview). ~1400 lines.
+beetent_app.py        — Main GUI (customtkinter + tkintermapview). ~9300 lines.
 maketentgrid.py       — Core calculation engine. get_tent_positions() is the key fn.
 utmish.py             — ENU coordinate conversion (local East-North-Up)
 shapefile.py          — Vendored pyshp for .shp boundary upload
