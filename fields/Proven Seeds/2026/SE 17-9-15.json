@@ -386,5 +386,13 @@
   "bay_gap_in": "0",
   "shelters_in_outside_pass": "Yes",
   "shelter_at_pivot": false,
-  "tire_width_ft": "14"
+  "tire_width_ft": "14",
+  "entrance_pin": [
+    49.72849776987968,
+    -112.00223550200462
+  ],
+  "parking_pin": [
+    49.728969363284484,
+    -112.00196728110313
+  ]
 }
