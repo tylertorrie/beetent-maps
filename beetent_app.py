@@ -668,6 +668,7 @@ def blank_field(company="",year=""):
                 gals_per_acre="3",acres="",gals_per_tray="2",tray_distribution="even",
                 boundary_polygon=None,pivot_tracks=[],corner_arms=[],
                 boundary_inner=[],            # list of inner-exclusion polygons (JD-style "interior boundaries")
+                access_road_boundary=[],      # pivot access road(s) — same exclusion as inner, labelled separately
                 sprayer_routes_around_inner=True,   # sprayer pass lines break around inner boundaries when True
                 bays_through_inner=False,     # when True, planter bays draw through inner boundaries instead of clipping
                 shelter_at_pivot=False,
@@ -1478,6 +1479,8 @@ class BeetentApp(ctk.CTk):
             ("Upload File",           self._upload_boundary),
             ("Add Inner Boundary",    self._mode_add_inner_boundary),
             ("Delete Inner",          self._mode_delete_inner_boundary),
+            ("Add Pivot Access Road", self._mode_add_access_road),
+            ("Delete Access Road",    self._mode_delete_access_road),
         ], color="#5a3a8a",
            toggle_var=self.boundary_visible_var, toggle_fn=self._set_boundary_visible)
         self._bnd_btn.pack(side="left", padx=(0,4))
@@ -3354,6 +3357,81 @@ class BeetentApp(ctk.CTk):
             self._status("No circle drawn.")
 
     # ── Inner boundary (interior exclusion) ──────────────────────────────────
+    def _all_exclusion_rings(self):
+        """Inner boundaries + pivot access road(s) — every ring shelters must
+        stay out of (and that sprayer passes / bays route around)."""
+        return ((self.current_field.get("boundary_inner") or [])
+                + (self.current_field.get("access_road_boundary") or []))
+
+    # ── Pivot access road (same exclusion as an inner boundary) ──────────────
+    def _mode_add_access_road(self):
+        """Click-to-add-vertices for the pivot point access road. Behaves like
+        an inner boundary (shelters excluded) but stored/labelled separately so
+        crews remember to add it."""
+        self._close_all_popups()
+        bp = self.current_field.get("boundary_polygon")
+        if not bp or len(bp) < 3:
+            self._status("Draw the outer boundary first."); return
+        self.click_mode = "access_road"
+        self.road_pts = []
+        for m in self.boundary_markers:
+            try: m.delete()
+            except Exception: pass
+        self.boundary_markers = []
+        self._show_context_btn("✔ Save Access Road", self._close_access_road)
+        self._status("Click map to outline the pivot ACCESS ROAD. ✔ Save when done.")
+
+    def _close_access_road(self):
+        if len(getattr(self, "road_pts", [])) < 3:
+            self._status("Need ≥ 3 points for the access road."); return
+        ring = [list(p) for p in self.road_pts]
+        self.current_field.setdefault("access_road_boundary", []).append(ring)
+        self.road_pts = []
+        self.click_mode = None
+        self._hide_context_btn()
+        for m in self.boundary_markers:
+            try: m.delete()
+            except Exception: pass
+        self.boundary_markers = []
+        self._redraw_boundary()
+        if self.show_shelters.get(): self._redraw_shelters()
+        if self.show_passes.get():   self._redraw_passes()
+        if self.show_bays.get():     self._redraw_bays()
+        n = len(self.current_field["access_road_boundary"])
+        self._status(f"Access road #{n} saved ({len(ring)} vertices). Save Field to keep.")
+
+    def _mode_delete_access_road(self):
+        """Pick an existing access road to remove."""
+        self._close_all_popups()
+        roads = self.current_field.get("access_road_boundary") or []
+        if not roads:
+            self._status("No access road to delete."); return
+        win = ctk.CTkToplevel(self)
+        win.title("Delete Access Road")
+        win.geometry("320x240"); win.grab_set()
+        ctk.CTkLabel(win, text="Select access road to delete:").pack(pady=(12, 4))
+        lb = tk.Listbox(win, bg=UI_CARD, fg=UI_TEXT,
+                        selectbackground=UI_SELECT, selectforeground=UI_TEXT,
+                        relief="flat", font=(FONT_BODY, 11), height=6,
+                        activestyle="none", highlightthickness=1,
+                        highlightbackground=UI_BORDER)
+        for i, ring in enumerate(roads):
+            lb.insert(tk.END, f"Access Road #{i+1}: {len(ring)} pts")
+        lb.pack(fill="x", padx=10, pady=4)
+        def do_delete():
+            sel = lb.curselection()
+            if not sel: return
+            del self.current_field["access_road_boundary"][sel[0]]
+            self._redraw_boundary()
+            if self.show_shelters.get(): self._redraw_shelters()
+            if self.show_passes.get():   self._redraw_passes()
+            if self.show_bays.get():     self._redraw_bays()
+            win.destroy()
+            self._status("Access road deleted.")
+        ctk.CTkButton(win, text="Delete Selected", fg_color="#6b1a1a",
+                      command=do_delete).pack(pady=(4, 2))
+        ctk.CTkButton(win, text="Cancel", command=win.destroy).pack()
+
     def _mode_add_inner_boundary(self):
         """Click-to-add-vertices for a new inner exclusion polygon.
         Vertices use the same per-click marker pattern as the outer; on
@@ -3721,6 +3799,15 @@ class BeetentApp(ctk.CTk):
                                             marker_color_outside="#993300")
             self.boundary_markers.append(m)
 
+        elif mode=="access_road":
+            if not hasattr(self, "road_pts"): self.road_pts = []
+            self.road_pts.append((lat,lon))
+            # Magenta marker — distinct from outer (yellow) and inner (orange).
+            m = self.map_widget.set_marker(lat, lon, text=str(len(self.road_pts)),
+                                            marker_color_circle="#FF2D95",
+                                            marker_color_outside="#8A0F50")
+            self.boundary_markers.append(m)
+
         elif mode=="boundary_circle":
             try:
                 plat=float(self.fv["PP_Latitude"].get()); plon=float(self.fv["PP_Longitude"].get())
@@ -3913,6 +4000,17 @@ class BeetentApp(ctk.CTk):
                 o = self.map_widget.set_polygon(
                     [(pt[0], pt[1]) for pt in inner],
                     fill_color=None, outline_color="#FF6600", border_width=2)
+                self.boundary_inner_polys.append(o)
+            except Exception:
+                pass
+        # Pivot access road(s): magenta outline — also an exclusion zone, but
+        # distinct from the inner boundaries. Shown/hidden with the boundary.
+        for road in (self.current_field.get("access_road_boundary") or []):
+            if not road or len(road) < 3: continue
+            try:
+                o = self.map_widget.set_polygon(
+                    [(pt[0], pt[1]) for pt in road],
+                    fill_color=None, outline_color="#FF2D95", border_width=2)
                 self.boundary_inner_polys.append(o)
             except Exception:
                 pass
@@ -5643,7 +5741,7 @@ class BeetentApp(ctk.CTk):
         route_around = bool(self.current_field.get("sprayer_routes_around_inner", True))
         inner_polys_enu = []
         if route_around:
-            for inner in (self.current_field.get("boundary_inner") or []):
+            for inner in self._all_exclusion_rings():
                 if not inner or len(inner) < 3: continue
                 inner_polys_enu.append(
                     [latlon_to_enu(pt[0], pt[1], plat, plon) for pt in inner])
@@ -6068,7 +6166,7 @@ class BeetentApp(ctk.CTk):
             return False
 
         inner_polys_enu = []
-        for inner in (self.current_field.get("boundary_inner") or []):
+        for inner in self._all_exclusion_rings():
             if inner and len(inner) >= 3:
                 inner_polys_enu.append([latlon_to_enu(p[0], p[1], plat, plon) for p in inner])
 
@@ -6255,7 +6353,7 @@ class BeetentApp(ctk.CTk):
         # like access lanes, and the bays should stay continuous).
         inner_polys_enu = []
         if not bool(self.current_field.get("bays_through_inner", False)):
-            for inner in (self.current_field.get("boundary_inner") or []):
+            for inner in self._all_exclusion_rings():
                 if not inner or len(inner) < 3: continue
                 inner_polys_enu.append(
                     [latlon_to_enu(pt[0], pt[1], plat, plon) for pt in inner])

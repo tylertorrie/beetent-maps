@@ -1262,10 +1262,12 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
             boundary_enu = None
 
         # Inner-exclusion boundaries (JD-style "interior boundaries":
-        # buildings, sloughs, pivot pads, etc.). A shelter is invalid if it
-        # lands inside ANY inner ring. Stored on the field as lat/lon; convert
-        # to ENU once for fast point-in-polygon checks below.
-        boundary_inner_raw = field_dict.get('boundary_inner') or []
+        # buildings, sloughs, pivot pads, etc.) PLUS the pivot access road,
+        # which excludes shelters exactly the same way. A shelter is invalid if
+        # it lands inside ANY of these rings. Stored on the field as lat/lon;
+        # convert to ENU once for fast point-in-polygon checks below.
+        boundary_inner_raw = ((field_dict.get('boundary_inner') or [])
+                              + (field_dict.get('access_road_boundary') or []))
         boundary_inner_enu = []
         for ring in boundary_inner_raw:
             if not ring or len(ring) < 3: continue
