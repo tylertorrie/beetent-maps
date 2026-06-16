@@ -1,0 +1,12 @@
+{
+  "visible": [
+    "company",
+    "year",
+    "acres",
+    "gpa",
+    "total_gals",
+    "total_trays",
+    "shelters",
+    "buffer"
+  ]
+}
