@@ -480,7 +480,7 @@
   "parking_pin": null,
   "sprayer_routes_around_inner": true,
   "bays_through_inner": false,
-  "shelter_at_pivot": false,
+  "shelter_at_pivot": true,
   "manual_shelter_pins": [],
   "shelter_overrides": {
     "6": [
