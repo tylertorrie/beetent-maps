@@ -547,5 +547,27 @@
     "role": "agronomist",
     "generated": "2026-06-16T07:53:45",
     "size": 271831
+  },
+  {
+    "id": "pdfs/Giesbricht NW 35-10-16 2026 Shelter Map 3.pdf",
+    "kind": "pdf",
+    "name": "Giesbricht NW 35-10-16 2026 Shelter Map 3.pdf",
+    "relpath": "pdfs/Giesbricht NW 35-10-16 2026 Shelter Map 3.pdf",
+    "is_dir": false,
+    "companies": [
+      "BASF"
+    ],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "Giesbricht NW 35-10-16"
+    ],
+    "types": [
+      "PDF"
+    ],
+    "role": "flag",
+    "generated": "2026-06-16T07:56:06",
+    "size": 557985
   }
 ]
