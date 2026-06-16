@@ -2948,6 +2948,11 @@ class BeetentApp(ctk.CTk):
                         command=self._on_shelter_mode_change).pack(fill="x",pady=(0,2))
         self._shelter_entry=ctk.CTkEntry(ba,textvariable=self.shelter_value_var)
         self._shelter_entry.pack(fill="x",pady=(0,2))
+        # For the auto/manual modes (1- or 2-trays-per-shelter, manual pins) the
+        # count isn't typed — it's derived — so we hide the entry and show this
+        # read-only "# of Shelters = N" line instead.
+        self._shelter_count_lbl=ctk.CTkLabel(ba,text="",anchor="w",
+                                             font=ctk.CTkFont(family=FONT_LABEL,size=12,weight="bold"))
         self.shelter_hint_lbl=ctk.CTkLabel(ba,text="",anchor="w",text_color=UI_MUTED,font=ctk.CTkFont(size=10))
         self.shelter_hint_lbl.pack(fill="x",pady=(0,2))
 
@@ -3652,6 +3657,7 @@ class BeetentApp(ctk.CTk):
         if mode=="spacing":           return "Distance between shelters. Fills the field at that spacing."
         if mode=="trays_1":           return "Auto: one tray per shelter. Count = total trays needed."
         if mode=="trays_2":           return "Auto: two trays per shelter. Count = total trays ÷ 2."
+        if mode=="manual":            return "Hand-placed pins (Shelters → Add Shelter Pin)."
         return "Exact number of shelters to place (e.g. 135)."
 
     def _auto_shelter_count(self, mode):
@@ -3669,16 +3675,38 @@ class BeetentApp(ctk.CTk):
         divisor = 2 if mode == "trays_2" else 1
         return max(1, math.ceil(total_trays / divisor))
 
+    def _shelter_count_text(self, mode):
+        """'# of Shelters = N' for the derived modes."""
+        if mode == "manual":
+            n = len(self.current_field.get("manual_shelter_pins") or [])
+        else:
+            n = self._auto_shelter_count(mode)
+        return "# of Shelters = %s" % (n if n is not None else "—")
+
+    def _update_shelter_count_widget(self, mode):
+        """Swap between the editable count entry and the read-only
+        '# of Shelters = N' label depending on the mode."""
+        lbl = getattr(self, "_shelter_count_lbl", None)
+        if lbl is None:
+            return
+        if mode in ("trays_1", "trays_2", "manual"):
+            try: self._shelter_entry.pack_forget()
+            except Exception: pass
+            lbl.configure(text=self._shelter_count_text(mode))
+            if not lbl.winfo_ismapped():
+                lbl.pack(fill="x", pady=(0, 2), before=self.shelter_hint_lbl)
+        else:
+            try: lbl.pack_forget()
+            except Exception: pass
+            if not self._shelter_entry.winfo_ismapped():
+                self._shelter_entry.pack(fill="x", pady=(0, 2), before=self.shelter_hint_lbl)
+
     def _refresh_shelter_value_display(self):
-        """For the auto modes, push the computed count into the read-only
-        entry so the user sees how many shelters they're getting. No-op for
-        the editable modes."""
+        """Keep the derived-mode count current: refresh the '# of Shelters = N'
+        label (trays / manual). No-op for the editable modes."""
         mode = self._shelter_mode_labels.get(self.shelter_mode_var.get(),"total")
-        if mode not in ("trays_1","trays_2"): return
-        n = self._auto_shelter_count(mode)
-        self._loading_shelter_value=True
-        self.shelter_value_var.set(str(n) if n is not None else "—")
-        self._loading_shelter_value=False
+        if mode in ("trays_1", "trays_2", "manual"):
+            self._update_shelter_count_widget(mode)
 
     def _clear_shelter_overrides(self):
         """Wipe manually-moved positions and the in-session undo stack.
@@ -3698,19 +3726,14 @@ class BeetentApp(ctk.CTk):
             self._clear_shelter_overrides()
         self.current_field["shelter_mode"]=mode
         self._loading_shelter_value=True
-        if mode in ("trays_1","trays_2"):
-            # Auto mode: entry shows computed count, disabled so the user
-            # doesn't try to edit it. Update display from current bee inputs.
-            n = self._auto_shelter_count(mode)
-            self.shelter_value_var.set(str(n) if n is not None else "—")
-            try: self._shelter_entry.configure(state="disabled")
-            except Exception: pass
-        else:
+        if mode not in ("trays_1","trays_2","manual"):
+            # Editable modes: load the typed value into the entry.
             try: self._shelter_entry.configure(state="normal")
             except Exception: pass
             key=self._shelter_mode_key[mode]
             self.shelter_value_var.set(self.fv[key].get())
         self._loading_shelter_value=False
+        self._update_shelter_count_widget(mode)   # entry vs "# of Shelters = N"
         self.shelter_hint_lbl.configure(text=self._shelter_hint(mode))
         if self.show_shelters.get(): self._redraw_shelters()
 
@@ -4269,19 +4292,15 @@ class BeetentApp(ctk.CTk):
         # Sync the shelter-count mode dropdown + its single value entry
         s_mode = f.get("shelter_mode") or "total"
         self.shelter_mode_var.set(self._shelter_mode_inverse.get(s_mode,"Total shelters"))
-        if s_mode in ("trays_1","trays_2"):
-            # Auto modes: compute from acres × gals/acre ÷ gals/tray right now
-            # so the count is always visible when the field loads.
-            try: self._shelter_entry.configure(state="disabled")
-            except Exception: pass
-            self._refresh_shelter_value_display()
-        else:
+        if s_mode not in ("trays_1","trays_2","manual"):
             try: self._shelter_entry.configure(state="normal")
             except Exception: pass
             s_key = self._shelter_mode_key.get(s_mode,"num_structures")
             self._loading_shelter_value=True
             self.shelter_value_var.set(self.fv[s_key].get())
             self._loading_shelter_value=False
+        # Auto/manual modes show the read-only "# of Shelters = N" label instead.
+        self._update_shelter_count_widget(s_mode)
         self.shelter_hint_lbl.configure(text=self._shelter_hint(s_mode))
         self._refresh_track_list()
         # Migrate old corner_arms [[pts],[pts]] format → new [{type,pts/lat/lon/radius_m}] format
