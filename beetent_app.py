@@ -1087,6 +1087,11 @@ class BeetentApp(ctk.CTk):
         # bands so the user can visually verify the buffer.
         self.show_pass_buffer_overlay = tk.BooleanVar(value=False)
         self.pass_buffer_overlays = []
+        # Numbered planter passes — full-planter-width swaths numbered ±N from
+        # the pivot (+ = west / north, − = east / south). On-screen overlay only.
+        self.show_planter_numbers = tk.BooleanVar(value=False)
+        self.planter_number_paths = []
+        self.planter_number_markers = []
         # Inner boundary outline overlays (drawn by _redraw_boundary, but the
         # list lives here so _clear_all_overlays can wipe them too).
         self.boundary_inner_polys = []
@@ -1137,8 +1142,11 @@ class BeetentApp(ctk.CTk):
         # Left nav drawer + Files view (built lazily / on demand)
         self.nav_drawer  = None
         self.files_view  = None
+        self.overview_view = None
         self._files_cwd  = None     # None = top level; else (record_id, (sub,paths))
         self._files_checks = {}      # path-str → BooleanVar for current listing
+        self._ov_sort_col = None     # Overview spreadsheet sort state
+        self._ov_sort_rev = False
 
         self._build_toolbar()
         self._build_body()
@@ -1179,9 +1187,9 @@ class BeetentApp(ctk.CTk):
         bar.pack(fill="x",side="top")
         # Hamburger menu — opens the left nav drawer (Map / Files). Packed first
         # so it sits at the far left and pushes the LLD search bar to the right.
-        ctk.CTkButton(bar, text="☰", width=42,
-                      font=ctk.CTkFont(family=FONT_LABEL, size=18),
-                      fg_color="transparent", hover_color="#ffffff22",
+        ctk.CTkButton(bar, text="☰", width=42, text_color="#000000",
+                      font=ctk.CTkFont(family=FONT_LABEL, size=20),
+                      fg_color="transparent", hover_color=UI_HOVER,
                       command=self._toggle_nav_drawer
                       ).pack(side="left", padx=(8,4), pady=6)
         try:
@@ -1193,7 +1201,11 @@ class BeetentApp(ctk.CTk):
                 ctk.CTkLabel(bar, image=self._logo_img, text="").pack(side="left", padx=(10,8), pady=6)
         except Exception:
             pass
-        ctk.CTkLabel(bar,text="Legal Land Description:").pack(side="left",padx=(0,4),pady=8)
+        self._toolbar = bar
+        # ── LLD group (Map view only) — wrapped in one frame so the whole search
+        # bar can be shown/hidden per view via _apply_toolbar_for_view. ──
+        self._tb_lld = ctk.CTkFrame(bar, fg_color="transparent")
+        ctk.CTkLabel(self._tb_lld,text="Legal Land Description:").pack(side="left",padx=(0,4),pady=8)
         # Structured LLD entry — one cell per part: Quarter-Section-Township-
         # Range-Meridian. Each cell auto-advances to the next once it's full,
         # which cuts down on mistyped legal land descriptions. The meridian
@@ -1203,7 +1215,7 @@ class BeetentApp(ctk.CTk):
                          ("twp",2,"digit","Twp"),("rng",2,"digit","Rng"),
                          ("mer",2,"mer","W4")]
         self._lld_vars=[]; self._lld_entries=[]
-        lld_box=ctk.CTkFrame(bar,fg_color="transparent")
+        lld_box=ctk.CTkFrame(self._tb_lld,fg_color="transparent")
         lld_box.pack(side="left",pady=8)
         for i,(name,maxlen,kind,ph) in enumerate(self._lld_specs):
             if i>0:
@@ -1214,27 +1226,27 @@ class BeetentApp(ctk.CTk):
             ent.pack(side="left")
             ent.bind("<KeyRelease>",lambda e,idx=i:self._on_lld_key(idx,e))
             self._lld_vars.append(var); self._lld_entries.append(ent)
-        ctk.CTkButton(bar,text="Go",width=48,command=self._search_lld).pack(side="left",padx=(6,4),pady=8)
+        ctk.CTkButton(self._tb_lld,text="Go",width=48,command=self._search_lld).pack(side="left",padx=(6,4),pady=8)
         # LLD highlight box toggle — the yellow rectangle around the searched
         # quarter section can get in the way once you're zoomed in working on
         # the field, so we let users hide/show it without re-searching.
-        ctk.CTkSwitch(bar,text="LLD box",variable=self.show_lld_box,
+        ctk.CTkSwitch(self._tb_lld,text="LLD box",variable=self.show_lld_box,
                       command=self._toggle_lld_box,
                       font=ctk.CTkFont(family=FONT_LABEL,size=11)
                       ).pack(side="left",padx=(0,20),pady=8)
-        # ── Right-side items packed FIRST so they always secure their space ──
-        # Pack order within side="right": last packed = leftmost (closest to centre).
-        # Units combo → Units label → Generate → PDF (PDF ends up leftmost = nearest centre)
+        # ── Right-side groups. Packing/visibility is handled per view by
+        # _apply_toolbar_for_view; here we only build the widgets. ──
         self.unit_var=tk.StringVar(value="Imperial")
-        ctk.CTkComboBox(bar,variable=self.unit_var,values=["Imperial","Metric"],
-                        width=100,command=self._on_unit_change).pack(side="right",padx=(0,12))
-        ctk.CTkLabel(bar,text="Units:").pack(side="right",padx=(0,4))
-        ctk.CTkButton(bar, text="⚙ Generate Output Files", fg_color="#1a5c8a",
+        self._tb_units = ctk.CTkFrame(bar, fg_color="transparent")
+        ctk.CTkLabel(self._tb_units,text="Units:").pack(side="left",padx=(0,4))
+        ctk.CTkComboBox(self._tb_units,variable=self.unit_var,values=["Imperial","Metric"],
+                        width=100,command=self._on_unit_change).pack(side="left",padx=(0,12))
+        self._tb_generate = ctk.CTkButton(bar, text="⚙ Generate Output Files", fg_color="#1a5c8a",
                       font=ctk.CTkFont(family=FONT_LABEL, size=12),
-                      command=self._generate).pack(side="right", padx=(0,4), pady=4)
-        ctk.CTkButton(bar, text="📄 Field Summary PDF", fg_color="#4a3060",
+                      command=self._generate)
+        self._tb_pdf = ctk.CTkButton(bar, text="📄 Field Summary PDF", fg_color="#4a3060",
                       font=ctk.CTkFont(family=FONT_LABEL, size=12),
-                      command=self._export_field_pdf).pack(side="right", padx=(0,4), pady=4)
+                      command=self._export_field_pdf)
         # Update-ready button — hidden until a code update is pulled.
         self._update_btn=ctk.CTkButton(bar,text="🔄 Restart to update",
                                         fg_color="#1a6b3a",width=160,
@@ -1242,7 +1254,27 @@ class BeetentApp(ctk.CTk):
         # intentionally NOT packed here — shown on demand
         # ── Left-side status label (no fixed width — shrinks before buttons do) ──
         self.status_lbl=ctk.CTkLabel(bar,text="",text_color=UI_MUTED,anchor="w")
-        self.status_lbl.pack(side="left",padx=16)
+        self._apply_toolbar_for_view("map")
+
+    def _apply_toolbar_for_view(self, view):
+        """Show only the toolbar controls relevant to the current view.
+        Map: LLD + Generate + PDF + Units. Overview: Units only. Files: none.
+        ☰, logo and the status label are always visible."""
+        for w in (self._tb_lld, self._tb_units, self._tb_generate,
+                  self._tb_pdf, self.status_lbl):
+            try: w.pack_forget()
+            except Exception: pass
+        # Left side: LLD (map only) then the status label.
+        if view == "map":
+            self._tb_lld.pack(side="left")
+        self.status_lbl.pack(side="left", padx=16)
+        # Right side: first packed = rightmost. Units → Generate → PDF gives the
+        # visual order PDF · Generate · Units (Units furthest right).
+        if view in ("map", "overview"):
+            self._tb_units.pack(side="right", padx=(0,8))
+        if view == "map":
+            self._tb_generate.pack(side="right", padx=(0,4), pady=4)
+            self._tb_pdf.pack(side="right", padx=(0,4), pady=4)
 
     # ── Popup menu helpers ─────────────────────────────────────────────────────
     def _make_menu_btn(self, bar, label, items, color="#2b2b2b",
@@ -1351,6 +1383,7 @@ class BeetentApp(ctk.CTk):
         ctk.CTkFrame(self.nav_drawer, height=1, fg_color=UI_BORDER).pack(
             fill="x", padx=8, pady=(0, 6))
         for text, cmd in [("🗺  Map View", self._open_map_view),
+                          ("📊  Overview", self._open_overview_view),
                           ("📁  Files",    self._open_files_view)]:
             ctk.CTkButton(self.nav_drawer, text=text, anchor="w", height=40,
                           fg_color="transparent", hover_color=UI_HOVER,
@@ -1372,22 +1405,48 @@ class BeetentApp(ctk.CTk):
         if self.nav_drawer is not None:
             self.nav_drawer.place_forget()
 
+    def _hide_all_views(self):
+        for v in (self.body_frame,
+                  getattr(self, "files_view", None),
+                  getattr(self, "overview_view", None)):
+            if v is not None and v.winfo_ismapped():
+                v.pack_forget()
+
     def _open_map_view(self):
         self._close_nav_drawer()
-        if self.files_view is not None and self.files_view.winfo_ismapped():
-            self.files_view.pack_forget()
-        if not self.body_frame.winfo_ismapped():
-            self.body_frame.pack(fill="both", expand=True)
+        self._hide_all_views()
+        self.body_frame.pack(fill="both", expand=True)
+        self._apply_toolbar_for_view("map")
 
     def _open_files_view(self):
         self._close_nav_drawer()
-        self.body_frame.pack_forget()
+        self._hide_all_views()
         if self.files_view is None:
             self._build_files_view()
         self.files_view.pack(fill="both", expand=True)
+        self._apply_toolbar_for_view("files")
         self._files_cwd = None
         self._files_refresh_filter_options()
         self._files_refresh()
+
+    def _open_overview_view(self):
+        self._close_nav_drawer()
+        self._hide_all_views()
+        if getattr(self, "overview_view", None) is None:
+            self._build_overview_view()
+        self.overview_view.pack(fill="both", expand=True)
+        self._apply_toolbar_for_view("overview")
+        self._overview_refresh_filter_options()
+        self._overview_refresh()
+
+    def _toggle_sidebar(self):
+        """Collapse the Map-view right panel to a thin ◀ tab, or restore it."""
+        if self.right_outer.winfo_ismapped():
+            self.right_outer.grid_remove()
+            self.sidebar_tab.grid()
+        else:
+            self.sidebar_tab.grid_remove()
+            self.right_outer.grid()
 
     # ── Files view (in-app explorer over the synced output/ library) ────────────
     def _files_filter_options(self):
@@ -1412,14 +1471,12 @@ class BeetentApp(ctk.CTk):
     def _build_files_view(self):
         self.files_view = ctk.CTkFrame(self, corner_radius=0)
 
-        # ── Header ──
+        # ── Header (use the ☰ menu → Map View to leave this view) ──
         hdr = ctk.CTkFrame(self.files_view, fg_color="transparent")
         hdr.pack(fill="x", padx=12, pady=(10, 4))
-        ctk.CTkButton(hdr, text="←  Back to Map", width=130, fg_color="#3a3a3a",
-                      command=self._open_map_view).pack(side="left")
         ctk.CTkLabel(hdr, text="Output Files", text_color=UI_TEXT,
                      font=ctk.CTkFont(family=FONT_HEADING, size=18)).pack(
-            side="left", padx=14)
+            side="left")
 
         # ── Filter row ──
         flt = ctk.CTkFrame(self.files_view, fg_color="transparent")
@@ -1441,8 +1498,8 @@ class BeetentApp(ctk.CTk):
         self._fv_type = tk.StringVar(value="All")
         self._fv_type_cb = ctk.CTkComboBox(
             flt, variable=self._fv_type, width=150,
-            values=["All", "PDF", "Export Bundle", "KML", "AgGPS",
-                    "GeoJSON", "JD Buffer Zones", "Boundary"],
+            values=["All", "PDF", "Overview Summary", "Export Bundle", "KML",
+                    "AgGPS", "GeoJSON", "JD Buffer Zones", "Boundary"],
             command=lambda _: self._files_on_type_change())
         self._fv_type_cb.pack(side="left", padx=(4, 12))
         # Role filter — only meaningful for PDFs, packed on demand.
@@ -1570,6 +1627,9 @@ class BeetentApp(ctk.CTk):
                     continue
                 if role != "All" and r.get("role") != role_map.get(role):
                     continue
+            elif typ == "Overview Summary":
+                if r.get("kind") != "overview":
+                    continue
             elif typ == "Export Bundle":
                 if r.get("kind") != "export":
                     continue
@@ -1629,7 +1689,12 @@ class BeetentApp(ctk.CTk):
 
         for r in records:
             path = OUTPUT_DIR / r.get("relpath", "")
-            if r.get("kind") == "pdf":
+            if r.get("kind") == "overview":
+                self._files_add_row(
+                    path, label=r.get("name", ""), icon="📊",
+                    meta=meta_of(r, "Overview Summary"),
+                    on_open=lambda p=path: self._files_open(p))
+            elif r.get("kind") == "pdf":
                 rl = role_disp.get(r.get("role"), "")
                 self._files_add_row(
                     path, label=r.get("name", ""), icon="📄",
@@ -1868,6 +1933,343 @@ class BeetentApp(ctk.CTk):
         except Exception:
             pass
 
+    # ── Overview view (sortable/filterable spreadsheet of all fields) ───────────
+    def _overview_columns(self):
+        """Master ordered column list: (key, header label, kind). 'field' is
+        locked (always first, not toggleable). kind drives align + sort type."""
+        return [
+            ("field",         "Field",            "text"),
+            ("company",       "Company",          "text"),
+            ("year",          "Year",             "text"),
+            ("lld",           "LLD",              "text"),
+            ("acres",         "Acres",            "num"),
+            ("gpa",           "Gals/acre",        "num"),
+            ("gpt",           "Gals/tray",        "num"),
+            ("total_gals",    "Total gals",       "num"),
+            ("total_trays",   "Total trays",      "num"),
+            ("shelters",      "Shelters",         "num"),
+            ("plant_angle",   "Planting°",   "text"),
+            ("spray_angle",   "Spray°",      "text"),
+            ("sprayer_width", "Sprayer width",    "num"),
+            ("row_spacing",   "Row spacing (in)", "num"),
+            ("female_rows",   "Female rows",      "num"),
+            ("male_rows",     "Male rows",        "num"),
+            ("buffer",        "Shelter buffer",   "num"),
+            ("has_boundary",  "Boundary",         "text"),
+        ]
+
+    def _ov_default_visible(self):
+        return ["company", "year", "acres", "total_gals", "total_trays",
+                "shelters", "gpa"]
+
+    def _ov_load_prefs(self):
+        try:
+            p = DATA_DIR / "overview_prefs.json"
+            if p.exists():
+                d = json.loads(p.read_text(encoding="utf-8"))
+                if isinstance(d.get("visible"), list):
+                    keys = {k for k, _, _ in self._overview_columns()}
+                    return [k for k in d["visible"] if k in keys]
+        except Exception:
+            pass
+        return self._ov_default_visible()
+
+    def _ov_save_prefs(self):
+        try:
+            DATA_DIR.mkdir(parents=True, exist_ok=True)
+            (DATA_DIR / "overview_prefs.json").write_text(
+                json.dumps({"visible": self._ov_visible}, indent=2), encoding="utf-8")
+            self._git_push("overview columns")
+        except Exception:
+            pass
+
+    def _overview_row(self, f):
+        """Compute one spreadsheet row (raw typed values) from a field dict.
+        Mirrors _refresh_bee_summary for gals/trays and reuses
+        _final_shelter_positions for the shelter count."""
+        metric = self.unit_var.get() == "Metric"
+
+        def fnum(key, default=0.0):
+            try: return float(str(f.get(key, "") or "").strip())
+            except (ValueError, TypeError): return default
+
+        acres_manual = str(f.get("acres", "") or "").strip()
+        if acres_manual:
+            try: acres = float(acres_manual)
+            except ValueError: acres = 0.0
+        else:
+            bp = f.get("boundary_polygon") or []
+            acres = polygon_area_m2(bp) * ACRES_PER_M2 if len(bp) >= 3 else 0.0
+
+        gpa = fnum("gals_per_acre"); gpt = fnum("gals_per_tray")
+        total_gals = gpa * acres if (gpa > 0 and acres > 0) else 0.0
+        try:
+            shelters = len(self._final_shelter_positions(f, metric))
+        except Exception:
+            shelters = 0
+        if total_gals > 0 and gpt > 0:
+            total_trays = max(int(math.ceil(total_gals / gpt)), shelters)
+        else:
+            total_trays = shelters
+        buf_m = fnum("shelter_buffer_m")
+        buffer_disp = buf_m if metric else buf_m / 0.3048
+
+        def angle(key):
+            s = str(f.get(key, "") or "").strip()
+            return (s + "°") if s else ""
+
+        bp = f.get("boundary_polygon") or []
+        return {
+            "field":         str(f.get("Name", "") or ""),
+            "company":       str(f.get("company", "") or ""),
+            "year":          str(f.get("year", "") or ""),
+            "lld":           str(f.get("lld", "") or ""),
+            "acres":         round(acres, 1),
+            "gpa":           gpa,
+            "gpt":           gpt,
+            "total_gals":    round(total_gals, 1),
+            "total_trays":   total_trays,
+            "shelters":      shelters,
+            "plant_angle":   angle("Planting_angle"),
+            "spray_angle":   angle("Spray_angle"),
+            "sprayer_width": fnum("Sprayer_width"),
+            "row_spacing":   fnum("row_spacing_in"),
+            "female_rows":   fnum("num_female_rows"),
+            "male_rows":     fnum("num_male_rows"),
+            "buffer":        round(buffer_disp, 2),
+            "has_boundary":  "Yes" if len(bp) >= 3 else "No",
+        }
+
+    def _ov_display(self, key, val):
+        """Format a raw cell value for display in the tree / PDF."""
+        if isinstance(val, bool):
+            return "Yes" if val else "No"
+        if isinstance(val, (int, float)) and not isinstance(val, bool):
+            if key == "buffer":
+                unit = "m" if self.unit_var.get() == "Metric" else "ft"
+                return f"{val:g} {unit}"
+            if float(val) == int(val):
+                return str(int(val))
+            return f"{val:g}"
+        return str(val) if val not in (None, "") else "—"
+
+    def _build_overview_view(self):
+        self.overview_view = ctk.CTkFrame(self, corner_radius=0)
+        self._ov_visible = self._ov_load_prefs()
+
+        hdr = ctk.CTkFrame(self.overview_view, fg_color="transparent")
+        hdr.pack(fill="x", padx=12, pady=(10, 4))
+        ctk.CTkLabel(hdr, text="Overview", text_color=UI_TEXT,
+                     font=ctk.CTkFont(family=FONT_HEADING, size=18)).pack(side="left")
+
+        flt = ctk.CTkFrame(self.overview_view, fg_color="transparent")
+        flt.pack(fill="x", padx=12, pady=(2, 4))
+        ctk.CTkLabel(flt, text="Company:").pack(side="left")
+        self._ov_co = tk.StringVar(value=ALL_COMPANIES)
+        self._ov_co_cb = ctk.CTkComboBox(flt, variable=self._ov_co, width=160,
+                                         values=[ALL_COMPANIES] + list_companies(),
+                                         command=lambda _: self._overview_refresh())
+        self._ov_co_cb.pack(side="left", padx=(4, 12))
+        ctk.CTkLabel(flt, text="Year:").pack(side="left")
+        self._ov_yr = tk.StringVar(value=str(datetime.date.today().year))
+        self._ov_yr_cb = ctk.CTkComboBox(flt, variable=self._ov_yr, width=100,
+                                         values=[ALL_YEARS] + self._all_years_union(),
+                                         command=lambda _: self._overview_refresh())
+        self._ov_yr_cb.pack(side="left", padx=(4, 12))
+        ctk.CTkButton(flt, text="Columns ▾", width=110,
+                      command=self._ov_choose_columns).pack(side="left", padx=(4, 12))
+        ctk.CTkButton(flt, text="\U0001F4C4 Export Overview Summary PDF",
+                      fg_color="#1a5c8a",
+                      command=self._export_overview_pdf).pack(side="right")
+
+        wrap = ctk.CTkFrame(self.overview_view, fg_color="transparent")
+        wrap.pack(fill="both", expand=True, padx=12, pady=(2, 10))
+        self.ov_tree = ttk.Treeview(wrap, show="headings",
+                                    style="Fields.Treeview", selectmode="browse")
+        vsb = ctk.CTkScrollbar(wrap, command=self.ov_tree.yview)
+        hsb = ctk.CTkScrollbar(wrap, orientation="horizontal",
+                               command=self.ov_tree.xview)
+        self.ov_tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+        vsb.pack(side="right", fill="y")
+        hsb.pack(side="bottom", fill="x")
+        self.ov_tree.pack(side="left", fill="both", expand=True)
+        self._ov_rows = []
+
+    def _overview_refresh_filter_options(self):
+        self._ov_co_cb.configure(values=[ALL_COMPANIES] + list_companies())
+        self._ov_yr_cb.configure(values=[ALL_YEARS] + self._all_years_union())
+        if self._ov_co.get() not in [ALL_COMPANIES] + list_companies():
+            self._ov_co.set(ALL_COMPANIES)
+
+    def _overview_scope(self):
+        co = self._ov_co.get(); yr = self._ov_yr.get()
+        companies = list_companies() if co == ALL_COMPANIES else [co]
+        out = []
+        for c in companies:
+            years = list_years(c) if yr == ALL_YEARS else [yr]
+            for y in years:
+                for name in list_fields(c, y):
+                    out.append((c, y, name))
+        return out
+
+    def _overview_refresh(self):
+        if self.overview_view is None:
+            return
+        cols_master = self._overview_columns()
+        label = {k: lab for k, lab, _ in cols_master}
+        kind = {k: knd for k, _, knd in cols_master}
+        visible = ["field"] + [k for k, _, _ in cols_master
+                               if k != "field" and k in self._ov_visible]
+        self.ov_tree.configure(columns=visible)
+        for k in visible:
+            self.ov_tree.heading(k, text=label[k],
+                                 command=lambda c=k: self._ov_sort(c))
+            self.ov_tree.column(k, width=(160 if k == "field" else 95),
+                                anchor=("w" if kind[k] == "text" else "e"),
+                                stretch=(k == "field"))
+        for iid in self.ov_tree.get_children():
+            self.ov_tree.delete(iid)
+        self._ov_rows = []
+        self._status("Building overview…"); self.update_idletasks()
+        for c, y, name in self._overview_scope():
+            f = load_field(c, y, name)
+            if not f:
+                continue
+            row = self._overview_row(f)
+            vals = [self._ov_display(k, row.get(k, "")) for k in visible]
+            iid = self.ov_tree.insert("", "end", values=vals)
+            self._ov_rows.append((iid, row))
+        self._status("Overview: %d field(s)" % len(self._ov_rows))
+        if self._ov_sort_col and self._ov_sort_col in visible:
+            self._apply_ov_sort()
+
+    def _ov_sort(self, col):
+        if self._ov_sort_col == col:
+            self._ov_sort_rev = not self._ov_sort_rev
+        else:
+            self._ov_sort_col = col; self._ov_sort_rev = False
+        self._apply_ov_sort()
+
+    def _apply_ov_sort(self):
+        col = self._ov_sort_col
+        kind = {k: knd for k, _, knd in self._overview_columns()}.get(col, "text")
+
+        def key(item):
+            v = item[1].get(col, "")
+            if kind == "num":
+                try: return (0, float(v))
+                except (ValueError, TypeError): return (1, 0.0)
+            return (0, str(v).lower())
+
+        self._ov_rows.sort(key=key, reverse=self._ov_sort_rev)
+        for i, (iid, _) in enumerate(self._ov_rows):
+            self.ov_tree.move(iid, "", i)
+
+    def _ov_choose_columns(self):
+        win = ctk.CTkToplevel(self); win.title("Choose columns"); win.grab_set()
+        ctk.CTkLabel(win, text="Visible columns",
+                     font=ctk.CTkFont(family=FONT_HEADING, size=14)).pack(
+            padx=20, pady=(14, 8))
+        frame = ctk.CTkScrollableFrame(win, width=240, height=340)
+        frame.pack(fill="both", expand=True, padx=16)
+        cvars = {}
+        for k, lab, _ in self._overview_columns():
+            if k == "field":
+                continue
+            v = tk.BooleanVar(value=(k in self._ov_visible))
+            ctk.CTkCheckBox(frame, text=lab, variable=v).pack(anchor="w", pady=2)
+            cvars[k] = v
+
+        def apply():
+            self._ov_visible = [k for k, _, _ in self._overview_columns()
+                                if k != "field" and cvars.get(k) and cvars[k].get()]
+            self._ov_save_prefs()
+            self._overview_refresh()
+            win.destroy()
+        ctk.CTkButton(win, text="Apply", command=apply).pack(pady=12)
+        _center_on_parent(win, self)
+
+    def _export_overview_pdf(self):
+        if not getattr(self, "_ov_rows", None):
+            tkinter.messagebox.showinfo("Overview PDF", "No fields to export."); return
+        cols_master = self._overview_columns()
+        label = {k: lab for k, lab, _ in cols_master}
+        kind = {k: knd for k, _, knd in cols_master}
+        visible = ["field"] + [k for k, _, _ in cols_master
+                               if k != "field" and k in self._ov_visible]
+        import fpdf as _fpdf
+        pdf = _fpdf.FPDF(orientation="L", unit="mm", format="A4")
+        pdf.set_auto_page_break(True, margin=10)
+        pdf.add_page()
+        co = self._ov_co.get(); yr = self._ov_yr.get()
+        co_d = "All companies" if co == ALL_COMPANIES else co
+        yr_d = "All years" if yr == ALL_YEARS else yr
+        pdf.set_font("Helvetica", "B", 14)
+        pdf.cell(0, 8, "Overview Summary  -  %s | %s" % (co_d, yr_d), ln=1)
+        pdf.set_font("Helvetica", "", 8)
+        pdf.cell(0, 5, "Generated %s  |  %d field(s)"
+                 % (datetime.date.today().isoformat(), len(self._ov_rows)), ln=1)
+        pdf.ln(2)
+        usable = pdf.w - pdf.l_margin - pdf.r_margin
+        field_w = 52.0
+        others = [k for k in visible if k != "field"]
+        ow = (usable - field_w) / max(1, len(others))
+        widths = {k: (field_w if k == "field" else ow) for k in visible}
+        pdf.set_font("Helvetica", "B", 8)
+        pdf.set_fill_color(230, 230, 230)
+        for k in visible:
+            pdf.cell(widths[k], 7, str(label[k])[:22], border=1,
+                     align=("L" if kind[k] == "text" else "R"), fill=True)
+        pdf.ln()
+        pdf.set_font("Helvetica", "", 8)
+        for _iid, row in self._ov_rows:
+            for k in visible:
+                txt = self._ov_display(k, row.get(k, ""))
+                pdf.cell(widths[k], 6, str(txt)[:26], border=1,
+                         align=("L" if kind[k] == "text" else "R"))
+            pdf.ln()
+        safe_co = re.sub(r"[^A-Za-z0-9_\- ]+", "", co_d).strip() or "All"
+        stem = "Overview Summary %s %s %s" % (safe_co, yr_d,
+                                              datetime.date.today().isoformat())
+        dl = Path.home() / "Downloads"
+        path = dl / (stem + ".pdf"); n = 2
+        while path.exists():
+            path = dl / ("%s %d.pdf" % (stem, n)); n += 1
+        try:
+            pdf.output(str(path), "F")
+        except Exception as ex:
+            tkinter.messagebox.showerror("Overview PDF", str(ex)); return
+        self._archive_overview_to_library(str(path), co, yr)
+        self._status("Overview Summary PDF saved → %s" % path.name)
+        try: os.startfile(str(path))
+        except Exception: pass
+
+    def _archive_overview_to_library(self, save_path, co, yr):
+        try:
+            src = Path(save_path)
+            if not src.exists():
+                return
+            OUTPUT_PDFS.mkdir(parents=True, exist_ok=True)
+            dest = OUTPUT_PDFS / src.name
+            if dest.exists():
+                k = 2
+                while (OUTPUT_PDFS / ("%s %d%s" % (src.stem, k, src.suffix))).exists():
+                    k += 1
+                dest = OUTPUT_PDFS / ("%s %d%s" % (src.stem, k, src.suffix))
+            shutil.copy2(src, dest)
+            add_output_record({
+                "id": "pdfs/%s" % dest.name, "kind": "overview", "name": dest.name,
+                "relpath": "pdfs/%s" % dest.name, "is_dir": False,
+                "companies": ([] if co == ALL_COMPANIES else [co]),
+                "years": ([] if yr == ALL_YEARS else [yr]),
+                "fields": [], "types": ["Overview"], "role": None,
+                "generated": datetime.datetime.now().isoformat(timespec="seconds"),
+                "size": dest.stat().st_size,
+            })
+            self.after(0, lambda: self._git_push("output: overview summary"))
+        except Exception:
+            pass
+
     def _set_menu_checkboxes_visible(self, visible):
         """Show or hide the master-toggle checkboxes on every toolbar menu button."""
         for cb, lbl in self._menu_checkboxes:
@@ -2063,7 +2465,8 @@ class BeetentApp(ctk.CTk):
         body=ctk.CTkFrame(self,corner_radius=0)
         body.pack(fill="both",expand=True)
         self.body_frame = body          # kept so the Files view can swap it out
-        body.columnconfigure(0,weight=3); body.columnconfigure(1,weight=0); body.rowconfigure(0,weight=1)
+        body.columnconfigure(0,weight=3); body.columnconfigure(1,weight=0)
+        body.columnconfigure(2,weight=0); body.rowconfigure(0,weight=1)
 
         # Map frame
         mf=ctk.CTkFrame(body,corner_radius=8)
@@ -2120,6 +2523,7 @@ class BeetentApp(ctk.CTk):
             ("Shift",                     self._mode_shift_planter),
             ("Import Planter Data (.shp)", self._import_planter_data),
             ("Clear Planter Data",        self._clear_planter_passes),
+            ("Number Planter Passes (toggle)", self._toggle_planter_pass_numbers),
             ("Toggle Bays Through Inner Boundaries", self._toggle_bays_through_inner),
         ], color="#3a5a1a",
            toggle_var=self.planter_visible_var, toggle_fn=self._set_planter_visible)
@@ -2148,10 +2552,30 @@ class BeetentApp(ctk.CTk):
 
         self.map_frame=mf
 
-        # ── Right panel (scrollable) ──
+        # ── Right panel (scrollable) — collapsible to a thin edge tab ──
+        self.body_grid = body
         right_outer=ctk.CTkFrame(body,width=370,corner_radius=8)
         right_outer.grid(row=0,column=1,sticky="nsew",padx=(4,8),pady=8)
         right_outer.pack_propagate(False)
+        self.right_outer = right_outer
+
+        # Thin tab shown when the sidebar is hidden; click ◀ to bring it back.
+        # Always present at the right edge so the panel is one click away.
+        self.sidebar_tab = ctk.CTkFrame(body, width=18, corner_radius=0)
+        self.sidebar_tab.grid(row=0, column=2, sticky="ns", pady=8)
+        self.sidebar_tab.grid_propagate(False)
+        ctk.CTkButton(self.sidebar_tab, text="◀", width=16, fg_color="#3a3a3a",
+                      hover_color=UI_HOVER,
+                      command=self._toggle_sidebar).pack(fill="both", expand=True)
+        self.sidebar_tab.grid_remove()      # hidden until the panel is collapsed
+
+        # Collapse handle at the top of the panel.
+        collapse_row = ctk.CTkFrame(right_outer, fg_color="transparent")
+        collapse_row.pack(fill="x", padx=4, pady=(2,0))
+        ctk.CTkButton(collapse_row, text="▶  Hide panel", width=110, height=24,
+                      fg_color="#3a3a3a", hover_color=UI_HOVER,
+                      font=ctk.CTkFont(family=FONT_LABEL, size=11),
+                      command=self._toggle_sidebar).pack(side="right")
 
         right=ctk.CTkScrollableFrame(right_outer,fg_color="transparent")
         right.pack(fill="both",expand=True)
@@ -2557,6 +2981,8 @@ class BeetentApp(ctk.CTk):
         except Exception: pass
         try: self._refresh_shelter_value_display()
         except Exception: pass
+        if self.show_planter_numbers.get():
+            self._redraw_planter_pass_numbers()
         if not self.show_shelters.get(): return
         if self._shelter_refresh_id:
             self.after_cancel(self._shelter_refresh_id)
@@ -5745,6 +6171,96 @@ class BeetentApp(ctk.CTk):
             except Exception:
                 pass
 
+    # ── Numbered planter passes (±N from the pivot) ─────────────────────────────
+    def _toggle_planter_pass_numbers(self):
+        """Show/hide full-planter-width passes numbered ±N from the pivot
+        (+ = west / north of the pivot, − = east / south)."""
+        self._close_all_popups()
+        self.show_planter_numbers.set(not self.show_planter_numbers.get())
+        self._redraw_planter_pass_numbers()
+        self._status("Numbered planter passes " +
+                     ("shown." if self.show_planter_numbers.get() else "hidden."))
+
+    def _clear_planter_numbers(self):
+        for o in self.planter_number_paths:
+            try: o.delete()
+            except Exception: pass
+        self.planter_number_paths = []
+        for m in self.planter_number_markers:
+            try: m.delete()
+            except Exception: pass
+        self.planter_number_markers = []
+
+    def _redraw_planter_pass_numbers(self):
+        """Draw the planter passes (full implement width = total rows × row
+        spacing) as amber centre-lines, each labelled with its pass number
+        relative to the pivot: +1,+2… west / north, −1,−2… east / south.
+        No pass sits on the pivot — the pivot is the divide between +1 and −1."""
+        self._clear_planter_numbers()
+        if not self.show_planter_numbers.get():
+            return
+        try:
+            plat = float(self.fv["PP_Latitude"].get())
+            plon = float(self.fv["PP_Longitude"].get())
+            _plant = self.fv["Planting_angle"].get().strip()
+            _spray = self.fv["Spray_angle"].get().strip()
+            angle = float(_plant or _spray or 0)
+            rs = float(self.fv["row_spacing_in"].get() or 22)
+            nf = int(self.fv["num_female_rows"].get() or 8)
+            nm = int(self.fv["num_male_rows"].get() or 2)
+            total_rows = int(self.fv["total_rows"].get() or (nf + nm))
+            bp = self.current_field.get("boundary_polygon")
+        except (ValueError, TypeError):
+            return
+        if not bp or len(bp) < 3:
+            return
+        pass_w = total_rows * rs * 0.0254   # full planter width, metres
+        if pass_w <= 0:
+            return
+
+        poly_enu = [latlon_to_enu(lat, lon, plat, plon) for lat, lon in bp]
+        max_r = max(math.sqrt(e * e + n * n) for e, n in poly_enu) * 1.1
+        rot = math.radians((180 - angle) % 360 - 180)
+        cos_r, sin_r = math.cos(rot), math.sin(rot)
+        tdx, tdy = -sin_r, cos_r     # along-pass direction
+        ldx, ldy = cos_r, sin_r      # lateral (across passes); +x = east / south
+        n_max = int(max_r / pass_w) + 2
+
+        for k in range(1, n_max + 1):
+            # +k sits on the −x (west / north) side; −k on the +x (east / south)
+            # side. Centre of pass k is (k−0.5) widths from the pivot divide.
+            for label, x in ((k, -(k - 0.5) * pass_w), (-k, (k - 0.5) * pass_w)):
+                pe, pn = x * ldx, x * ldy
+                intervals = clip_line_to_polygon_intervals(pe, pn, tdx, tdy, poly_enu)
+                if not intervals:
+                    continue
+                for (t1, t2) in intervals:
+                    if t2 - t1 < 0.01:
+                        continue
+                    e1, n1 = pe + t1 * tdx, pn + t1 * tdy
+                    e2, n2 = pe + t2 * tdx, pn + t2 * tdy
+                    la1, lo1 = enu_to_latlon(e1, n1, plat, plon)
+                    la2, lo2 = enu_to_latlon(e2, n2, plat, plon)
+                    try:
+                        p = self.map_widget.set_path([(la1, lo1), (la2, lo2)],
+                                                     color="#FFB000", width=1)
+                        self.planter_number_paths.append(p)
+                    except Exception:
+                        pass
+                # Label at the midpoint of the longest visible segment.
+                t1, t2 = max(intervals, key=lambda iv: iv[1] - iv[0])
+                tm = (t1 + t2) / 2.0
+                mlat, mlon = enu_to_latlon(pe + tm * tdx, pn + tm * tdy, plat, plon)
+                txt = ("+%d" % label) if label > 0 else ("%d" % label)
+                try:
+                    mk = self.map_widget.set_marker(
+                        mlat, mlon, text=txt,
+                        marker_color_circle="#FFB000",
+                        marker_color_outside="#8A5E00")
+                    self.planter_number_markers.append(mk)
+                except Exception:
+                    pass
+
     # ── Uploaded sprayer passes ────────────────────────────────────────────────
     def _import_sprayer_data(self):
         """File-picker for a sprayer GPS file (.shp or .geojson).
@@ -7160,7 +7676,7 @@ class BeetentApp(ctk.CTk):
     # ── Full overlay refresh ───────────────────────────────────────────────────
     def _redraw_all(self):
         self._redraw_pivot()
-        self._redraw_boundary(); self._redraw_tracks(); self._redraw_passes(); self._redraw_bays(); self._redraw_corner_arms(); self._redraw_planter_passes(); self._redraw_sprayer_passes(); self._redraw_pass_buffer_overlay(); self._redraw_shelters()
+        self._redraw_boundary(); self._redraw_tracks(); self._redraw_passes(); self._redraw_bays(); self._redraw_corner_arms(); self._redraw_planter_passes(); self._redraw_planter_pass_numbers(); self._redraw_sprayer_passes(); self._redraw_pass_buffer_overlay(); self._redraw_shelters()
 
     def _clear_all_overlays(self):
         if self.pivot_marker: self.pivot_marker.delete(); self.pivot_marker=None
@@ -7182,6 +7698,7 @@ class BeetentApp(ctk.CTk):
             try: o.delete()
             except Exception: pass
         self.sprayer_path_overlays=[]
+        self._clear_planter_numbers()
         self._clear_pass_buffer_overlay()
         self._clear_shelters()
 
@@ -7198,6 +7715,7 @@ class BeetentApp(ctk.CTk):
         self._register_drag("pivot",lat,lon,"Pivot","red","darkred",self._on_pivot_drag,marker=self.pivot_marker)
         self._status(f"Pivot moved: {lat:.5f}, {lon:.5f}")
         self._redraw_boundary(); self._redraw_passes(); self._redraw_tracks()
+        if self.show_planter_numbers.get(): self._redraw_planter_pass_numbers()
 
     def _autofill_lld(self, lat, lon):
         """Compute the quarter-section LLD for (lat, lon) and write it to the
