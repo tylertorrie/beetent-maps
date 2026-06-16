@@ -729,6 +729,70 @@ def list_fields(co,yr):
                   if not p.stem.endswith("_map")) if d.exists() else []
 
 
+# ── Output library (the in-app "Files" view, git-synced like fields/) ───────────
+# Every Generate / Field-Summary-PDF run also archives a copy of what it produced
+# here, plus a metadata record in index.json. The Files view reads index.json as
+# its source of truth for the company / year / type / role filters.
+OUTPUT_DIR     = Path(__file__).parent / "output"
+OUTPUT_EXPORTS = OUTPUT_DIR / "exports"
+OUTPUT_PDFS    = OUTPUT_DIR / "pdfs"
+OUTPUT_INDEX   = OUTPUT_DIR / "index.json"
+
+# Export sub-folder name → short type label. Used both to derive which types an
+# export bundle contains and to flatten the list when filtering by a single type.
+OUTPUT_TYPE_FOLDERS = {
+    "Shelter Pins KML":                "KML",
+    "AgGPS":                           "AgGPS",
+    "GeoJSON Files":                   "GeoJSON",
+    "John Deere Shelter Buffer Zones": "JD",
+    "Boundary Files":                  "Boundary",
+}
+
+def load_output_index():
+    """Return the list of output records (tolerant of a missing/corrupt file)."""
+    try:
+        data = json.loads(OUTPUT_INDEX.read_text(encoding="utf-8"))
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+def save_output_index(records):
+    try:
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        tmp = OUTPUT_INDEX.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(records, indent=2), encoding="utf-8")
+        tmp.replace(OUTPUT_INDEX)
+    except Exception:
+        pass
+
+def add_output_record(rec):
+    """Append a record, replacing any existing one with the same id (relpath)."""
+    records = [r for r in load_output_index() if r.get("id") != rec.get("id")]
+    records.append(rec)
+    save_output_index(records)
+
+def _dir_size_bytes(path):
+    total = 0
+    try:
+        for root, _dirs, files in os.walk(path):
+            for fn in files:
+                try: total += os.path.getsize(os.path.join(root, fn))
+                except OSError: pass
+    except Exception:
+        pass
+    return total
+
+def _fmt_size(n):
+    """Human-readable byte size (e.g. '1.2 MB')."""
+    try: n = float(n)
+    except (TypeError, ValueError): return ""
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return ("%d %s" % (n, unit)) if unit == "B" else ("%.1f %s" % (n, unit))
+        n /= 1024
+    return ""
+
+
 # ── Export dialogs ────────────────────────────────────────────────────────────
 
 def _center_on_parent(dialog, parent):
@@ -1070,8 +1134,15 @@ class BeetentApp(ctk.CTk):
         self._pan_start_xy = None
         self._selected_bnd_vertex = None
 
+        # Left nav drawer + Files view (built lazily / on demand)
+        self.nav_drawer  = None
+        self.files_view  = None
+        self._files_cwd  = None     # None = top level; else (record_id, (sub,paths))
+        self._files_checks = {}      # path-str → BooleanVar for current listing
+
         self._build_toolbar()
         self._build_body()
+        self._build_nav_drawer()
         self._init_map()
         self._refresh_unit_labels()
         self._refresh_company_list()
@@ -1106,6 +1177,13 @@ class BeetentApp(ctk.CTk):
     def _build_toolbar(self):
         bar=ctk.CTkFrame(self,height=44,corner_radius=0)
         bar.pack(fill="x",side="top")
+        # Hamburger menu — opens the left nav drawer (Map / Files). Packed first
+        # so it sits at the far left and pushes the LLD search bar to the right.
+        ctk.CTkButton(bar, text="☰", width=42,
+                      font=ctk.CTkFont(family=FONT_LABEL, size=18),
+                      fg_color="transparent", hover_color="#ffffff22",
+                      command=self._toggle_nav_drawer
+                      ).pack(side="left", padx=(8,4), pady=6)
         try:
             from PIL import Image
             _logo = ASSETS_DIR / "logo.png"
@@ -1256,6 +1334,539 @@ class BeetentApp(ctk.CTk):
             except KeyError:
                 break
         self._close_all_popups()
+
+    # ── Left nav drawer + view swapping ─────────────────────────────────────────
+    def _build_nav_drawer(self):
+        """The slide-in left menu opened by the ☰ button. Built once, hidden."""
+        self.nav_drawer = ctk.CTkFrame(self, width=240, corner_radius=0,
+                                       fg_color=UI_CARD, border_width=1,
+                                       border_color=UI_BORDER)
+        hdr = ctk.CTkFrame(self.nav_drawer, fg_color="transparent")
+        hdr.pack(fill="x", padx=12, pady=(12, 6))
+        ctk.CTkLabel(hdr, text="Menu", text_color=UI_TEXT,
+                     font=ctk.CTkFont(family=FONT_HEADING, size=16)).pack(side="left")
+        ctk.CTkButton(hdr, text="✕", width=28, fg_color="transparent",
+                      hover_color=UI_HOVER, text_color=UI_TEXT,
+                      command=self._close_nav_drawer).pack(side="right")
+        ctk.CTkFrame(self.nav_drawer, height=1, fg_color=UI_BORDER).pack(
+            fill="x", padx=8, pady=(0, 6))
+        for text, cmd in [("🗺  Map View", self._open_map_view),
+                          ("📁  Files",    self._open_files_view)]:
+            ctk.CTkButton(self.nav_drawer, text=text, anchor="w", height=40,
+                          fg_color="transparent", hover_color=UI_HOVER,
+                          text_color=UI_TEXT,
+                          font=ctk.CTkFont(family=FONT_LABEL, size=14),
+                          command=cmd).pack(fill="x", padx=8, pady=2)
+        self.nav_drawer.place_forget()
+
+    def _toggle_nav_drawer(self):
+        if self.nav_drawer is None:
+            return
+        if self.nav_drawer.winfo_ismapped():
+            self._close_nav_drawer()
+        else:
+            self.nav_drawer.place(x=0, y=44, relheight=1.0)
+            self.nav_drawer.lift()
+
+    def _close_nav_drawer(self):
+        if self.nav_drawer is not None:
+            self.nav_drawer.place_forget()
+
+    def _open_map_view(self):
+        self._close_nav_drawer()
+        if self.files_view is not None and self.files_view.winfo_ismapped():
+            self.files_view.pack_forget()
+        if not self.body_frame.winfo_ismapped():
+            self.body_frame.pack(fill="both", expand=True)
+
+    def _open_files_view(self):
+        self._close_nav_drawer()
+        self.body_frame.pack_forget()
+        if self.files_view is None:
+            self._build_files_view()
+        self.files_view.pack(fill="both", expand=True)
+        self._files_cwd = None
+        self._files_refresh_filter_options()
+        self._files_refresh()
+
+    # ── Files view (in-app explorer over the synced output/ library) ────────────
+    def _files_filter_options(self):
+        """Company + year lists for the filter combos, drawn from the output
+        index (so the filters reflect what's actually in the library)."""
+        cos, yrs = set(), set()
+        for r in load_output_index():
+            cos.update(r.get("companies", []))
+            yrs.update(r.get("years", []))
+        yrs.add(str(datetime.date.today().year))
+        return sorted(cos), sorted(yrs, reverse=True)
+
+    def _files_refresh_filter_options(self):
+        cos, yrs = self._files_filter_options()
+        self._fv_co_cb.configure(values=[ALL_COMPANIES] + cos)
+        self._fv_yr_cb.configure(values=[ALL_YEARS] + yrs)
+        if self._fv_co.get() not in [ALL_COMPANIES] + cos:
+            self._fv_co.set(ALL_COMPANIES)
+        if self._fv_yr.get() not in [ALL_YEARS] + yrs:
+            self._fv_yr.set(str(datetime.date.today().year))
+
+    def _build_files_view(self):
+        self.files_view = ctk.CTkFrame(self, corner_radius=0)
+
+        # ── Header ──
+        hdr = ctk.CTkFrame(self.files_view, fg_color="transparent")
+        hdr.pack(fill="x", padx=12, pady=(10, 4))
+        ctk.CTkButton(hdr, text="←  Back to Map", width=130, fg_color="#3a3a3a",
+                      command=self._open_map_view).pack(side="left")
+        ctk.CTkLabel(hdr, text="Output Files", text_color=UI_TEXT,
+                     font=ctk.CTkFont(family=FONT_HEADING, size=18)).pack(
+            side="left", padx=14)
+
+        # ── Filter row ──
+        flt = ctk.CTkFrame(self.files_view, fg_color="transparent")
+        flt.pack(fill="x", padx=12, pady=(2, 4))
+        cos, yrs = self._files_filter_options()
+        ctk.CTkLabel(flt, text="Company:").pack(side="left")
+        self._fv_co = tk.StringVar(value=ALL_COMPANIES)
+        self._fv_co_cb = ctk.CTkComboBox(flt, variable=self._fv_co, width=150,
+                                         values=[ALL_COMPANIES] + cos,
+                                         command=lambda _: self._files_refresh())
+        self._fv_co_cb.pack(side="left", padx=(4, 12))
+        ctk.CTkLabel(flt, text="Year:").pack(side="left")
+        self._fv_yr = tk.StringVar(value=str(datetime.date.today().year))
+        self._fv_yr_cb = ctk.CTkComboBox(flt, variable=self._fv_yr, width=100,
+                                         values=[ALL_YEARS] + yrs,
+                                         command=lambda _: self._files_refresh())
+        self._fv_yr_cb.pack(side="left", padx=(4, 12))
+        ctk.CTkLabel(flt, text="Type:").pack(side="left")
+        self._fv_type = tk.StringVar(value="All")
+        self._fv_type_cb = ctk.CTkComboBox(
+            flt, variable=self._fv_type, width=150,
+            values=["All", "PDF", "Export Bundle", "KML", "AgGPS",
+                    "GeoJSON", "JD Buffer Zones", "Boundary"],
+            command=lambda _: self._files_on_type_change())
+        self._fv_type_cb.pack(side="left", padx=(4, 12))
+        # Role filter — only meaningful for PDFs, packed on demand.
+        self._fv_role_lbl = ctk.CTkLabel(flt, text="Role:")
+        self._fv_role = tk.StringVar(value="All")
+        self._fv_role_cb = ctk.CTkComboBox(
+            flt, variable=self._fv_role, width=160,
+            values=["All", "Agronomist", "Flag/Shelter Crew", "Bee Delivery"],
+            command=lambda _: self._files_refresh())
+        # Sort (right side)
+        self._fv_sort = tk.StringVar(value="Newest first")
+        self._fv_sort_cb = ctk.CTkComboBox(
+            flt, variable=self._fv_sort, width=130,
+            values=["Newest first", "Oldest first", "Name", "Size"],
+            command=lambda _: self._files_refresh())
+        self._fv_sort_cb.pack(side="right", padx=(0, 4))
+        ctk.CTkLabel(flt, text="Sort:").pack(side="right", padx=(0, 4))
+
+        # ── Breadcrumb ──
+        self._fv_crumb = ctk.CTkFrame(self.files_view, fg_color="transparent")
+        self._fv_crumb.pack(fill="x", padx=12, pady=(0, 2))
+
+        # ── Action row ──
+        act = ctk.CTkFrame(self.files_view, fg_color="transparent")
+        act.pack(fill="x", padx=12, pady=(2, 4))
+        ctk.CTkButton(act, text="Select All", width=90,
+                      command=self._files_select_all).pack(side="left", padx=(0, 6))
+        ctk.CTkButton(act, text="Deselect All", width=100,
+                      command=self._files_deselect_all).pack(side="left", padx=(0, 6))
+        ctk.CTkButton(act, text="⬇ Export Selected…", fg_color="#1a5c8a",
+                      command=self._files_export_selected).pack(side="left", padx=(8, 6))
+        ctk.CTkButton(act, text="🗑 Delete Selected", fg_color="#7a2a2a",
+                      command=self._files_delete_selected).pack(side="left", padx=(0, 6))
+        self._fv_count = ctk.CTkLabel(act, text="", text_color=UI_MUTED)
+        self._fv_count.pack(side="right")
+
+        # ── Scrollable list ──
+        self._fv_scroll = ctk.CTkScrollableFrame(self.files_view, fg_color="transparent")
+        self._fv_scroll.pack(fill="both", expand=True, padx=12, pady=(2, 10))
+
+    def _files_on_type_change(self):
+        if self._fv_type.get() == "PDF":
+            self._fv_role_lbl.pack(side="left")
+            self._fv_role_cb.pack(side="left", padx=(4, 12))
+        else:
+            self._fv_role_lbl.pack_forget()
+            self._fv_role_cb.pack_forget()
+        self._files_refresh()
+
+    # ── Files view: navigation state ──
+    def _files_record(self, rec_id):
+        for r in load_output_index():
+            if r.get("id") == rec_id:
+                return r
+        return None
+
+    def _files_go_top(self):
+        self._files_cwd = None
+        self._files_refresh()
+
+    def _files_set_cwd(self, rec_id, sub):
+        self._files_cwd = (rec_id, tuple(sub))
+        self._files_refresh()
+
+    # ── Files view: rendering ──
+    def _files_refresh(self):
+        if self.files_view is None:
+            return
+        for w in self._fv_scroll.winfo_children():
+            w.destroy()
+        self._files_checks = {}
+        self._fv_build_crumb()
+        if self._files_cwd is None:
+            self._files_render_top()
+        else:
+            self._files_render_bundle()
+        self._files_update_count()
+
+    def _fv_build_crumb(self):
+        for w in self._fv_crumb.winfo_children():
+            w.destroy()
+
+        def crumb(text, cmd, last):
+            ctk.CTkButton(self._fv_crumb, text=text, height=24, width=0,
+                          fg_color="transparent", hover_color=UI_HOVER,
+                          text_color=(UI_TEXT if last else "#1a5c8a"),
+                          command=cmd).pack(side="left")
+
+        def sep():
+            ctk.CTkLabel(self._fv_crumb, text=" ▸ ",
+                         text_color=UI_MUTED).pack(side="left")
+
+        crumb("All Files", self._files_go_top, last=(self._files_cwd is None))
+        if self._files_cwd is not None:
+            rec_id, sub = self._files_cwd
+            rec = self._files_record(rec_id)
+            name = (rec.get("name", rec_id) if rec else rec_id)
+            sep()
+            crumb(name, lambda: self._files_set_cwd(rec_id, ()), last=(len(sub) == 0))
+            acc = []
+            for part in sub:
+                acc.append(part)
+                sep()
+                p = tuple(acc)
+                crumb(part, lambda pp=p: self._files_set_cwd(rec_id, pp),
+                      last=(len(p) == len(sub)))
+
+    def _files_filtered_records(self):
+        co = self._fv_co.get(); yr = self._fv_yr.get()
+        typ = self._fv_type.get(); role = self._fv_role.get()
+        COMPONENT = {"KML": "KML", "AgGPS": "AgGPS", "GeoJSON": "GeoJSON",
+                     "JD Buffer Zones": "JD", "Boundary": "Boundary"}
+        role_map = {"Agronomist": "agronomist", "Flag/Shelter Crew": "flag",
+                    "Bee Delivery": "bee"}
+        out = []
+        for r in load_output_index():
+            if not (OUTPUT_DIR / r.get("relpath", "")).exists():
+                continue
+            if co != ALL_COMPANIES and co not in r.get("companies", []):
+                continue
+            if yr != ALL_YEARS and yr not in r.get("years", []):
+                continue
+            if typ == "PDF":
+                if r.get("kind") != "pdf":
+                    continue
+                if role != "All" and r.get("role") != role_map.get(role):
+                    continue
+            elif typ == "Export Bundle":
+                if r.get("kind") != "export":
+                    continue
+            elif typ in COMPONENT:
+                if r.get("kind") != "export" or COMPONENT[typ] not in r.get("types", []):
+                    continue
+            out.append(r)
+        return out
+
+    def _files_sort(self, records):
+        s = self._fv_sort.get()
+        if s == "Oldest first":
+            records.sort(key=lambda r: r.get("generated", ""))
+        elif s == "Name":
+            records.sort(key=lambda r: r.get("name", "").lower())
+        elif s == "Size":
+            records.sort(key=lambda r: r.get("size", 0), reverse=True)
+        else:   # Newest first (default)
+            records.sort(key=lambda r: r.get("generated", ""), reverse=True)
+        return records
+
+    def _files_render_top(self):
+        typ = self._fv_type.get()
+        records = self._files_sort(self._files_filtered_records())
+        if not records:
+            ctk.CTkLabel(self._fv_scroll,
+                         text="No files match the current filters.",
+                         text_color=UI_MUTED).pack(anchor="w", pady=20)
+            return
+
+        COMPONENT_FOLDER = {
+            "KML": "Shelter Pins KML", "AgGPS": "AgGPS", "GeoJSON": "GeoJSON Files",
+            "JD Buffer Zones": "John Deere Shelter Buffer Zones",
+            "Boundary": "Boundary Files"}
+        role_disp = {"agronomist": "Agronomist", "flag": "Flag/Shelter",
+                     "bee": "Bee Delivery"}
+
+        def meta_of(r, lead):
+            parts = [lead,
+                     "/".join(r.get("companies", [])) or "?",
+                     "/".join(r.get("years", [])) or "?",
+                     (r.get("generated", "") or "")[:10],
+                     _fmt_size(r.get("size", 0))]
+            return "  ·  ".join(p for p in parts if p)
+
+        if typ in COMPONENT_FOLDER:
+            folder = COMPONENT_FOLDER[typ]
+            for r in records:
+                base = OUTPUT_DIR / r.get("relpath", "") / folder
+                if not base.exists():
+                    continue
+                self._files_add_row(
+                    base, label="%s  —  %s" % (r.get("name", ""), typ),
+                    icon="🗂", meta=meta_of(r, typ),
+                    on_open=lambda rid=r.get("id"), f=folder: self._files_set_cwd(rid, (f,)))
+            return
+
+        for r in records:
+            path = OUTPUT_DIR / r.get("relpath", "")
+            if r.get("kind") == "pdf":
+                rl = role_disp.get(r.get("role"), "")
+                self._files_add_row(
+                    path, label=r.get("name", ""), icon="📄",
+                    meta=meta_of(r, "PDF" + (" (" + rl + ")" if rl else "")),
+                    on_open=lambda p=path: self._files_open(p))
+            else:
+                lead = "Export (" + (", ".join(r.get("types", [])) or "—") + ")"
+                self._files_add_row(
+                    path, label=r.get("name", ""), icon="📦",
+                    meta=meta_of(r, lead),
+                    on_open=lambda rid=r.get("id"): self._files_set_cwd(rid, ()))
+
+    def _files_render_bundle(self):
+        rec_id, sub = self._files_cwd
+        rec = self._files_record(rec_id)
+        if rec is None:
+            self._files_go_top(); return
+        cur = OUTPUT_DIR / rec.get("relpath", "")
+        for part in sub:
+            cur = cur / part
+        if not cur.exists():
+            ctk.CTkLabel(self._fv_scroll, text="(folder no longer exists)",
+                         text_color=UI_MUTED).pack(anchor="w", pady=20)
+            return
+        try:
+            entries = sorted(cur.iterdir(),
+                             key=lambda p: (p.is_file(), p.name.lower()))
+        except Exception:
+            entries = []
+        if not entries:
+            ctk.CTkLabel(self._fv_scroll, text="(empty folder)",
+                         text_color=UI_MUTED).pack(anchor="w", pady=20)
+            return
+        for p in entries:
+            if p.is_dir():
+                self._files_add_row(
+                    p, label=p.name, icon="📁", meta="folder",
+                    on_open=lambda pp=p, rid=rec_id: self._files_set_cwd(rid, sub + (pp.name,)))
+            else:
+                ext = p.suffix.lower()
+                icon = ("🌐" if ext == ".kml" else
+                        "📄" if ext == ".pdf" else
+                        "🗜" if ext == ".zip" else "📃")
+                try: size = _fmt_size(p.stat().st_size)
+                except OSError: size = ""
+                self._files_add_row(p, label=p.name, icon=icon, meta=size,
+                                    on_open=lambda pp=p: self._files_open(pp))
+
+    def _files_add_row(self, path, label, icon, meta, on_open):
+        row = ctk.CTkFrame(self._fv_scroll, fg_color=UI_HOVER, corner_radius=6)
+        row.pack(fill="x", pady=2, padx=2)
+        var = tk.BooleanVar(value=False)
+        self._files_checks[str(path)] = var
+        ctk.CTkCheckBox(row, variable=var, text="", width=28,
+                        command=self._files_update_count).pack(
+            side="left", padx=(8, 2), pady=6)
+        ctk.CTkLabel(row, text=icon, width=24).pack(side="left", padx=(0, 4))
+        ctk.CTkButton(row, text=label, anchor="w", fg_color="transparent",
+                      hover_color=UI_BORDER, text_color=UI_TEXT,
+                      command=on_open).pack(side="left", fill="x", expand=True)
+        if meta:
+            ctk.CTkLabel(row, text=meta, text_color=UI_MUTED,
+                         font=ctk.CTkFont(family=FONT_LABEL, size=11)).pack(
+                side="right", padx=10)
+
+    # ── Files view: actions ──
+    def _files_selected_paths(self):
+        return [Path(p) for p, v in self._files_checks.items() if v.get()]
+
+    def _files_select_all(self):
+        for v in self._files_checks.values(): v.set(True)
+        self._files_update_count()
+
+    def _files_deselect_all(self):
+        for v in self._files_checks.values(): v.set(False)
+        self._files_update_count()
+
+    def _files_update_count(self):
+        n = sum(1 for v in self._files_checks.values() if v.get())
+        self._fv_count.configure(text="%d selected" % n)
+
+    def _files_open(self, path):
+        """Open with the OS default app — a .kml lands in Google Earth."""
+        try:
+            os.startfile(str(path))
+        except Exception as ex:
+            tkinter.messagebox.showerror("Open failed", str(ex))
+
+    def _files_choose_destination(self):
+        """Pick where Export Selected copies to: a plugged-in USB or a folder."""
+        drives = self._removable_drives()
+        win = ctk.CTkToplevel(self); win.title("Export to…"); win.grab_set()
+        ctk.CTkLabel(win, text="Where should the selected files go?",
+                     font=ctk.CTkFont(family=FONT_HEADING, size=14)).pack(
+            padx=24, pady=(16, 8))
+        chosen = {"path": None}
+        for root, label in drives:
+            disp = "USB  " + root + (("  (" + label + ")") if label else "")
+            def _pick(r=root):
+                chosen["path"] = r; win.destroy()
+            ctk.CTkButton(win, text=disp, height=34, command=_pick).pack(
+                fill="x", padx=24, pady=3)
+        def _browse():
+            win.grab_release()
+            d = tkinter.filedialog.askdirectory(
+                title="Export selected files to folder")
+            if d:
+                chosen["path"] = d
+            win.destroy()
+        ctk.CTkButton(win, text="Choose folder…", height=34,
+                      command=_browse).pack(fill="x", padx=24, pady=3)
+        ctk.CTkButton(win, text="Cancel", height=32, fg_color="#555",
+                      command=win.destroy).pack(fill="x", padx=24, pady=(8, 16))
+        _center_on_parent(win, self)
+        self.wait_window(win)
+        return chosen["path"]
+
+    def _files_export_selected(self):
+        paths = self._files_selected_paths()
+        if not paths:
+            tkinter.messagebox.showinfo("Export", "No files selected."); return
+        dest = self._files_choose_destination()
+        if not dest:
+            return
+        try:
+            n = 0
+            for src in paths:
+                if not src.exists():
+                    continue
+                d = os.path.join(dest, src.name)
+                if src.is_dir():
+                    shutil.copytree(src, d, dirs_exist_ok=True)
+                else:
+                    shutil.copy2(src, d)
+                n += 1
+            tkinter.messagebox.showinfo(
+                "Export complete", "Copied %d item(s) to:\n%s" % (n, dest))
+            self._status("Exported %d file(s) to %s" % (n, dest))
+        except Exception as ex:
+            tkinter.messagebox.showerror("Export failed", str(ex))
+
+    def _files_delete_selected(self):
+        paths = self._files_selected_paths()
+        if not paths:
+            tkinter.messagebox.showinfo("Delete", "No files selected."); return
+        if not tkinter.messagebox.askyesno(
+                "Delete",
+                "Permanently delete %d selected item(s) from the output "
+                "library?\n\nThis removes them from the app on every synced "
+                "device." % len(paths)):
+            return
+        records = load_output_index()
+        changed = False
+        for p in paths:
+            try:
+                rel = os.path.relpath(str(p), str(OUTPUT_DIR)).replace("\\", "/")
+                before = len(records)
+                records = [r for r in records if r.get("relpath") != rel]
+                if len(records) != before:
+                    changed = True
+                if p.is_dir():
+                    shutil.rmtree(p, ignore_errors=True)
+                elif p.exists():
+                    p.unlink()
+            except Exception:
+                pass
+        if changed:
+            save_output_index(records)
+        self._git_push("output: delete %d item(s)" % len(paths))
+        # If we just emptied the folder we were inside, step back to the top.
+        if self._files_cwd is not None:
+            rec = self._files_record(self._files_cwd[0])
+            if rec is None or not (OUTPUT_DIR / rec.get("relpath", "")).exists():
+                self._files_cwd = None
+        self._files_refresh_filter_options()
+        self._files_refresh()
+
+    # ── Output-library archiving (called by Generate / PDF export) ──────────────
+    def _archive_export_to_library(self, out_dir, base_name, selected_fields, opts):
+        """Copy a just-generated export bundle into output/exports/ and index it."""
+        try:
+            dest = OUTPUT_EXPORTS / base_name
+            if dest.exists():
+                shutil.rmtree(dest, ignore_errors=True)
+            shutil.copytree(out_dir, dest)
+            types = [label for folder, label in OUTPUT_TYPE_FOLDERS.items()
+                     if (dest / folder).exists()]
+            rec = {
+                "id":        "exports/%s" % base_name,
+                "kind":      "export",
+                "name":      base_name,
+                "relpath":   "exports/%s" % base_name,
+                "is_dir":    True,
+                "companies": sorted({c for c, y, n in selected_fields}),
+                "years":     sorted({y for c, y, n in selected_fields}),
+                "fields":    [n for c, y, n in selected_fields],
+                "types":     types,
+                "role":      None,
+                "generated": datetime.datetime.now().isoformat(timespec="seconds"),
+                "size":      _dir_size_bytes(dest),
+            }
+            add_output_record(rec)
+            self.after(0, lambda: self._git_push("output: %s" % base_name))
+        except Exception:
+            pass
+
+    def _archive_pdf_to_library(self, save_path, co, yr, name, role):
+        """Copy a just-generated summary PDF into output/pdfs/ and index it."""
+        try:
+            src = Path(save_path)
+            if not src.exists():
+                return
+            OUTPUT_PDFS.mkdir(parents=True, exist_ok=True)
+            dest = OUTPUT_PDFS / src.name
+            if dest.exists():
+                k = 2
+                while (OUTPUT_PDFS / ("%s %d%s" % (src.stem, k, src.suffix))).exists():
+                    k += 1
+                dest = OUTPUT_PDFS / ("%s %d%s" % (src.stem, k, src.suffix))
+            shutil.copy2(src, dest)
+            rec = {
+                "id":        "pdfs/%s" % dest.name,
+                "kind":      "pdf",
+                "name":      dest.name,
+                "relpath":   "pdfs/%s" % dest.name,
+                "is_dir":    False,
+                "companies": [co],
+                "years":     [yr],
+                "fields":    [name],
+                "types":     ["PDF"],
+                "role":      role,
+                "generated": datetime.datetime.now().isoformat(timespec="seconds"),
+                "size":      dest.stat().st_size,
+            }
+            add_output_record(rec)
+        except Exception:
+            pass
 
     def _set_menu_checkboxes_visible(self, visible):
         """Show or hide the master-toggle checkboxes on every toolbar menu button."""
@@ -1451,6 +2062,7 @@ class BeetentApp(ctk.CTk):
     def _build_body(self):
         body=ctk.CTkFrame(self,corner_radius=0)
         body.pack(fill="both",expand=True)
+        self.body_frame = body          # kept so the Files view can swap it out
         body.columnconfigure(0,weight=3); body.columnconfigure(1,weight=0); body.rowconfigure(0,weight=1)
 
         # Map frame
@@ -6978,14 +7590,14 @@ class BeetentApp(ctk.CTk):
                 "Please close and reopen the app to apply the update.")
 
     def _git_push(self,message="auto-sync"):
-        """Commit fields/ changes and push to GitHub (background thread)."""
+        """Commit fields/ and output/ changes and push to GitHub (background thread)."""
         import subprocess
         repo=Path(__file__).parent
         def run():
             try:
                 self.after(0,lambda:self._status("☁ Syncing…"))
-                subprocess.run(["git","add","fields/"],cwd=repo,
-                               capture_output=True,timeout=10)
+                subprocess.run(["git","add","fields/","output/"],cwd=repo,
+                               capture_output=True,timeout=20)
                 has_changes=subprocess.run(
                     ["git","diff","--cached","--quiet"],
                     cwd=repo,capture_output=True).returncode!=0
@@ -7295,6 +7907,12 @@ class BeetentApp(ctk.CTk):
                     import traceback as _tb
                     self.after(0,lambda m=_tb.format_exc():self._log("  (zip skipped: %s)"%m.splitlines()[-1]))
 
+                # Archive a browsable copy into the synced output/ library (for
+                # the in-app Files view) before _finish_export removes out_dir.
+                if ok:
+                    self._archive_export_to_library(out_dir, base_name,
+                                                    selected_fields, opts)
+
                 # Finish on the main thread: Done dialog, offer USB copy, clean
                 # up the folder, then OPEN THE EXPORT FILE ITSELF (not Downloads).
                 self.after(0, lambda od=out_dir, zp=(zip_path if zipped else None), k=ok:
@@ -7597,6 +8215,8 @@ class BeetentApp(ctk.CTk):
             if self._pdf_done:
                 try: os.startfile(str(Path(self._pdf_done[-1]).parent))
                 except Exception: pass
+                # Sync the newly-archived PDFs to the output library.
+                self._git_push("output: %d PDF(s)" % n)
             return
 
         co, yr, name = self._pdf_queue[0]
@@ -7613,6 +8233,9 @@ class BeetentApp(ctk.CTk):
                     self._build_field_pdf(cached_img, self._pdf_label_mode, save_path,
                                           role=getattr(self, "_pdf_role", "agronomist"))
                     self._pdf_done.append(save_path)
+                    self._archive_pdf_to_library(
+                        save_path, co, yr, name,
+                        getattr(self, "_pdf_role", "agronomist"))
                 except Exception:
                     import traceback as _tb
                     _s = _tb.format_exc()
@@ -7736,6 +8359,9 @@ class BeetentApp(ctk.CTk):
                 self._build_field_pdf(map_img, self._pdf_label_mode, save_path,
                                       role=getattr(self, "_pdf_role", "agronomist"))
                 self._pdf_done.append(save_path)
+                self._archive_pdf_to_library(
+                    save_path, co, yr, name,
+                    getattr(self, "_pdf_role", "agronomist"))
                 # Save for future runs (next generation of this field is instant)
                 self._pdf_save_cache(map_img, co, yr, name)
             except Exception:

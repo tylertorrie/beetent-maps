@@ -37,5 +37,14 @@ Thumbs.db
 *.ods
 *.xlsx
 
+# PDF map image cache (device-local, not synced — regenerated on first PDF export)
+fields/**/*_map.jpg
+fields/**/*_map.json
+
+# Output library for the in-app Files view — DO track it (synced across devices,
+# like fields/). Holds generated export bundles + summary PDFs + index.json.
+# (The broad *.csv/*.db/*.xlsx ignores above don't match its shp/kml/zip/geojson/pdf.)
+!output/
+
 # Compiled/installed dependencies that ship with the source
 # (shapefile.py, simplekml, utm, fpdf are vendored — DO track them)
