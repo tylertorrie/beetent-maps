@@ -1096,6 +1096,30 @@ def mask_runs(mask, char):
     return runs
 
 
+MALE_BAY_OFFSET_FT = 5.0   # shelter row sits this far WEST of each male bay's west edge
+
+
+def male_bay_shelter_laterals(nf, nm, layout, custom, total_rows, rs_m, offset_m, radius):
+    """Sorted lateral (pre-rotation, +x = east) positions of shelter rows — ONE per
+    male bay — each placed offset_m WEST of its male bay's west edge so the shelter's
+    east-facing opening points into the male bay. Passes tile at pass_w = total_rows*rs_m
+    with the pivot on a pass boundary, matching the bay overlay (_redraw_bays). Returns
+    [] if the row mask has no male runs (caller then falls back to the old grid)."""
+    mask = resolve_row_mask(nf, nm, layout, custom, total_rows)
+    runs = mask_runs(mask, 'M') if mask else []
+    if not runs or total_rows <= 0 or rs_m <= 0:
+        return []
+    pass_w = total_rows * rs_m
+    half = total_rows / 2.0
+    n_pass = int(radius / pass_w) + 2
+    xs = []
+    for i in range(-n_pass, n_pass + 1):
+        xc = (i + 0.5) * pass_w                 # pass centre (pivot sits on a boundary)
+        for (s, e) in runs:
+            xs.append(xc + (s - half) * rs_m - offset_m)   # male-bay west edge − offset
+    return sorted(set(round(x, 4) for x in xs))
+
+
 def _offset_polyline_latlon(pts, signed_offset_m):
     """Return a polyline offset perpendicular to `pts` by `signed_offset_m`.
     Positive offset = "right" side relative to travel direction
@@ -1282,14 +1306,17 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
 
         seed_angle = float(field_dict.get('Planting_angle') or field_dict.get('Spray_angle') or field_dict.get('Seed_angle') or 0)
 
-        # Bay parameters → tent_row_width and lat_offset.
-        # tent_row_width = female_m + male_m is the bay repeat distance.
-        # lat_offset places the shelter a FIXED 4 ft (1.2192 m) into the female
-        # bay from the male/female boundary — independent of bay size, so the
-        # "just east of the male bay" rule holds for any female/male count.
+        # Bay parameters → shelter row laterals.
+        # Shelter rows are placed ONE PER MALE BAY, each MALE_BAY_OFFSET_FT (5 ft)
+        # WEST of its male bay's west edge so the east-facing opening points into
+        # the male bay. The male bays come from the SAME planter-pass + row-mask
+        # tiling the bay overlay uses (male_bay_shelter_laterals), so shelters and
+        # bays stay locked together. bay_laterals holds those positions; when set,
+        # the placement loops below iterate it instead of r*tent_row_width+lat_offset.
         nf_raw = str(field_dict.get('num_female_rows') or '').strip()
         nm_raw = str(field_dict.get('num_male_rows') or '').strip()
         rs_in_raw = str(field_dict.get('row_spacing_in') or '').strip()
+        bay_laterals = None
         # Blanket-planted crops (use_bays=False): there's no female-bay
         # structure to snap to, so we use a uniform grid at sprayer_width
         # intervals with no lateral offset. Defaults True so existing fields
@@ -1304,15 +1331,24 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
             lat_offset = 0.0
         elif nf_raw and nm_raw and rs_in_raw:
             nf_i = int(nf_raw); nm_i = int(nm_raw); rs_m = float(rs_in_raw) * 0.0254
-            # Optional extra gap (inches) at each male/female bay edge — two per
-            # repeat unit — widening the bay period without moving the shelter's
-            # offset within the female bay.
-            try: gap_m = max(0.0, float(field_dict.get('bay_gap_in') or 0)) * 0.0254
-            except (ValueError, TypeError): gap_m = 0.0
-            female_m = (nf_i + 1) * rs_m
-            male_m_w = (nm_i + 1) * rs_m
-            tent_row_width = female_m + male_m_w + 2.0 * gap_m
-            lat_offset = 1.2192   # 4 ft east of the male/female boundary (sprayer edge)
+            total_rows_i = int(str(field_dict.get('total_rows') or (nf_i + nm_i)) or (nf_i + nm_i))
+            layout = str(field_dict.get('row_layout') or 'centered')
+            custom = str(field_dict.get('custom_row_mask') or '')
+            offset_m = MALE_BAY_OFFSET_FT * 0.3048
+            bay_laterals = male_bay_shelter_laterals(
+                nf_i, nm_i, layout, custom, total_rows_i, rs_m, offset_m, radius)
+            runs = mask_runs(resolve_row_mask(nf_i, nm_i, layout, custom, total_rows_i) or '', 'M')
+            if bay_laterals and runs:
+                pass_w = total_rows_i * rs_m
+                tent_row_width = pass_w / len(runs)   # true mean male-bay spacing
+                lat_offset = 0.0                      # offset baked into bay_laterals
+            else:
+                # Fallback: odd/empty mask → old female+male period.
+                bay_laterals = None
+                try: gap_m = max(0.0, float(field_dict.get('bay_gap_in') or 0)) * 0.0254
+                except (ValueError, TypeError): gap_m = 0.0
+                tent_row_width = (nf_i + 1) * rs_m + (nm_i + 1) * rs_m + 2.0 * gap_m
+                lat_offset = 1.2192
         elif boundary_enu is not None:
             tent_row_width = sprayer_width
             lat_offset = 0.0
@@ -2080,24 +2116,27 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                             return True
                 return False
 
-            # Lateral row positions: ONE ROW PER SPRAYER PASS — never skipped, so
-            # there are no empty bands in the field. Each row is snapped to the
-            # nearest female-bay spot (k*tent_row_width + 4ft) so the shelter sits
-            # 4 ft into the female bay, just east of the male bay. The snap shifts
-            # a row by at most half a bay (~20 ft for typical bays; up to ~30 ft
-            # for big bays) off the pass line — acceptable, and it's exact when
-            # sprayer_width == tent_row_width (the Bay Calculator's default).
-            row_list = []   # (pre_e, bay_index k) — k also drives the stagger
-            _seen_rows = set()
-            for r in range(-r_max, r_max + 1):
-                edge = r * sprayer_width
-                k = round((edge - lat_offset) / tent_row_width)
-                pre_e = k * tent_row_width + lat_offset
-                key = round(pre_e, 3)
-                if key in _seen_rows:   # only skip a true duplicate column
-                    continue            # (happens when one bay spans >1 pass)
-                _seen_rows.add(key)
-                row_list.append((pre_e, k))
+            # Lateral row positions: ONE ROW PER MALE BAY, 5 ft west of each male
+            # bay's west edge (bay_laterals, from the same planter-pass + row-mask
+            # tiling as the bay overlay), so shelters lock onto the male bays and
+            # the pattern repeats identically every pass. The enumerated index also
+            # drives the stagger. (Fallback for non-bay fields: the old per-pass
+            # snap to k*tent_row_width + lat_offset.)
+            row_list = []   # (pre_e, row_index) — row_index also drives the stagger
+            if bay_laterals:
+                for ki, pre_e in enumerate(x for x in bay_laterals if abs(x) <= radius):
+                    row_list.append((pre_e, ki))
+            else:
+                _seen_rows = set()
+                for r in range(-r_max, r_max + 1):
+                    edge = r * sprayer_width
+                    k = round((edge - lat_offset) / tent_row_width)
+                    pre_e = k * tent_row_width + lat_offset
+                    key = round(pre_e, 3)
+                    if key in _seen_rows:   # only skip a true duplicate column
+                        continue            # (happens when one bay spans >1 pass)
+                    _seen_rows.add(key)
+                    row_list.append((pre_e, k))
 
             # Optional user override (the "Grid rows" −/+ stepper). When set, use
             # FEWER lateral columns so the spacing search packs more shelters per
@@ -2353,15 +2392,22 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
         if spacing <= 0:
             return []
 
-        rows = range(-int(radius / eff_row_width), int(radius / eff_row_width) + 1)
+        # Lateral row positions: one per male bay (5 ft west of each male bay's
+        # west edge) when bay params are present, else the uniform r·eff_row_width
+        # grid. (pre_e, parity) — parity alternates per row for the stagger.
+        if bay_laterals:
+            row_pre = [(x, ri % 2) for ri, x in
+                       enumerate(v for v in bay_laterals if abs(v) <= radius)]
+        else:
+            row_pre = [(r * eff_row_width + lat_offset, r % 2)
+                       for r in range(-int(radius / eff_row_width),
+                                      int(radius / eff_row_width) + 1)]
         ldx, ldy = cos_r, sin_r      # lateral direction (between rows)
         tdx, tdy = -sin_r, cos_r    # travel direction (along a row)
 
         raw = []
-        for r in rows:
-            odd = r % 2
+        for r, (pre_e, odd) in enumerate(row_pre):
             for c in range(-int(radius / spacing) - 1, int(radius / spacing) + 1):
-                pre_e = r * eff_row_width + lat_offset
                 pre_n = (c * spacing + spacing / 2 + directional_offset) if (odd and use_stagger) \
                         else (c * spacing + directional_offset)
                 east  = pre_e * cos_r - pre_n * sin_r
