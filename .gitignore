@@ -30,8 +30,10 @@ Thumbs.db
 .claude/todos/
 .claude/settings.local.json
 
-# Tile cache (local SQLite, can be large)
+# Tile cache (local SQLite, can be large) — device-local, never synced
 *.db
+*.db-wal
+*.db-shm
 
 # Sensitive / large data files
 *.csv

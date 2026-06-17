@@ -100,6 +100,161 @@ import ctypes  # noqa: E402  (Windows font loading)
 _load_bundled_fonts()
 
 SATELLITE_URL = "https://mt0.google.com/vt/lyrs=s&hl=en&x={x}&y={y}&z={z}&s=Ga"
+
+
+import sqlite3, io   # tile cache + response wrapper
+
+# Persistent satellite-tile cache. Device-local (matches the *.db gitignore),
+# never synced — so each laptop/desktop builds its own. Keyed exactly like
+# tkintermapview's own offline DB (tiles: zoom,x,y,server,tile_image) using the
+# canonical SATELLITE_URL as the server key (the mt0–mt3 host we actually hit
+# doesn't affect the key, so a tile cached via mt2 is reused regardless).
+TILE_CACHE_DB   = Path(__file__).parent / "tile_cache.db"
+_tile_cache_conn = None
+_tile_cache_lock = threading.Lock()
+_TILE_SERVER_KEY = SATELLITE_URL
+
+
+def _tile_cache_init():
+    """Open (creating if needed) the on-disk tile cache. One shared connection
+    guarded by a lock — the 25 loader threads each hit it via the shim, so it
+    must be thread-safe; WAL + check_same_thread=False keep it fast and safe."""
+    global _tile_cache_conn
+    try:
+        conn = sqlite3.connect(str(TILE_CACHE_DB), check_same_thread=False)
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA synchronous=NORMAL;")
+        conn.execute("""CREATE TABLE IF NOT EXISTS tiles (
+                            zoom INTEGER NOT NULL, x INTEGER NOT NULL,
+                            y INTEGER NOT NULL, server VARCHAR(300) NOT NULL,
+                            tile_image BLOB NOT NULL,
+                            CONSTRAINT pk_tiles PRIMARY KEY (zoom, x, y, server));""")
+        conn.commit()
+        _tile_cache_conn = conn
+    except Exception:
+        _tile_cache_conn = None
+
+
+def _tile_cache_get(z, x, y):
+    if _tile_cache_conn is None: return None
+    try:
+        with _tile_cache_lock:
+            row = _tile_cache_conn.execute(
+                "SELECT tile_image FROM tiles WHERE zoom=? AND x=? AND y=? AND server=?",
+                (z, x, y, _TILE_SERVER_KEY)).fetchone()
+        return row[0] if row else None
+    except Exception:
+        return None
+
+
+def _tile_cache_put(z, x, y, blob):
+    if _tile_cache_conn is None: return
+    try:
+        with _tile_cache_lock:
+            _tile_cache_conn.execute(
+                "INSERT OR IGNORE INTO tiles (zoom, x, y, server, tile_image) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (z, x, y, _TILE_SERVER_KEY, sqlite3.Binary(blob)))
+            _tile_cache_conn.commit()
+    except Exception:
+        pass
+
+
+def _tile_cache_clear():
+    """Wipe every cached tile so the next draw re-fetches live imagery."""
+    if _tile_cache_conn is None: return False
+    try:
+        with _tile_cache_lock:
+            _tile_cache_conn.execute("DELETE FROM tiles;")
+            _tile_cache_conn.commit()
+        return True
+    except Exception:
+        return False
+
+
+class _RawTileResp:
+    """Minimal stand-in for a requests.Response exposing the one attribute
+    tkintermapview uses on a tile fetch — `.raw` — backed by a BytesIO of the
+    tile bytes (from cache or network). Lets a cache hit skip the network
+    entirely while the library's `Image.open(resp.raw)` keeps working."""
+    __slots__ = ("raw", "content", "status_code", "url")
+    def __init__(self, content, status=200, url=""):
+        self.raw = io.BytesIO(content)
+        self.content = content
+        self.status_code = status
+        self.url = url
+
+
+def _install_fast_tiles():
+    """Speed up satellite tile loading without touching the (pip-installed)
+    tkintermapview library on disk.
+
+    tkintermapview fetches every tile with a bare `requests.get`, opening a
+    fresh TCP/TLS connection each time, and only ever hits the single `mt0`
+    Google host — so connections never get reused and one host gets hammered
+    by all 25 loader threads. We replace the `requests` reference its module
+    uses with a tiny shim that:
+      • serves tiles from a persistent on-disk cache (instant, no network) on
+        a hit, and writes freshly-fetched tiles back to it on a miss,
+      • reuses keep-alive connections via one pooled `requests.Session`
+        (no repeated TLS handshakes), and
+      • round-robins across Google's mt0–mt3 hosts so the load spreads and
+        no single host throttles us.
+    `.exceptions` is preserved so the library's `except requests.exceptions.*`
+    clauses still work."""
+    try:
+        import requests as _rq, random, re as _re
+        from requests.adapters import HTTPAdapter
+        try:
+            from urllib3.util.retry import Retry
+            retry = Retry(total=2, backoff_factor=0.2,
+                          status_forcelist=(500, 502, 503, 504))
+        except Exception:
+            retry = 0
+        sess = _rq.Session()
+        adapter = HTTPAdapter(pool_connections=12, pool_maxsize=32,
+                              max_retries=retry)
+        sess.mount("https://", adapter)
+        sess.mount("http://", adapter)
+
+        _rx_x = _re.compile(r"[?&]x=(\d+)")
+        _rx_y = _re.compile(r"[?&]y=(\d+)")
+        _rx_z = _re.compile(r"[?&]z=(\d+)")
+
+        def _xyz(url):
+            mx, my, mz = _rx_x.search(url), _rx_y.search(url), _rx_z.search(url)
+            if mx and my and mz:
+                return int(mz.group(1)), int(mx.group(1)), int(my.group(1))
+            return None
+
+        _tile_cache_init()
+
+        class _PooledRequests:
+            exceptions = _rq.exceptions
+
+            def get(self, url, **kw):
+                zxy = _xyz(url)
+                if zxy is not None:
+                    blob = _tile_cache_get(*zxy)
+                    if blob is not None:
+                        return _RawTileResp(blob)        # cache hit — no network
+                if "://mt0.google.com" in url:
+                    url = url.replace("://mt0.google.com",
+                                      f"://mt{random.randint(0, 3)}.google.com")
+                kw.setdefault("timeout", 8)
+                resp = sess.get(url, **kw)
+                content = resp.content                   # fully read the body
+                if zxy is not None and resp.status_code == 200 and content:
+                    _tile_cache_put(zxy[0], zxy[1], zxy[2], content)
+                return _RawTileResp(content, resp.status_code, resp.url)
+
+        import tkintermapview.map_widget as _mw
+        _mw.requests = _PooledRequests()
+    except Exception:
+        pass
+
+
+_install_fast_tiles()
 DATA_DIR      = Path(__file__).parent / "fields"
 ASSETS_DIR    = Path(__file__).parent / "assets"   # bundled logo (synced via git)
 DEFAULT_LAT, DEFAULT_LON, DEFAULT_ZOOM = 49.86, -111.96, 10
@@ -3300,8 +3455,10 @@ class BeetentApp(ctk.CTk):
         self._track_excl_refresh_id = self.after(600, _refresh)
 
     def _init_map(self):
-        # No on-disk tile cache: tiles live only in memory for the session, so
-        # every launch pulls the latest imagery straight from Google.
+        # Tiles are served by the _install_fast_tiles() shim: pooled/host-rotated
+        # network fetch backed by a persistent on-disk cache (TILE_CACHE_DB), so
+        # previously-viewed areas load instantly across launches. The ⟳ Refresh
+        # button clears that cache to pull the latest Google imagery on demand.
         self.map_widget=tkintermapview.TkinterMapView(self.map_frame,corner_radius=6)
         self.map_widget.pack(fill="both",expand=True,padx=6,pady=(4,6))
         self.map_widget.set_tile_server(SATELLITE_URL,max_zoom=21)
@@ -3331,6 +3488,14 @@ class BeetentApp(ctk.CTk):
             font=ctk.CTkFont(size=20, weight="bold"),
             fg_color="#2b2b2b", hover_color="#1f6feb",
             command=lambda: self._zoom_button(-1))
+        # Refresh imagery: clear the on-disk + in-memory tile cache and re-fetch
+        # the latest satellite tiles for the current view.
+        self.refresh_img_btn = ctk.CTkButton(
+            self.map_widget, text="⟳", width=34, height=34,
+            font=ctk.CTkFont(size=18, weight="bold"),
+            fg_color="#2b2b2b", hover_color="#1f6feb",
+            command=self._refresh_imagery)
+        self.refresh_img_btn.place(relx=1.0, rely=1.0, x=-14, y=-100, anchor="se")
         self.zoom_in_btn.place(relx=1.0, rely=1.0, x=-14, y=-58, anchor="se")
         self.zoom_out_btn.place(relx=1.0, rely=1.0, x=-14, y=-16, anchor="se")
 
@@ -8641,6 +8806,19 @@ class BeetentApp(ctk.CTk):
                         relative_pointer_x=0.5, relative_pointer_y=0.5)
         except Exception:
             pass
+
+    def _refresh_imagery(self):
+        """Drop both tile caches (on-disk + the widget's in-memory cache) and
+        re-request the visible tiles so the freshest Google imagery is pulled.
+        Use after Google updates a field's photo, or if a tile loaded wrong."""
+        _tile_cache_clear()
+        mw = self.map_widget
+        try: mw.tile_image_cache.clear()
+        except Exception: pass
+        try: mw.draw_initial_array()   # re-queue every visible tile → re-fetch
+        except Exception: pass
+        try: self._status("Map imagery refreshed — re-fetching latest tiles.")
+        except Exception: pass
 
     def _drag_press(self,event):
         self._pan_start_xy=(event.x,event.y)
