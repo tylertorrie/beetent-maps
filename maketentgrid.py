@@ -1211,49 +1211,69 @@ def _offset_polyline_latlon(pts, signed_offset_m):
     return out
 
 
+def _pass_east_sign(p):
+    """Return +1 if a positive `_offset_polyline_latlon` offset moves this
+    pass GEOGRAPHICALLY EAST (mean longitude increases), else -1.
+
+    `_offset_polyline_latlon` offsets relative to *travel direction*, so for
+    boustrophedon (alternating up/down) planter passes a fixed positive
+    offset lands on opposite geographic sides pass-to-pass. We probe each
+    pass once with a unit offset and compare longitudes so callers can place
+    features on a consistent geographic side (e.g. always WEST of a bay)."""
+    try:
+        base_lon = sum(pt[1] for pt in p) / len(p)
+        probe = _offset_polyline_latlon(p, 1.0)
+        probe_lon = sum(pt[1] for pt in probe) / len(probe)
+        return 1.0 if probe_lon >= base_lon else -1.0
+    except Exception:
+        return 1.0
+
+
 def _shelter_row_centerlines(passes, layout, mask, row_spacing_m=None,
                               total_rows=None):
-    """One polyline per female bay per pass.
+    """One polyline per MALE bay per pass, placed MALE_BAY_OFFSET_FT (5 ft)
+    GEOGRAPHICALLY WEST of that male bay's west edge — the same non-negotiable
+    rule the synthetic grid uses (`male_bay_shelter_laterals`), so imported
+    and synthetic fields are consistent. The shelter opening faces east into
+    the male bay.
 
-    Scans the resolved mask for every contiguous F block and offsets each
-    pass polyline by that block's lateral distance from the pass centre.
-    Handles arbitrary masks (including repeating units with multiple
-    internal M strips, e.g. 2M+8F × 2 = 'FFFFMMFFFFFFFFMMFFFF'); the old
-    "outer vs centered" heuristic only worked for single-strip masks and
-    silently missed internal bays from repeats.
-
-    Joining bays (where the right F block of pass N butts against the
-    left F block of pass N+1) end up with one centerline contributed by
-    EACH pass — visually two close shelter rows in the same bay. That's
-    a strict improvement over missing them entirely; can be merged later
-    if we want exactly-centered placement in joins.
+    Scans the resolved mask for every contiguous M block. For each pass we
+    resolve its travel direction (`_pass_east_sign`) so the 5-ft-west offset
+    lands on the true geographic west side regardless of which way the planter
+    drove that pass — without this, alternating boustrophedon passes would put
+    half the shelters on the wrong (east) side of their bay.
     """
     if not passes: return []
     # Need mask + geometry to compute per-bay offsets. Without them, fall
-    # back to legacy behaviour (one centerline per pass — equivalent to
-    # the old "outer" mode).
+    # back to legacy behaviour (one centerline per pass).
     if not mask or row_spacing_m is None or not total_rows:
         return [list(p) for p in passes]
 
-    f_blocks = mask_runs(mask, 'F')
-    if not f_blocks:
-        return []   # no female rows = no shelters
+    m_blocks = mask_runs(mask, 'M')
+    if not m_blocks:
+        return []   # no male bays = nowhere to anchor shelter rows
 
-    # Lateral offset of each F block's centre from the planter centre line.
-    # Block (s, e) covers rows s..e-1; its centre row index is (s + e - 1)/2.
-    # Planter centre row index is (total_rows - 1)/2.
-    centre = (total_rows - 1) / 2.0
-    block_offsets_m = [((s + e - 1) / 2.0 - centre) * row_spacing_m
-                       for s, e in f_blocks]
+    offset_m = MALE_BAY_OFFSET_FT * 0.3048
+    half = total_rows / 2.0
+    # Each M run (s, e) covers rows s..e-1. Its two edges sit at lateral
+    # offsets (s - half)*rs and (e - half)*rs from the pass centre, in the
+    # `_offset_polyline_latlon` convention (positive = right of travel).
+    edge_pairs = [((s - half) * row_spacing_m, (e - half) * row_spacing_m)
+                  for s, e in m_blocks]
 
     centerlines = []
     for p in passes:
         if len(p) < 2: continue
-        for off_m in block_offsets_m:
-            if off_m == 0:
+        es = _pass_east_sign(p)   # +1 if +offset → east for this pass
+        for a, b in edge_pairs:
+            # Geographic-east position of each male-bay edge for THIS pass.
+            west_edge_geo = min(a * es, b * es)        # smaller east = west
+            shelter_geo_east = west_edge_geo - offset_m
+            off_func = shelter_geo_east * es           # back to offset convention
+            if off_func == 0:
                 centerlines.append([tuple(pt) for pt in p])
             else:
-                centerlines.append(_offset_polyline_latlon(p, off_m))
+                centerlines.append(_offset_polyline_latlon(p, off_func))
     return centerlines
 
 
