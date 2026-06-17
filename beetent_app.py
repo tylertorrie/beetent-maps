@@ -839,6 +839,10 @@ def blank_field(company="",year=""):
                 sprayer_passes=None,           # [[(lat,lon), ...], ...]  uploaded GPS sprayer tracks
                 gals_per_acre="3",acres="",gals_per_tray="2",tray_distribution="even",
                 boundary_polygon=None,pivot_tracks=[],corner_arms=[],
+                two_pivots=False,             # rare: one field served by TWO pivots
+                PP2_Latitude="",PP2_Longitude="",   # second pivot point (when two_pivots)
+                pivot_tracks2=[],             # second pivot's track radii (m), independent
+                Radius2="",                   # second pivot circle radius (no-boundary fields)
                 boundary_inner=[],            # list of inner-exclusion polygons (JD-style "interior boundaries")
                 access_road_boundary=[],      # pivot access road(s) — same exclusion as inner, labelled separately
                 wet_zones=[],                 # informational wet-spot polygons (NOT exclusions) — shown to crews
@@ -1235,6 +1239,7 @@ class BeetentApp(ctk.CTk):
 
         # Map overlays
         self.pivot_marker     = None
+        self.pivot2_marker    = None
         self.field_circle     = None
         self.boundary_poly    = None
         self.boundary_pts     = []
@@ -2901,6 +2906,9 @@ class BeetentApp(ctk.CTk):
             ("Edit Span Lengths",       self._mode_edit_track_measurements),
             ("Set Buffer Zone (ft)",    self._edit_track_exclusion),
             ("Add Corner Path",         self._mode_add_corner_path),
+            ("—  Second Pivot (rare)  —", lambda: None),
+            ("Toggle Two Pivots",       self._toggle_two_pivots),
+            ("Set 2nd Pivot Point",     self._mode_pivot2),
         ], color="#1a6b3a",
            toggle_var=self.pivot_visible_var, toggle_fn=self._set_pivot_visible)
         self._pivot_btn.pack(side="left", padx=(0,4))
@@ -3120,6 +3128,12 @@ class BeetentApp(ctk.CTk):
         # Optional grid-row override: "" = automatic, N = aim for ~N rows of
         # shelters (fewer lateral columns → more rows for the same count).
         self.fv["shelter_rows"]=tk.StringVar()
+        # Second-pivot backing vars (rare "two pivots in one field"). Round-trip
+        # via _form_from_field/_field_from_form; set on the map (click + drag),
+        # so no always-visible entry. The toggle is a BooleanVar.
+        for k in ("PP2_Latitude","PP2_Longitude","Radius2"):
+            self.fv[k]=tk.StringVar()
+        self.two_pivots_var=tk.BooleanVar(value=False)
         # Track exclusion lives in the Pivot menu now, but keep its backing var
         # (used by _redraw_tracks / get_tent_positions) and its write-trace.
         self.fv["track_exclusion_ft"]=tk.StringVar(value="10")
@@ -4662,6 +4676,7 @@ class BeetentApp(ctk.CTk):
         self._update_map_field_label()   # reflect the newly loaded field name
         self.shelters_in_outside_var.set(f.get("shelters_in_outside_pass", "Yes"))
         self.shelter_at_pivot_var.set("Yes" if f.get("shelter_at_pivot") else "No")
+        self.two_pivots_var.set(bool(f.get("two_pivots")))
         # Row layout: dropdown + custom mask + use-imported-passes toggle.
         rl = f.get("row_layout","centered")
         self.row_layout_var.set(self._row_layout_inverse.get(rl,"Centered male"))
@@ -4715,6 +4730,7 @@ class BeetentApp(ctk.CTk):
         for k,v in self.fv.items(): f[k]=v.get().strip()
         f["shelters_in_outside_pass"] = self.shelters_in_outside_var.get()
         f["shelter_at_pivot"] = (self.shelter_at_pivot_var.get() == "Yes")
+        f["two_pivots"] = bool(self.two_pivots_var.get())
         f["tray_distribution"]=self._tray_dist_labels.get(self.tray_dist_var.get(),"even")
         f["shelter_mode"]=self._shelter_mode_labels.get(self.shelter_mode_var.get(),"total")
         f["row_layout"]=self._row_layout_labels.get(self.row_layout_var.get(),"centered")
@@ -4738,8 +4754,13 @@ class BeetentApp(ctk.CTk):
 
     def _refresh_track_list(self):
         self.track_lb.delete(0,tk.END)
+        two=self._two_pivots_active()
         for r in (self.current_field.get("pivot_tracks") or []):
-            self.track_lb.insert(tk.END,"%.1f m  (%.1f ft)"%(r,r/0.3048))
+            pfx="P1  " if two else ""
+            self.track_lb.insert(tk.END,"%s%.1f m  (%.1f ft)"%(pfx,r,r/0.3048))
+        if two:
+            for r in (self.current_field.get("pivot_tracks2") or []):
+                self.track_lb.insert(tk.END,"P2  %.1f m  (%.1f ft)"%(r,r/0.3048))
 
 
 
@@ -4848,6 +4869,59 @@ class BeetentApp(ctk.CTk):
     def _mode_pivot(self):
         self._close_all_popups()
         self.click_mode="pivot"; self._status("Click pivot point on map…")
+
+    # ── Second pivot ("two pivots in one field" — rare) ──────────────────────
+    def _pivot_xy(self, pn):
+        """(lat, lon) of pivot pn (1 or 2) from the form vars, or None."""
+        try:
+            if pn == 2:
+                return (float(self.fv["PP2_Latitude"].get()),
+                        float(self.fv["PP2_Longitude"].get()))
+            return (float(self.fv["PP_Latitude"].get()),
+                    float(self.fv["PP_Longitude"].get()))
+        except (ValueError, TypeError):
+            return None
+
+    def _track_list(self, pn):
+        """The mutable track-radii list for pivot pn (1 or 2)."""
+        return self.current_field.setdefault(
+            "pivot_tracks2" if pn == 2 else "pivot_tracks", [])
+
+    def _two_pivots_active(self):
+        """Two-pivot mode is ON and a valid 2nd pivot is placed."""
+        return bool(self.two_pivots_var.get()) and self._pivot_xy(2) is not None
+
+    def _nearest_pivot_num(self, lat, lon):
+        """1 or 2 — whichever pivot the (lat,lon) point is closer to. Always 1
+        unless two-pivot mode is active with a placed 2nd pivot."""
+        if not self._two_pivots_active():
+            return 1
+        p1 = self._pivot_xy(1); p2 = self._pivot_xy(2)
+        if p1 is None:
+            return 2
+        d1 = haversine_m(p1[0], p1[1], lat, lon)
+        d2 = haversine_m(p2[0], p2[1], lat, lon)
+        return 2 if d2 < d1 else 1
+
+    def _toggle_two_pivots(self):
+        self._close_all_popups()
+        on = not bool(self.two_pivots_var.get())
+        self.two_pivots_var.set(on)
+        self.current_field["two_pivots"] = on
+        if on and self._pivot_xy(2) is None:
+            self._status("Two-pivot mode ON — now choose Set 2nd Pivot Point.")
+        else:
+            self._status("Two-pivot mode " + ("ON." if on else "OFF."))
+        self._redraw_pivot(); self._redraw_tracks(); self._redraw_shelters()
+
+    def _mode_pivot2(self):
+        self._close_all_popups()
+        self.click_mode="pivot2"; self._status("Click the SECOND pivot point on map…")
+
+    def _on_pivot2_drag(self, lat, lon):
+        self.fv["PP2_Latitude"].set(f"{lat:.7f}")
+        self.fv["PP2_Longitude"].set(f"{lon:.7f}")
+        self._redraw_pivot(); self._redraw_tracks(skip_shelters=True)
 
     def _mode_boundary(self):
         self._close_all_popups()
@@ -5814,6 +5888,13 @@ class BeetentApp(ctk.CTk):
             self.click_mode=None; self._status(f"Pivot: {lat:.5f}, {lon:.5f}")
             self._redraw_boundary(); self._redraw_passes(); self._redraw_tracks()
 
+        elif mode=="pivot2":
+            self.fv["PP2_Latitude"].set(f"{lat:.7f}"); self.fv["PP2_Longitude"].set(f"{lon:.7f}")
+            self.two_pivots_var.set(True); self.current_field["two_pivots"]=True
+            self.show_pivot.set(True)
+            self.click_mode=None; self._status(f"2nd pivot: {lat:.5f}, {lon:.5f}")
+            self._redraw_pivot(); self._redraw_tracks()
+
         elif mode=="boundary":
             self.boundary_pts.append((lat,lon))
             m=self.map_widget.set_marker(lat,lon,text=str(len(self.boundary_pts)),
@@ -5920,15 +6001,18 @@ class BeetentApp(ctk.CTk):
             self._status("Vertex moved. Click another vertex or ✔ Save Boundary.")
 
         elif mode=="track":
-            try:
-                plat=float(self.fv["PP_Latitude"].get()); plon=float(self.fv["PP_Longitude"].get())
-            except ValueError: self._status("Set pivot first."); return
-            r_m=haversine_m(plat,plon,lat,lon)
-            self.current_field.setdefault("pivot_tracks",[]).append(round(r_m,2))
+            # In two-pivot mode the track attaches to whichever pivot the click
+            # is nearer to; otherwise pivot 1. Radius = distance from that pivot.
+            pn = self._nearest_pivot_num(lat, lon)
+            piv = self._pivot_xy(pn)
+            if piv is None: self._status("Set pivot first."); return
+            r_m=haversine_m(piv[0],piv[1],lat,lon)
+            self._track_list(pn).append(round(r_m,2))
             # Stay in track mode so multiple circles can be placed without
             # re-clicking the menu. click_mode cleared by ✔ Done.
-            n=len(self.current_field["pivot_tracks"])
-            self._status(f"Track {n} added: {r_m:.1f} m ({r_m/0.3048:.1f} ft). "
+            n=len(self._track_list(pn))
+            tag = f" (pivot {pn})" if self._two_pivots_active() else ""
+            self._status(f"Track {n}{tag} added: {r_m:.1f} m ({r_m/0.3048:.1f} ft). "
                          "Click for another, or ✔ Done.")
             self.show_tracks.set(True)
             self._refresh_track_list(); self._redraw_tracks()
@@ -6167,9 +6251,26 @@ class BeetentApp(ctk.CTk):
         try:
             plat=float(self.fv["PP_Latitude"].get()); plon=float(self.fv["PP_Longitude"].get())
         except (ValueError,TypeError): return
-        self.pivot_marker=self.map_widget.set_marker(plat,plon,text="Pivot",
+        two = bool(self.two_pivots_var.get())
+        lbl1 = "Pivot 1" if two else "Pivot"
+        self.pivot_marker=self.map_widget.set_marker(plat,plon,text=lbl1,
                                                       marker_color_circle="red",marker_color_outside="darkred")
-        self._register_drag("pivot",plat,plon,"Pivot","red","darkred",self._on_pivot_drag,marker=self.pivot_marker)
+        self._register_drag("pivot",plat,plon,lbl1,"red","darkred",self._on_pivot_drag,marker=self.pivot_marker)
+        # Second pivot (rare). Distinct orange so it's easy to tell apart.
+        self._unregister_drag_prefix("pivot2")
+        if getattr(self, "pivot2_marker", None):
+            try: self.pivot2_marker.delete()
+            except Exception: pass
+            self.pivot2_marker=None
+        if two:
+            p2=self._pivot_xy(2)
+            if p2 is not None:
+                self.pivot2_marker=self.map_widget.set_marker(
+                    p2[0],p2[1],text="Pivot 2",
+                    marker_color_circle="#FF7A00",marker_color_outside="#8A3D00")
+                self._register_drag("pivot2",p2[0],p2[1],"Pivot 2",
+                                    "#FF7A00","#8A3D00",self._on_pivot2_drag,
+                                    marker=self.pivot2_marker)
 
     def _toggle_tracks(self):
         self._close_all_popups()
@@ -6285,10 +6386,18 @@ class BeetentApp(ctk.CTk):
         excl_m=float(self.fv.get("track_exclusion_ft",self.excl_var).get() or "10")*0.3048
         bp=self.current_field.get("boundary_polygon")
         has_bnd = bool(bp and len(bp)>=3)
-        pivot_tracks = self.current_field.get("pivot_tracks") or []
-        for i,r_m in enumerate(pivot_tracks):
+        # One set of rings per pivot. In two-pivot mode the second pivot's
+        # tracks radiate from its own centre (independent radii).
+        pivot_sets = [(plat, plon, self.current_field.get("pivot_tracks") or [])]
+        if self._two_pivots_active():
+            p2 = self._pivot_xy(2)
+            if p2 is not None:
+                pivot_sets.append((p2[0], p2[1],
+                                   self.current_field.get("pivot_tracks2") or []))
+        for clat, clon, pivot_tracks in pivot_sets:
+          for i,r_m in enumerate(pivot_tracks):
             for r,col,w in [(r_m+excl_m,"#FF2A2A",2),(max(1,r_m-excl_m),"#FF2A2A",2)]:
-                pts = circle_pts(plat,plon,r,n=180)
+                pts = circle_pts(clat,clon,r,n=180)
                 # Decide whether to draw as a single polygon (fast, matches the
                 # historical look exactly) or as clipped path segments. We only
                 # need the clipped path when the circle actually crosses the
@@ -6328,15 +6437,18 @@ class BeetentApp(ctk.CTk):
                 _flush(segment)
         if not skip_shelters and self.show_shelters.get(): self._redraw_shelters()
 
-    def _on_track_drag(self,idx,lat,lon,final=False):
-        try:
-            plat=float(self.fv["PP_Latitude"].get()); plon=float(self.fv["PP_Longitude"].get())
-        except ValueError: return
-        tracks=self.current_field.get("pivot_tracks") or []
+    def _on_track_drag(self,key,lat,lon,final=False):
+        # key = (pivot_num, idx). Resize that track to the cursor radius,
+        # measured from ITS pivot.
+        pn, idx = key if isinstance(key, tuple) else (1, key)
+        piv=self._pivot_xy(pn)
+        if piv is None: return
+        tracks=self._track_list(pn)
         if not (0<=idx<len(tracks)): return
-        r_m=haversine_m(plat,plon,lat,lon)
+        r_m=haversine_m(piv[0],piv[1],lat,lon)
         tracks[idx]=round(r_m,2)
-        self._status(f"Track {idx+1}: {r_m:.1f} m ({r_m/0.3048:.1f} ft)")
+        tag=f" (pivot {pn})" if self._two_pivots_active() else ""
+        self._status(f"Track {idx+1}{tag}: {r_m:.1f} m ({r_m/0.3048:.1f} ft)")
         if final:
             self._refresh_track_list(); self._redraw_tracks()
         else:
@@ -6347,20 +6459,21 @@ class BeetentApp(ctk.CTk):
         """Return the index of the pivot track whose exclusion band contains the
         click point (lat,lon), or None. The band is r±excl_m, widened to a few
         pixels so it's easy to grab. Picks the closest track on overlap."""
-        try:
-            plat=float(self.fv["PP_Latitude"].get()); plon=float(self.fv["PP_Longitude"].get())
-        except (ValueError,TypeError): return None
-        tracks=self.current_field.get("pivot_tracks") or []
-        if not tracks: return None
         excl_m=float(self.fv.get("track_exclusion_ft",self.excl_var).get() or "10")*0.3048
         tol=max(excl_m, 12*mpp)   # grabbable even when the band is narrow
-        d=haversine_m(plat,plon,lat,lon)
-        best_idx=None; best_gap=tol
-        for i,r_m in enumerate(tracks):
-            gap=abs(d-r_m)
-            if gap<=best_gap:
-                best_gap=gap; best_idx=i
-        return best_idx
+        sets=[(1, self._pivot_xy(1), self.current_field.get("pivot_tracks") or [])]
+        if self._two_pivots_active():
+            sets.append((2, self._pivot_xy(2),
+                         self.current_field.get("pivot_tracks2") or []))
+        best=None; best_gap=tol
+        for pn, piv, tracks in sets:
+            if piv is None or not tracks: continue
+            d=haversine_m(piv[0],piv[1],lat,lon)
+            for i,r_m in enumerate(tracks):
+                gap=abs(d-r_m)
+                if gap<=best_gap:
+                    best_gap=gap; best=(pn,i)
+        return best   # (pivot_num, idx) or None
 
     @staticmethod
     def _point_seg_dist_m(plat,plon,alat,alon,blat,blon):
@@ -6403,9 +6516,10 @@ class BeetentApp(ctk.CTk):
         return best
 
     # ── Track / corner click popups ───────────────────────────────────────────
-    def _edit_single_track(self,idx):
+    def _edit_single_track(self,key):
         """Edit the distance-from-pivot (span measurement) of one pivot track."""
-        tracks=self.current_field.get("pivot_tracks") or []
+        pn, idx = key if isinstance(key, tuple) else (1, key)
+        tracks=self._track_list(pn)
         if not (0<=idx<len(tracks)): return
         use_m=self.unit_var.get()=="Metric"
         unit="m" if use_m else "ft"
@@ -6418,29 +6532,31 @@ class BeetentApp(ctk.CTk):
         except ValueError: self._status("Enter a number."); return
         if v<=0: self._status("Span length must be greater than 0."); return
         tracks[idx]=round(v/conv,2)
-        self.current_field["pivot_tracks"]=sorted(tracks)
+        tracks.sort()
         self.show_tracks.set(True)
         self._refresh_track_list(); self._redraw_tracks()
         self._status(f"Span length set to {v:.1f} {unit}.")
 
-    def _delete_single_track(self,idx):
-        tracks=self.current_field.get("pivot_tracks") or []
+    def _delete_single_track(self,key):
+        pn, idx = key if isinstance(key, tuple) else (1, key)
+        tracks=self._track_list(pn)
         if 0<=idx<len(tracks):
             tracks.pop(idx)
-            self.current_field["pivot_tracks"]=tracks
             self._refresh_track_list(); self._redraw_tracks()
             self._status(f"Track deleted ({len(tracks)} remaining).")
 
-    def _show_track_popup(self,idx):
+    def _show_track_popup(self,key):
         """Options popup for a clicked pivot track: edit span length, edit the
         buffer zone (exclusion), or delete the track."""
-        tracks=self.current_field.get("pivot_tracks") or []
+        pn, idx = key if isinstance(key, tuple) else (1, key)
+        tracks=self._track_list(pn)
         if not (0<=idx<len(tracks)): return
         self._close_all_popups()
         use_m=self.unit_var.get()=="Metric"
         unit="m" if use_m else "ft"
         conv=1.0 if use_m else 1.0/0.3048
         dist=tracks[idx]*conv
+        pv_tag = f" (Pivot {pn})" if self._two_pivots_active() else ""
         # Span length = this ring's distance minus the next ring inward (or the
         # pivot for the innermost ring). Tracks are stored as cumulative
         # distance-from-pivot, so we find the largest track below this one.
@@ -6452,10 +6568,10 @@ class BeetentApp(ctk.CTk):
         try: excl=float(self.fv.get("track_exclusion_ft",self.excl_var).get() or "10")
         except (ValueError,AttributeError): excl=10.0
         win=ctk.CTkToplevel(self)
-        win.title(f"Pivot Track {idx+1}")
+        win.title(f"Pivot Track {idx+1}{pv_tag}")
         win.geometry("400x400")
         win.grab_set()
-        ctk.CTkLabel(win,text=f"Pivot Track {idx+1}",
+        ctk.CTkLabel(win,text=f"Pivot Track {idx+1}{pv_tag}",
                      font=ctk.CTkFont(family=FONT_HEADING,size=18)).pack(padx=24,pady=(20,6))
         ctk.CTkLabel(win,
                      text=(f"Distance from pivot point: {dist:.1f} {unit}\n"
@@ -6466,13 +6582,13 @@ class BeetentApp(ctk.CTk):
             win.destroy(); fn()
         ctk.CTkButton(win,text="Edit Span Length…",height=40,
                       font=ctk.CTkFont(size=13),
-                      command=lambda:act(lambda:self._edit_single_track(idx))).pack(fill="x",padx=24,pady=4)
+                      command=lambda:act(lambda:self._edit_single_track((pn,idx)))).pack(fill="x",padx=24,pady=4)
         ctk.CTkButton(win,text="Edit Buffer Zone…",height=40,
                       font=ctk.CTkFont(size=13),
                       command=lambda:act(self._edit_track_exclusion)).pack(fill="x",padx=24,pady=4)
         ctk.CTkButton(win,text="Delete Track",fg_color="#6b1a1a",height=40,
                       font=ctk.CTkFont(size=13),
-                      command=lambda:act(lambda:self._delete_single_track(idx))).pack(fill="x",padx=24,pady=4)
+                      command=lambda:act(lambda:self._delete_single_track((pn,idx)))).pack(fill="x",padx=24,pady=4)
         ctk.CTkButton(win,text="Cancel",fg_color="#555",height=40,
                       font=ctk.CTkFont(size=13),
                       command=win.destroy).pack(fill="x",padx=24,pady=(4,20))
@@ -8682,6 +8798,10 @@ class BeetentApp(ctk.CTk):
 
     def _clear_all_overlays(self):
         if self.pivot_marker: self.pivot_marker.delete(); self.pivot_marker=None
+        if self.pivot2_marker:
+            try: self.pivot2_marker.delete()
+            except Exception: pass
+            self.pivot2_marker=None
         self._unregister_drag_prefix("pivot")
         self._clear_boundary_overlays(); self._clear_passes(); self._clear_bays()
         for o in self.track_circles:

@@ -84,6 +84,10 @@ fields/               — Saved field JSON files (git-tracked, auto-synced)
   "num_male_rows": "2",                     # bay calculator input
   "boundary_polygon": [[lat,lon], ...],     # drawn or uploaded boundary
   "pivot_tracks": [radius_m, ...],          # track exclusion circles
+  "two_pivots": False,                      # rare: one field served by TWO pivots
+  "PP2_Latitude": "", "PP2_Longitude": "",  # second pivot point (when two_pivots)
+  "pivot_tracks2": [radius_m, ...],         # second pivot's tracks (independent)
+  "Radius2": "",                            # second pivot circle radius (no-boundary fields)
   "corner_arms": [[], []],                  # corner arm paths
   "shelter_overrides": {idx: [lat,lon]}     # manually dragged shelter positions
 }
@@ -217,9 +221,28 @@ Boundary stored as `current_field["boundary_polygon"] = [[lat, lon], ...]`
 
 - Stored as `current_field["pivot_tracks"] = [radius_m, ...]`
 - Each track draws two orange circles (±exclusion zone) + a grey ↔ drag handle
-- Handle draggable via drag system → `_on_track_drag(idx, lat, lon)`
+- Handle draggable via drag system → `_on_track_drag((pivot_num, idx), lat, lon)`
 - Toggle visibility: `show_tracks` BooleanVar, `_toggle_tracks()`
 - Delete via popup dialog (`_mode_delete_track_ui`)
+
+## Two-pivot fields (rare)
+
+Some fields are served by **two pivots**. Toggle via 🎯 Pivot → "Toggle Two Pivots";
+place the 2nd with "Set 2nd Pivot Point" (orange pin, draggable). Each pivot keeps its
+OWN independent tracks (`pivot_tracks` / `pivot_tracks2`) and radius (`Radius` / `Radius2`).
+
+- **One global shelter grid** still spans the whole field (anchored in pivot-1's ENU
+  frame), so shelter rows **line up across both circles** — that's the whole point.
+- Three things become **nearest-pivot aware** in `get_tent_positions` (helpers
+  `_nearest_pivot` / `_outside_field_circles` / `_edge_inside`): the inner no-shelter
+  zone, the track exclusion (a candidate is checked against the tracks of whichever
+  pivot it's CLOSEST to), and — when no boundary is drawn — the outer edge (field =
+  UNION of the two circles; grid generation range is grown to cover both).
+- With a drawn boundary, that polygon defines the area for both pivots (the common case).
+- App track add/drag/delete route to the nearest pivot; `_track_hit` returns
+  `(pivot_num, idx)`. Single-pivot fields are byte-for-byte unchanged (`pivot2_enu=None`).
+- Not yet two-pivot-aware: acres auto-calc for a no-boundary union (draw a boundary to
+  get correct acres/shelter-count there); the span-length bulk editor edits pivot 1.
 
 ## Known issues / recent fixes
 

@@ -1350,6 +1350,80 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
             radius = float(r_raw) * conv
             boundary_enu = None
 
+        # ── Optional SECOND pivot ("two pivots in one field" — rare) ─────────
+        # ONE global shelter grid still spans the whole field, anchored in
+        # pivot-1's ENU frame, so rows line up across both circles. Only three
+        # things become two-pivot aware, each evaluated against whichever pivot
+        # the candidate is CLOSEST to: the inner no-shelter zone, the pivot-track
+        # exclusion, and — when no boundary is drawn — the outer field edge
+        # (the field is then the UNION of the two pivot circles).
+        pivot2_enu = None
+        _inner_r2_p1 = inner_pivot_radius * inner_pivot_radius
+        _inner_r2_p2 = _inner_r2_p1
+        _trk_p1 = tuple(pivot_tracks)
+        _trk_p2 = ()
+        radius1 = radius            # pivot-1 outer radius (field edge if no boundary)
+        radius2 = radius
+        if field_dict.get('two_pivots'):
+            try:
+                p2lon = float(field_dict['PP2_Longitude'])
+                p2lat = float(field_dict['PP2_Latitude'])
+                pivot2_enu = latlon_list_to_enu(
+                    [(p2lat, p2lon)], pivotpoint[0], pivotpoint[1])[0]
+                pivot_tracks2 = sorted(float(r) for r in (field_dict.get('pivot_tracks2') or []))
+                _trk_p2 = tuple(pivot_tracks2)
+                inner_pivot_radius2 = sprayer_width
+                if pivot_tracks2 and not field_dict.get('shelter_at_pivot'):
+                    inner_pivot_radius2 = max(sprayer_width, pivot_tracks2[0])
+                _inner_r2_p2 = inner_pivot_radius2 * inner_pivot_radius2
+                if boundary_polygon:
+                    radius2 = radius1           # boundary already bounds both
+                else:
+                    r2_raw = str(field_dict.get('Radius2') or '').strip()
+                    radius2 = float(r2_raw) * conv if r2_raw else radius1
+                    # Grow the GRID GENERATION range to reach pivot-2's far edge
+                    # so the candidate loops cover the whole union of circles.
+                    d12 = math.sqrt(pivot2_enu[0] ** 2 + pivot2_enu[1] ** 2)
+                    radius = max(radius, d12 + radius2)
+            except Exception:
+                pivot2_enu = None
+        _rad1_sq = radius1 * radius1
+        _rad2_sq = radius2 * radius2
+
+        def _nearest_pivot(east, north):
+            """(d_sq, inner_r2, tracks) for the pivot (east,north) [pivot-1 ENU]
+            is CLOSEST to. Single-pivot fields always return pivot 1."""
+            d1 = east * east + north * north
+            if pivot2_enu is None:
+                return d1, _inner_r2_p1, _trk_p1
+            e2 = east - pivot2_enu[0]; n2 = north - pivot2_enu[1]
+            d2 = e2 * e2 + n2 * n2
+            if d2 < d1:
+                return d2, _inner_r2_p2, _trk_p2
+            return d1, _inner_r2_p1, _trk_p1
+
+        def _outside_field_circles(east, north):
+            """True iff OUTSIDE every pivot circle (union). Circular fields only
+            (no drawn boundary). Single-pivot → just pivot-1's circle."""
+            if east * east + north * north <= _rad1_sq:
+                return False
+            if pivot2_enu is not None:
+                e2 = east - pivot2_enu[0]; n2 = north - pivot2_enu[1]
+                if e2 * e2 + n2 * n2 <= _rad2_sq:
+                    return False
+            return True
+
+        def _edge_inside(east, north):
+            """Distance inward from the circular field edge (no-boundary fields).
+            For two pivots = distance inside the UNION (nearest circle's edge)."""
+            best = radius1 - math.sqrt(east * east + north * north)
+            if pivot2_enu is not None:
+                e2 = east - pivot2_enu[0]; n2 = north - pivot2_enu[1]
+                d2e = radius2 - math.sqrt(e2 * e2 + n2 * n2)
+                if d2e > best:
+                    best = d2e
+            return best
+
         # Inner-exclusion boundaries (JD-style "interior boundaries":
         # buildings, sloughs, pivot pads, etc.) PLUS the pivot access road,
         # which excludes shelters exactly the same way. A shelter is invalid if
@@ -1677,7 +1751,7 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                         d2 = ddx*ddx + ddy*ddy
                         if d2 < min_d2: min_d2 = d2
                     return math.sqrt(min_d2) <= _op_edge_pf
-                return (radius - math.sqrt(d_sq)) <= _op_edge_pf
+                return _edge_inside(east, north) <= _op_edge_pf
 
             def _pf_valid(east, north):
                 # Cheapest checks first — pivot inner and main-pass kill zone
@@ -1686,7 +1760,8 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                 # it, and the savings on the hot path are large (~150K calls
                 # at the binary-search starting spacing).
                 d_sq = east * east + north * north
-                if d_sq < _inner_pivot_r2:
+                dn_sq, inner_r2_n, tracks_n = _nearest_pivot(east, north)
+                if dn_sq < inner_r2_n:
                     return False
                 if buffer_enabled_pf and pass_dead_half_pf > 0 and sprayer_width > 0:
                     lat_e = east * cos_r + north * sin_r
@@ -1695,9 +1770,9 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                     if d_pc < 0: d_pc = -d_pc
                     if d_pc < pass_dead_half_pf and not _in_outer_band_pf(east, north, d_sq):
                         return False
-                if _pivot_tracks_t:
-                    d = math.sqrt(d_sq)
-                    for tr in _pivot_tracks_t:
+                if tracks_n:
+                    d = math.sqrt(dn_sq)
+                    for tr in tracks_n:
                         diff = d - tr
                         if diff < 0: diff = -diff
                         if diff < excl_m_safe_pf:
@@ -1711,7 +1786,7 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                     if not _point_in_polygon(east, north, boundary_enu):
                         return False
                 else:
-                    if d_sq > radius_sqr:
+                    if _outside_field_circles(east, north):
                         return False
                 # Inner exclusions — must NOT be inside any of them.
                 for ring in boundary_inner_enu:
@@ -1735,7 +1810,7 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                             if d2 < min_d2: min_d2 = d2
                         d_b = math.sqrt(min_d2)
                     else:
-                        d_b = radius - math.sqrt(d_sq)
+                        d_b = _edge_inside(east, north)
                     # Two-sided: drop only the driven middle of the outside
                     # round; the two edge bands (boundary side and interior
                     # side) remain placeable.
@@ -2059,14 +2134,15 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                     return False
                 if boundary_enu:
                     return _min_dist_to_bnd(east, north) <= op_edge_m
-                return (radius - math.sqrt(d_sq)) <= op_edge_m
+                return _edge_inside(east, north) <= op_edge_m
 
             def _base_valid(east, north):
                 # HARD constraints — a cell failing one of these may be slid
                 # ("snapped") along the bay to a nearby valid spot.
                 # Cheapest checks first so the hot loop bails fast.
                 d_sq = east*east + north*north
-                if d_sq < inner_r2: return False
+                dn_sq, inner_r2_n, tracks_n = _nearest_pivot(east, north)
+                if dn_sq < inner_r2_n: return False
                 # Main-pass kill zone — the MIDDLE of every interior sprayer
                 # pass (where the machine runs). Pass EDGES are at multiples of
                 # sprayer_width; the centre of a pass sits halfway between them,
@@ -2079,9 +2155,9 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                     d_center = abs(frac - 0.5) * sprayer_width   # dist from pass centre
                     if d_center < pass_dead_half and not _in_outer_band(east, north, d_sq):
                         return False
-                if _pivot_tracks_sg:
-                    d = math.sqrt(d_sq)
-                    for tr in _pivot_tracks_sg:
+                if tracks_n:
+                    d = math.sqrt(dn_sq)
+                    for tr in tracks_n:
                         diff = d - tr
                         if diff < 0: diff = -diff
                         if diff < excl_m_safe:
@@ -2105,7 +2181,7 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                 if boundary_enu:
                     d_b = _min_dist_to_bnd(east, north)
                 else:
-                    d_b = radius - math.sqrt(east*east + north*north)
+                    d_b = _edge_inside(east, north)
                 if op_edge_m < d_b < (sprayer_width - op_edge_m):
                     return False
                 return True
@@ -2126,7 +2202,7 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                     if not _point_in_polygon(east, north, boundary_enu):
                         return False
                 else:
-                    if east*east + north*north > radius_sqr:
+                    if _outside_field_circles(east, north):
                         return False
                 # Inner exclusions — must NOT be inside any of them.
                 for ring in boundary_inner_enu:
@@ -2162,7 +2238,7 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                         if boundary_enu:
                             d_b = _min_dist_to_bnd(east, north)
                         else:
-                            d_b = radius - math.sqrt(east*east + north*north)
+                            d_b = _edge_inside(east, north)
                         # (slide steps, then prefer larger d_b → more interior)
                         cands.append((i, -d_b, new_pre_n))
                         break
