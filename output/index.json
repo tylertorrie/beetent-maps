@@ -1074,5 +1074,72 @@
     "role": "flag",
     "generated": "2026-06-16T14:48:38",
     "size": 617788
+  },
+  {
+    "id": "exports/Shelter Maps_Proven Seeds_v5",
+    "kind": "export",
+    "name": "Shelter Maps_Proven Seeds_v5",
+    "relpath": "exports/Shelter Maps_Proven Seeds_v5",
+    "is_dir": true,
+    "companies": [
+      "Proven Seeds"
+    ],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "NW 4-10-12",
+      "SE 17-9-15"
+    ],
+    "types": [
+      "AgGPS"
+    ],
+    "role": null,
+    "generated": "2026-06-17T09:48:37",
+    "size": 74703
+  },
+  {
+    "id": "pdfs/NW 4-10-12 2026 Shelter Map 12.pdf",
+    "kind": "pdf",
+    "name": "NW 4-10-12 2026 Shelter Map 12.pdf",
+    "relpath": "pdfs/NW 4-10-12 2026 Shelter Map 12.pdf",
+    "is_dir": false,
+    "companies": [
+      "Proven Seeds"
+    ],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "NW 4-10-12"
+    ],
+    "types": [
+      "PDF"
+    ],
+    "role": "flag",
+    "generated": "2026-06-17T09:49:14",
+    "size": 605350
+  },
+  {
+    "id": "pdfs/SE 16-9-13 2026 Shelter Map 6.pdf",
+    "kind": "pdf",
+    "name": "SE 16-9-13 2026 Shelter Map 6.pdf",
+    "relpath": "pdfs/SE 16-9-13 2026 Shelter Map 6.pdf",
+    "is_dir": false,
+    "companies": [
+      "Proven Seeds"
+    ],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "SE 16-9-13"
+    ],
+    "types": [
+      "PDF"
+    ],
+    "role": "flag",
+    "generated": "2026-06-17T09:49:21",
+    "size": 538604
   }
 ]
