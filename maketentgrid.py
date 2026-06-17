@@ -1303,6 +1303,18 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
         boundary_polygon = field_dict.get('boundary_polygon') or None
         pivot_tracks = sorted(float(r) for r in (field_dict.get('pivot_tracks') or []))
         excl_m = float(field_dict.get('track_exclusion_ft') or 10) * 0.3048
+
+        # Inner "no-shelter" radius around the pivot. Normally one sprayer width
+        # of clearance. When the user has chosen NOT to place a shelter at the
+        # pivot (shelter_at_pivot=No) AND the field has pivot tracks, skip the
+        # ENTIRE first pivot-tower circle instead — so no shelter lands anywhere
+        # inside it. The freed shelter isn't lost: the count-targeting search +
+        # closest-to-pivot trim below push it outward to fill other areas. With
+        # a shelter AT the pivot, keep the tight clearance so the centre pin
+        # isn't crowded out. pivot_tracks is sorted, so [0] is the first tower.
+        inner_pivot_radius = sprayer_width
+        if pivot_tracks and not field_dict.get('shelter_at_pivot'):
+            inner_pivot_radius = max(sprayer_width, pivot_tracks[0])
         # shelters_in_outside_pass="Yes" → shelters allowed in outside round → no exclusion
         # shelters_in_outside_pass="No"  → keep shelters out of outside round (green-compliant)
         # Missing key → default 'Yes' (shelters allowed in the outside pass).
@@ -1610,8 +1622,9 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                     dx_ = bx - ax; dy_ = by - ay
                     seg2 = dx_*dx_ + dy_*dy_
                     _bnd_edges.append((ax, ay, dx_, dy_, seg2))
-            # Pre-square sprayer_width for the pivot-inner check.
-            _inner_pivot_r2 = sprayer_width * sprayer_width
+            # Pre-square the pivot-inner radius (first tower circle when "no
+            # shelter at pivot" is set; else one sprayer width — see above).
+            _inner_pivot_r2 = inner_pivot_radius * inner_pivot_radius
             # Pre-tuple pivot_tracks so we iterate a tuple (faster than list).
             _pivot_tracks_t = tuple(pivot_tracks) if pivot_tracks else ()
             # Outside-pass exclusion band (two-sided). The edge band is how far
@@ -1929,8 +1942,9 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
             if sprayer_width <= 0:
                 return ([], []) if return_rows else []
 
-            # Inner limit: no shelter within sprayer_width of the pivot center.
-            inner_r2 = sprayer_width * sprayer_width
+            # Inner limit: no shelter inside the pivot-inner radius (first tower
+            # circle when "no shelter at pivot" is set; else one sprayer width).
+            inner_r2 = inner_pivot_radius * inner_pivot_radius
 
             # Outer limit: no shelter within sprayer_width of the field boundary.
             # For a polygon field: check min distance from point to boundary edges.

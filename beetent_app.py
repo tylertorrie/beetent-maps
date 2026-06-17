@@ -750,6 +750,17 @@ OUTPUT_EXPORTS = OUTPUT_DIR / "exports"
 OUTPUT_PDFS    = OUTPUT_DIR / "pdfs"
 OUTPUT_INDEX   = OUTPUT_DIR / "index.json"
 
+# Reference library — the "Reference Files" tab of the Files view. Permanent,
+# rarely-changing, frequently-used files (task checklists, guides, etc.) kept
+# deliberately separate from the generated field outputs above. Git-synced like
+# fields/ and output/ (see _git_push and .gitignore).
+RESOURCES_DIR  = Path(__file__).parent / "reference"
+
+# File extensions Windows can hand straight to the default printer via the
+# "print" shell verb (os.startfile). Others get Open instead of a Print button.
+PRINTABLE_EXTS = {".pdf", ".doc", ".docx", ".xls", ".xlsx", ".png", ".jpg",
+                  ".jpeg", ".gif", ".bmp", ".tif", ".tiff", ".txt", ".rtf"}
+
 # Export sub-folder name → short type label. Used both to derive which types an
 # export bundle contains and to flatten the list when filtering by a single type.
 OUTPUT_TYPE_FOLDERS = {
@@ -1454,6 +1465,9 @@ class BeetentApp(ctk.CTk):
         self.files_view.pack(fill="both", expand=True)
         self._apply_toolbar_for_view("files")
         self._files_cwd = None
+        self._files_res_cwd = ()
+        self._fv_tab_seg.set("Output Files")
+        self._files_switch_tab("output")
         self._files_refresh_filter_options()
         self._files_refresh()
 
@@ -1500,14 +1514,24 @@ class BeetentApp(ctk.CTk):
         self.files_view = ctk.CTkFrame(self, corner_radius=0)
 
         # ── Header (use the ☰ menu → Map View to leave this view) ──
+        # Tab state: "output" = generated field outputs, "reference" = the
+        # permanent reference library. Set before any widgets use it.
+        self._files_tab = "output"
+        self._files_res_cwd = ()        # subfolder path under reference/
         hdr = ctk.CTkFrame(self.files_view, fg_color="transparent")
         hdr.pack(fill="x", padx=12, pady=(10, 4))
-        ctk.CTkLabel(hdr, text="Output Files", text_color=UI_TEXT,
-                     font=ctk.CTkFont(family=FONT_HEADING, size=18)).pack(
-            side="left")
+        self._fv_title = ctk.CTkLabel(hdr, text="Output Files", text_color=UI_TEXT,
+                                      font=ctk.CTkFont(family=FONT_HEADING, size=18))
+        self._fv_title.pack(side="left")
+        self._fv_tab_seg = ctk.CTkSegmentedButton(
+            hdr, values=["Output Files", "Reference Files"],
+            command=self._files_on_tab_select)
+        self._fv_tab_seg.set("Output Files")
+        self._fv_tab_seg.pack(side="right")
 
-        # ── Filter row ──
+        # ── Filter row ── (output tab only; hidden on the Reference tab)
         flt = ctk.CTkFrame(self.files_view, fg_color="transparent")
+        self._fv_filter_row = flt
         flt.pack(fill="x", padx=12, pady=(2, 4))
         cos, yrs = self._files_filter_options()
         ctk.CTkLabel(flt, text="Company:").pack(side="left")
@@ -1550,11 +1574,19 @@ class BeetentApp(ctk.CTk):
         self._fv_crumb = ctk.CTkFrame(self.files_view, fg_color="transparent")
         self._fv_crumb.pack(fill="x", padx=12, pady=(0, 2))
 
-        # ── Action row ──
+        # ── Action row ── (shared by both tabs; Upload/New Folder show only on
+        # the Reference tab, packed before Select All)
         act = ctk.CTkFrame(self.files_view, fg_color="transparent")
         act.pack(fill="x", padx=12, pady=(2, 4))
-        ctk.CTkButton(act, text="Select All", width=90,
-                      command=self._files_select_all).pack(side="left", padx=(0, 6))
+        self._fv_upload_btn = ctk.CTkButton(
+            act, text="⬆ Upload File…", width=120, fg_color="#1a5c8a",
+            command=self._files_upload)
+        self._fv_newfolder_btn = ctk.CTkButton(
+            act, text="📁 New Folder…", width=110,
+            command=self._files_new_folder)
+        self._fv_selectall_btn = ctk.CTkButton(
+            act, text="Select All", width=90, command=self._files_select_all)
+        self._fv_selectall_btn.pack(side="left", padx=(0, 6))
         ctk.CTkButton(act, text="Deselect All", width=100,
                       command=self._files_deselect_all).pack(side="left", padx=(0, 6))
         ctk.CTkButton(act, text="⬇ Export Selected…", fg_color="#1a5c8a",
@@ -1576,6 +1608,30 @@ class BeetentApp(ctk.CTk):
             self._fv_role_lbl.pack_forget()
             self._fv_role_cb.pack_forget()
         self._files_refresh()
+
+    # ── Files view: tabs (Output Files / Reference Files) ──
+    def _files_on_tab_select(self, value):
+        self._files_switch_tab("reference" if value.startswith("Reference")
+                               else "output")
+        self._files_refresh()
+
+    def _files_switch_tab(self, tab):
+        """Toggle which widgets are visible for the chosen tab. Does not refresh
+        the list — callers do that."""
+        self._files_tab = tab
+        if tab == "reference":
+            self._fv_title.configure(text="Reference Files")
+            self._fv_filter_row.pack_forget()
+            self._fv_upload_btn.pack(side="left", padx=(0, 6),
+                                     before=self._fv_selectall_btn)
+            self._fv_newfolder_btn.pack(side="left", padx=(0, 12),
+                                        before=self._fv_selectall_btn)
+        else:
+            self._fv_title.configure(text="Output Files")
+            self._fv_upload_btn.pack_forget()
+            self._fv_newfolder_btn.pack_forget()
+            self._fv_filter_row.pack(fill="x", padx=12, pady=(2, 4),
+                                     before=self._fv_crumb)
 
     # ── Files view: navigation state ──
     def _files_record(self, rec_id):
@@ -1599,11 +1655,15 @@ class BeetentApp(ctk.CTk):
         for w in self._fv_scroll.winfo_children():
             w.destroy()
         self._files_checks = {}
-        self._fv_build_crumb()
-        if self._files_cwd is None:
-            self._files_render_top()
+        if self._files_tab == "reference":
+            self._fv_build_res_crumb()
+            self._files_render_resources()
         else:
-            self._files_render_bundle()
+            self._fv_build_crumb()
+            if self._files_cwd is None:
+                self._files_render_top()
+            else:
+                self._files_render_bundle()
         self._files_update_count()
 
     def _files_back(self):
@@ -1738,13 +1798,17 @@ class BeetentApp(ctk.CTk):
                 self._files_add_row(
                     path, label=r.get("name", ""), icon="📊",
                     meta=meta_of(r, "Overview Summary"),
-                    on_open=lambda p=path: self._files_open(p))
+                    on_open=lambda p=path: self._files_open(p),
+                    on_print=(lambda p=path: self._files_print(p))
+                             if path.suffix.lower() in PRINTABLE_EXTS else None)
             elif r.get("kind") == "pdf":
                 rl = role_disp.get(r.get("role"), "")
                 self._files_add_row(
                     path, label=r.get("name", ""), icon="📄",
                     meta=meta_of(r, "PDF" + (" (" + rl + ")" if rl else "")),
-                    on_open=lambda p=path: self._files_open(p))
+                    on_open=lambda p=path: self._files_open(p),
+                    on_print=(lambda p=path: self._files_print(p))
+                             if path.suffix.lower() in PRINTABLE_EXTS else None)
             else:
                 lead = "Export (" + (", ".join(r.get("types", [])) or "—") + ")"
                 self._files_add_row(
@@ -1785,10 +1849,142 @@ class BeetentApp(ctk.CTk):
                         "🗜" if ext == ".zip" else "📃")
                 try: size = _fmt_size(p.stat().st_size)
                 except OSError: size = ""
-                self._files_add_row(p, label=p.name, icon=icon, meta=size,
-                                    on_open=lambda pp=p: self._files_open(pp))
+                self._files_add_row(
+                    p, label=p.name, icon=icon, meta=size,
+                    on_open=lambda pp=p: self._files_open(pp),
+                    on_print=((lambda pp=p: self._files_print(pp))
+                              if p.suffix.lower() in PRINTABLE_EXTS else None))
 
-    def _files_add_row(self, path, label, icon, meta, on_open):
+    # ── Reference tab: navigation, breadcrumb, rendering ──
+    def _files_res_dir(self):
+        """Absolute path of the reference folder currently being viewed."""
+        d = RESOURCES_DIR
+        for part in self._files_res_cwd:
+            d = d / part
+        return d
+
+    def _files_res_set_cwd(self, parts):
+        self._files_res_cwd = tuple(parts)
+        self._files_refresh()
+
+    def _files_res_back(self):
+        if self._files_res_cwd:
+            self._files_res_set_cwd(self._files_res_cwd[:-1])
+
+    def _fv_build_res_crumb(self):
+        for w in self._fv_crumb.winfo_children():
+            w.destroy()
+        ctk.CTkButton(self._fv_crumb, text="← Back", width=70, height=24,
+                      fg_color="#3a3a3a", hover_color=UI_HOVER,
+                      state=("disabled" if not self._files_res_cwd else "normal"),
+                      command=self._files_res_back).pack(side="left", padx=(0, 10))
+
+        def crumb(text, parts, last):
+            ctk.CTkButton(self._fv_crumb, text=text, height=24, width=0,
+                          fg_color="transparent", hover_color=UI_HOVER,
+                          text_color=(UI_TEXT if last else "#1a5c8a"),
+                          command=lambda p=parts: self._files_res_set_cwd(p)).pack(
+                side="left")
+
+        crumb("Reference", (), last=(len(self._files_res_cwd) == 0))
+        acc = []
+        for part in self._files_res_cwd:
+            acc.append(part)
+            ctk.CTkLabel(self._fv_crumb, text=" ▸ ",
+                         text_color=UI_MUTED).pack(side="left")
+            crumb(part, tuple(acc), last=(len(acc) == len(self._files_res_cwd)))
+
+    def _files_render_resources(self):
+        cur = self._files_res_dir()
+        try:
+            cur.mkdir(parents=True, exist_ok=True)
+            entries = sorted(cur.iterdir(),
+                             key=lambda p: (p.is_file(), p.name.lower()))
+        except Exception:
+            entries = []
+        if not entries:
+            ctk.CTkLabel(
+                self._fv_scroll,
+                text="No reference files here yet.\nUse “⬆ Upload File…” to add "
+                     "checklists, guides, and other permanent files.",
+                justify="left", text_color=UI_MUTED).pack(anchor="w", pady=20)
+            return
+        for p in entries:
+            if p.is_dir():
+                self._files_add_row(
+                    p, label=p.name, icon="📁", meta="folder",
+                    on_open=lambda pp=p: self._files_res_set_cwd(
+                        self._files_res_cwd + (pp.name,)))
+            else:
+                ext = p.suffix.lower()
+                icon = ("📄" if ext == ".pdf" else
+                        "🖼" if ext in (".png", ".jpg", ".jpeg", ".gif", ".bmp",
+                                        ".tif", ".tiff") else
+                        "📊" if ext in (".xls", ".xlsx", ".csv", ".ods") else
+                        "📝" if ext in (".doc", ".docx", ".txt", ".rtf") else "📃")
+                try: size = _fmt_size(p.stat().st_size)
+                except OSError: size = ""
+                self._files_add_row(
+                    p, label=p.name, icon=icon, meta=size,
+                    on_open=lambda pp=p: self._files_open(pp),
+                    on_print=((lambda pp=p: self._files_print(pp))
+                              if p.suffix.lower() in PRINTABLE_EXTS else None))
+
+    def _files_upload(self):
+        """Copy one or more chosen files into the current reference folder."""
+        srcs = tkinter.filedialog.askopenfilenames(
+            title="Choose file(s) to add to the reference library")
+        if not srcs:
+            return
+        dest_dir = self._files_res_dir()
+        n = 0
+        try:
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            for s in srcs:
+                src = Path(s)
+                dest = dest_dir / src.name
+                if dest.exists() and not tkinter.messagebox.askyesno(
+                        "Replace file?",
+                        "“%s” already exists here. Replace it?" % src.name):
+                    continue
+                shutil.copy2(src, dest)
+                n += 1
+        except Exception as ex:
+            tkinter.messagebox.showerror("Upload failed", str(ex)); return
+        if n:
+            self._git_push("reference: add %d file(s)" % n)
+            self._status("Added %d file(s) to reference library" % n)
+        self._files_refresh()
+
+    def _files_new_folder(self):
+        name = tkinter.simpledialog.askstring(
+            "New Folder", "Name for the new reference folder:", parent=self)
+        if not name:
+            return
+        name = name.strip()
+        if invalid_field_name_chars(name):
+            tkinter.messagebox.showerror(
+                "Invalid name", "That name contains characters that aren't "
+                "allowed in a folder name."); return
+        try:
+            (self._files_res_dir() / name).mkdir(parents=True, exist_ok=True)
+        except Exception as ex:
+            tkinter.messagebox.showerror("Couldn't create folder", str(ex)); return
+        self._files_refresh()
+
+    def _files_print(self, path):
+        """Send a file straight to the default printer via the Windows 'print'
+        shell verb."""
+        try:
+            os.startfile(str(path), "print")
+            self._status("Sent to printer: %s" % Path(path).name)
+        except Exception as ex:
+            tkinter.messagebox.showerror(
+                "Print failed",
+                "Windows couldn't print this file automatically:\n\n%s\n\n"
+                "Try opening it and printing from there instead." % ex)
+
+    def _files_add_row(self, path, label, icon, meta, on_open, on_print=None):
         row = ctk.CTkFrame(self._fv_scroll, fg_color=UI_HOVER, corner_radius=6)
         row.pack(fill="x", pady=2, padx=2)
         var = tk.BooleanVar(value=False)
@@ -1804,6 +2000,10 @@ class BeetentApp(ctk.CTk):
             ctk.CTkLabel(row, text=meta, text_color=UI_MUTED,
                          font=ctk.CTkFont(family=FONT_LABEL, size=11)).pack(
                 side="right", padx=10)
+        if on_print is not None:
+            ctk.CTkButton(row, text="🖨", width=34, fg_color="#3a3a3a",
+                          hover_color=UI_HOVER, command=on_print).pack(
+                side="right", padx=(0, 4), pady=4)
 
     # ── Files view: actions ──
     def _files_selected_paths(self):
@@ -1887,7 +2087,7 @@ class BeetentApp(ctk.CTk):
             tkinter.messagebox.showinfo("Delete", "No files selected."); return
         if not tkinter.messagebox.askyesno(
                 "Delete",
-                "Permanently delete %d selected item(s) from the output "
+                "Permanently delete %d selected item(s) from the "
                 "library?\n\nThis removes them from the app on every synced "
                 "device." % len(paths)):
             return
@@ -1908,9 +2108,13 @@ class BeetentApp(ctk.CTk):
                 pass
         if changed:
             save_output_index(records)
-        self._git_push("output: delete %d item(s)" % len(paths))
-        # If we just emptied the folder we were inside, step back to the top.
-        if self._files_cwd is not None:
+        area = "reference" if self._files_tab == "reference" else "output"
+        self._git_push("%s: delete %d item(s)" % (area, len(paths)))
+        # If we just emptied the folder we were inside, step back up a level.
+        if self._files_tab == "reference":
+            while self._files_res_cwd and not self._files_res_dir().exists():
+                self._files_res_cwd = self._files_res_cwd[:-1]
+        elif self._files_cwd is not None:
             rec = self._files_record(self._files_cwd[0])
             if rec is None or not (OUTPUT_DIR / rec.get("relpath", "")).exists():
                 self._files_cwd = None
@@ -8740,7 +8944,7 @@ class BeetentApp(ctk.CTk):
         def run():
             try:
                 self.after(0,lambda:self._status("☁ Syncing…"))
-                subprocess.run(["git","add","fields/","output/"],cwd=repo,
+                subprocess.run(["git","add","fields/","output/","reference/"],cwd=repo,
                                capture_output=True,timeout=20)
                 has_changes=subprocess.run(
                     ["git","diff","--cached","--quiet"],

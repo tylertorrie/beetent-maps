@@ -47,5 +47,11 @@ fields/**/*_map.json
 # (The broad *.csv/*.db/*.xlsx ignores above don't match its shp/kml/zip/geojson/pdf.)
 !output/
 
+# Reference Files library (in-app Files view → Reference tab). DO track every
+# file type here — checklists/guides/spreadsheets etc. must sync across devices,
+# so these negations override the broad *.csv/*.xlsx/*.ods ignores above.
+!reference/
+!reference/**
+
 # Compiled/installed dependencies that ship with the source
 # (shapefile.py, simplekml, utm, fpdf are vendored — DO track them)
