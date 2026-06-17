@@ -104,6 +104,14 @@ DATA_DIR      = Path(__file__).parent / "fields"
 ASSETS_DIR    = Path(__file__).parent / "assets"   # bundled logo (synced via git)
 DEFAULT_LAT, DEFAULT_LON, DEFAULT_ZOOM = 49.86, -111.96, 10
 
+# Mouse-wheel zoom granularity. tkintermapview's default Windows step is
+# event.delta*0.01 = 1.2 levels per notch (a big, jumpy jump). We override the
+# wheel binding to move this many zoom levels per notch instead, so zooming
+# eases in/out gradually (~2 notches per integer level at 0.5). Satellite tiles
+# only render at integer zoom, so the map still snaps to whole levels — this
+# just slows the rate at which you cross them.
+ZOOM_WHEEL_STEP = 0.5
+
 # Sentinels for the Company / Year dropdowns — used to export across a whole
 # category. Not valid folder names; guarded out of save/load/new flows.
 ALL_COMPANIES = "— All companies —"
@@ -3310,6 +3318,21 @@ class BeetentApp(ctk.CTk):
             font=ctk.CTkFont(family=FONT_HEADING, size=16, weight="bold"))
         # Placed/hidden by _update_map_field_label (hidden until a field loads).
         self._update_map_field_label()
+
+        # On-screen zoom +/- buttons (bottom-right of the map). Each click moves
+        # one whole zoom level; the mouse wheel gives finer, gradual control.
+        self.zoom_in_btn = ctk.CTkButton(
+            self.map_widget, text="+", width=34, height=34,
+            font=ctk.CTkFont(size=20, weight="bold"),
+            fg_color="#2b2b2b", hover_color="#1f6feb",
+            command=lambda: self._zoom_button(1))
+        self.zoom_out_btn = ctk.CTkButton(
+            self.map_widget, text="−", width=34, height=34,
+            font=ctk.CTkFont(size=20, weight="bold"),
+            fg_color="#2b2b2b", hover_color="#1f6feb",
+            command=lambda: self._zoom_button(-1))
+        self.zoom_in_btn.place(relx=1.0, rely=1.0, x=-14, y=-58, anchor="se")
+        self.zoom_out_btn.place(relx=1.0, rely=1.0, x=-14, y=-16, anchor="se")
 
     # ── Bay Presets ────────────────────────────────────────────────────────────
     def _load_bay_presets(self):
@@ -8580,6 +8603,44 @@ class BeetentApp(ctk.CTk):
         canvas.bind("<ButtonPress-1>",self._drag_press)
         canvas.bind("<ButtonRelease-1>",self._drag_release)
         canvas.bind("<B1-Motion>",self._b1_motion)
+        # Replace tkintermapview's jumpy wheel zoom (1.2 levels/notch on Windows)
+        # with a gentle ZOOM_WHEEL_STEP per notch toward the cursor.
+        canvas.bind("<MouseWheel>",self._on_map_wheel)   # Windows / macOS
+        canvas.bind("<Button-4>",self._on_map_wheel)     # Linux scroll up
+        canvas.bind("<Button-5>",self._on_map_wheel)     # Linux scroll down
+
+    def _on_map_wheel(self, event):
+        """Fine, cursor-anchored wheel zoom. Moves ZOOM_WHEEL_STEP levels per
+        notch instead of tkintermapview's default ~1.2, so the zoom eases in/out
+        rather than jumping. The map renders at round(zoom), so a tiny bias keeps
+        exact half-levels from stalling under Python's round-half-to-even."""
+        mw = self.map_widget
+        delta = getattr(event, "delta", 0)
+        num = getattr(event, "num", None)
+        direction = 1 if (num == 4 or delta > 0) else -1
+        new_zoom = mw.zoom + direction * ZOOM_WHEEL_STEP
+        frac = new_zoom - math.floor(new_zoom)
+        if abs(frac - 0.5) < 1e-6:        # exact half — nudge in scroll direction
+            new_zoom += direction * 1e-3
+        w = mw.width or 1; h = mw.height or 1
+        rx = min(max(event.x / w, 0.0), 1.0)
+        ry = min(max(event.y / h, 0.0), 1.0)
+        try:
+            mw.set_zoom(new_zoom, relative_pointer_x=rx, relative_pointer_y=ry)
+        except Exception:
+            pass
+        return "break"
+
+    def _zoom_button(self, direction):
+        """On-screen +/- zoom. Moves one whole integer level per click (a tile
+        map only renders at integer zoom, so a sub-level click would do nothing
+        visible) — always a clean, responsive step centred on the map."""
+        mw = self.map_widget
+        try:
+            mw.set_zoom(round(mw.zoom) + direction,
+                        relative_pointer_x=0.5, relative_pointer_y=0.5)
+        except Exception:
+            pass
 
     def _drag_press(self,event):
         self._pan_start_xy=(event.x,event.y)
