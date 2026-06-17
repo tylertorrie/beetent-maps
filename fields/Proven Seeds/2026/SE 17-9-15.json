@@ -37,7 +37,8 @@
   "tray_distribution": "even",
   "boundary_polygon": null,
   "pivot_tracks": [
-    59.4
+    59.4,
+    117.98
   ],
   "corner_arms": [],
   "boundary_inner": [],
