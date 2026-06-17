@@ -1186,5 +1186,49 @@
     "role": null,
     "generated": "2026-06-17T15:50:52",
     "size": 76964
+  },
+  {
+    "id": "pdfs/SE 17-9-15 2026 Shelter Map 5.pdf",
+    "kind": "pdf",
+    "name": "SE 17-9-15 2026 Shelter Map 5.pdf",
+    "relpath": "pdfs/SE 17-9-15 2026 Shelter Map 5.pdf",
+    "is_dir": false,
+    "companies": [
+      "Proven Seeds"
+    ],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "SE 17-9-15"
+    ],
+    "types": [
+      "PDF"
+    ],
+    "role": "flag",
+    "generated": "2026-06-17T15:51:54",
+    "size": 666998
+  },
+  {
+    "id": "pdfs/SW 16-9-15 2026 Shelter Map 3.pdf",
+    "kind": "pdf",
+    "name": "SW 16-9-15 2026 Shelter Map 3.pdf",
+    "relpath": "pdfs/SW 16-9-15 2026 Shelter Map 3.pdf",
+    "is_dir": false,
+    "companies": [
+      "Proven Seeds"
+    ],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "SW 16-9-15"
+    ],
+    "types": [
+      "PDF"
+    ],
+    "role": "flag",
+    "generated": "2026-06-17T15:51:56",
+    "size": 660871
   }
 ]
