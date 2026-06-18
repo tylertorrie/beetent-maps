@@ -1,0 +1,10 @@
+{
+  "name": "Bee Tent Field",
+  "short_name": "Bee Field",
+  "start_url": ".",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#111111",
+  "theme_color": "#111111",
+  "icons": []
+}

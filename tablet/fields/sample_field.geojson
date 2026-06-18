@@ -1,0 +1,38 @@
+{
+  "type": "FeatureCollection",
+  "name": "North Quarter (sample)",
+  "field": { "company": "Corteva", "year": "2026", "pivot": [-113.4912, 53.5461] },
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "type": "boundary", "label": "North Quarter" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-113.4956, 53.5440], [-113.4868, 53.5440],
+          [-113.4868, 53.5482], [-113.4956, 53.5482], [-113.4956, 53.5440]
+        ]]
+      }
+    },
+    { "type": "Feature", "properties": { "type": "shelter", "label": "S-01", "visited": false, "note": "" },
+      "geometry": { "type": "Point", "coordinates": [-113.4938, 53.5470] } },
+    { "type": "Feature", "properties": { "type": "shelter", "label": "S-02", "visited": false, "note": "" },
+      "geometry": { "type": "Point", "coordinates": [-113.4925, 53.5470] } },
+    { "type": "Feature", "properties": { "type": "shelter", "label": "S-03", "visited": false, "note": "" },
+      "geometry": { "type": "Point", "coordinates": [-113.4912, 53.5470] } },
+    { "type": "Feature", "properties": { "type": "shelter", "label": "S-04", "visited": false, "note": "" },
+      "geometry": { "type": "Point", "coordinates": [-113.4899, 53.5470] } },
+    { "type": "Feature", "properties": { "type": "shelter", "label": "S-05", "visited": false, "note": "" },
+      "geometry": { "type": "Point", "coordinates": [-113.4899, 53.5461] } },
+    { "type": "Feature", "properties": { "type": "shelter", "label": "S-06", "visited": false, "note": "" },
+      "geometry": { "type": "Point", "coordinates": [-113.4912, 53.5461] } },
+    { "type": "Feature", "properties": { "type": "shelter", "label": "S-07", "visited": false, "note": "" },
+      "geometry": { "type": "Point", "coordinates": [-113.4925, 53.5461] } },
+    { "type": "Feature", "properties": { "type": "shelter", "label": "S-08", "visited": false, "note": "" },
+      "geometry": { "type": "Point", "coordinates": [-113.4938, 53.5461] } },
+    { "type": "Feature", "properties": { "type": "shelter", "label": "S-09", "visited": false, "note": "" },
+      "geometry": { "type": "Point", "coordinates": [-113.4938, 53.5452] } },
+    { "type": "Feature", "properties": { "type": "shelter", "label": "S-10", "visited": false, "note": "" },
+      "geometry": { "type": "Point", "coordinates": [-113.4912, 53.5452] } }
+  ]
+}

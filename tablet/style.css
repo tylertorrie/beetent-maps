@@ -1,0 +1,61 @@
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; }
+#map { position: absolute; inset: 0; }
+
+#topbar {
+  position: absolute; top: 0; left: 0; right: 0; height: 48px;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 12px; background: rgba(17,17,17,.82); color: #fff; z-index: 5;
+}
+#fieldname { font-weight: 600; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#fixbadge { font-weight: 700; font-size: 13px; padding: 4px 10px; border-radius: 6px; }
+.fix-rtk   { background: #1faa59; color: #fff; }   /* 4 = RTK fixed */
+.fix-float { background: #d8a200; color: #111; }   /* 5 = RTK float */
+.fix-dgps  { background: #3a7bd5; color: #fff; }    /* 2 = DGPS */
+.fix-gps   { background: #777; color: #fff; }        /* 1 = autonomous */
+.fix-none  { background: #c0392b; color: #fff; }     /* 0 = no fix */
+
+#controls {
+  position: absolute; bottom: 0; left: 0; right: 0; height: 56px;
+  display: flex; align-items: center; gap: 8px; padding: 0 10px;
+  background: rgba(17,17,17,.82); color: #fff; z-index: 5;
+}
+#controls button {
+  flex: 0 0 auto; font-size: 15px; padding: 9px 14px; border: 0; border-radius: 8px;
+  background: #333; color: #fff;
+}
+#controls button.active { background: #1faa59; }
+#stats { margin-left: auto; font-size: 12px; opacity: .85; }
+
+/* Live position marker (DOM element, rotated by course) */
+.me {
+  width: 26px; height: 26px;
+  background: conic-gradient(from -20deg, transparent 0 40deg, #2d8cff 40deg 320deg, transparent 320deg);
+  /* simple arrow: a triangle pointing up, rotated via transform */
+}
+.me-arrow {
+  width: 0; height: 0; border-left: 11px solid transparent; border-right: 11px solid transparent;
+  border-bottom: 22px solid #2d8cff; filter: drop-shadow(0 0 2px rgba(0,0,0,.6));
+}
+
+.sheet-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px;
+  border-bottom: 1px solid #2a2a2a; font-weight: 600; }
+.sheet-head span { flex: 1; }
+.sheet-head button { background: #333; color: #fff; border: 0; border-radius: 6px; padding: 6px 10px; }
+
+#fieldsheet, #pointsheet {
+  position: absolute; left: 0; right: 0; bottom: 56px; max-height: 60%;
+  overflow-y: auto; background: rgba(20,20,20,.96); color: #fff; z-index: 6;
+  border-top-left-radius: 14px; border-top-right-radius: 14px;
+}
+.hidden { display: none !important; }
+
+#fieldlist { list-style: none; margin: 0; padding: 0; }
+#fieldlist li { padding: 14px; border-bottom: 1px solid #222; }
+#fieldlist li small { display: block; opacity: .6; }
+#syncnote { padding: 10px 14px; font-size: 12px; opacity: .7; }
+
+#pt-coords { padding: 10px 14px; font-size: 13px; opacity: .8; }
+.chk { display: block; padding: 8px 14px; font-size: 16px; }
+#pt-note { width: calc(100% - 28px); margin: 6px 14px 14px; height: 70px;
+  background: #181818; color: #fff; border: 1px solid #333; border-radius: 8px; padding: 8px; }

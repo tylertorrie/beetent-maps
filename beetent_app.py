@@ -9303,7 +9303,7 @@ class BeetentApp(ctk.CTk):
         def run():
             try:
                 self.after(0,lambda:self._status("☁ Syncing…"))
-                subprocess.run(["git","add","fields/","output/","reference/"],cwd=repo,
+                subprocess.run(["git","add","fields/","output/","reference/","tablet/fields/"],cwd=repo,
                                capture_output=True,timeout=20)
                 has_changes=subprocess.run(
                     ["git","diff","--cached","--quiet"],
@@ -9406,6 +9406,10 @@ class BeetentApp(ctk.CTk):
             self.year_var.set(yr)
         self._refresh_field_list()
         self._status(f"Saved: {f['Name']}" + (" (new company)" if new_company else ""))
+        try:
+            self._export_tablet_geojson(f)
+        except Exception as e:
+            self._log(f"Tablet export skipped: {e}")
         self._git_push(f"save field: {f['Name']}")
         try: self._autosave_last = json.dumps(f, sort_keys=True, default=str)
         except Exception: self._autosave_last = None
@@ -9438,6 +9442,20 @@ class BeetentApp(ctk.CTk):
                 for name in list_fields(c,y):
                     out.append((c,y,name))
         return out
+
+    def _export_tablet_geojson(self, f):
+        """Write this field's GeoJSON for the field-tablet PWA (tablet/fields/),
+        using the same shelter positions drawn on the map. Best-effort — any
+        failure is caught by the caller and never blocks a save."""
+        import sys
+        tablet_dir = Path(__file__).resolve().parent / "tablet"
+        if str(tablet_dir) not in sys.path:
+            sys.path.insert(0, str(tablet_dir))
+        import field_geojson
+        metric = self.unit_var.get() == "Metric"
+        shelters = self._final_shelter_positions(f, metric)
+        boundary = f.get("boundary_polygon") or None
+        field_geojson.write_field(f, shelters, boundary)
 
     def _final_shelter_positions(self, f, metric, use_actual=False):
         """Shelter positions exactly as drawn on the map: get_tent_positions

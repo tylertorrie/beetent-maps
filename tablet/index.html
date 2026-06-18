@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <meta name="theme-color" content="#111111" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <title>Bee Tent Field</title>
+  <!-- MapLibre via CDN for the scaffold. TODO: vendor locally so it works
+       offline when served from the ESP32 (no internet in the field). -->
+  <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="map"></div>
+
+  <!-- Top bar: field name + RTK fix badge (always visible) -->
+  <div id="topbar">
+    <div id="fieldname">No field</div>
+    <div id="fixbadge" class="fix-none">NO FIX</div>
+  </div>
+
+  <!-- Bottom controls -->
+  <div id="controls">
+    <button id="btn-overview" class="active">Overview</button>
+    <button id="btn-ground">Ground</button>
+    <button id="btn-fields">Fields</button>
+    <div id="stats"><span id="sats">0</span> sats &middot; HDOP <span id="hdop">--</span></div>
+  </div>
+
+  <!-- Field picker drawer -->
+  <div id="fieldsheet" class="hidden">
+    <div class="sheet-head">
+      <span>Fields</span>
+      <button id="btn-sync">&#8635; Sync</button>
+      <button id="btn-close-fields">&times;</button>
+    </div>
+    <ul id="fieldlist"></ul>
+    <div id="syncnote"></div>
+  </div>
+
+  <!-- Point detail popup -->
+  <div id="pointsheet" class="hidden">
+    <div class="sheet-head">
+      <span id="pt-label">S-00</span>
+      <button id="btn-close-point">&times;</button>
+    </div>
+    <div id="pt-coords"></div>
+    <label class="chk"><input type="checkbox" id="pt-visited" /> Placed</label>
+    <textarea id="pt-note" placeholder="Note&hellip;"></textarea>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
