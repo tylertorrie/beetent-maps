@@ -118,6 +118,7 @@ function onPosition(p) {
   setFix(p.fix);
   document.getElementById("sats").textContent = p.sats ?? 0;
   document.getElementById("hdop").textContent = (p.hdop ?? "--");
+  if (window.beePublish) window.beePublish.setPos(p);
 
   if (mode === "ground" && followGround) {
     map.easeTo({ center: [p.lon, p.lat], zoom: GROUND_ZOOM, duration: 250 });
@@ -170,7 +171,9 @@ async function loadField(url, name) {
       }
     }
     map.getSource("field").setData(fc);
-    document.getElementById("fieldname").textContent = name || fc.name || "Field";
+    const fname = name || fc.name || "Field";
+    document.getElementById("fieldname").textContent = fname;
+    publishFieldState(fname);
     fitToField();
   } catch (e) {
     console.error("loadField failed", e);
@@ -192,6 +195,22 @@ function eachCoord(geom, fn) {
   if (geom.type === "Point") fn(geom.coordinates);
   else if (geom.type === "Polygon") geom.coordinates.forEach((r) => r.forEach(fn));
   else if (geom.type === "LineString") geom.coordinates.forEach(fn);
+}
+
+// Shelter totals for the active field, for the office Monitor view.
+function fieldProgress() {
+  let total = 0, placed = 0;
+  for (const f of (activeField?.features || [])) {
+    if (f.properties.type === "shelter") { total++; if (f.properties.visited) placed++; }
+  }
+  return { total, placed };
+}
+
+function publishFieldState(name) {
+  if (!window.beePublish) return;
+  const { total, placed } = fieldProgress();
+  window.beePublish.setField(name, total);
+  window.beePublish.setProgress(placed);
 }
 
 // ---- Point detail -----------------------------------------------------------
@@ -221,7 +240,8 @@ function commitPoint() {
     }
   }
   map.getSource("field").setData(activeField);
-  // TODO: persist to IndexedDB + publish to the office relay (Phase 3/4).
+  if (window.beePublish) window.beePublish.setProgress(fieldProgress().placed);
+  // TODO: persist visited/notes to IndexedDB for offline (Phase 3).
 }
 
 // ---- View switching ---------------------------------------------------------
@@ -249,4 +269,13 @@ window.addEventListener("DOMContentLoaded", () => {
   document.getElementById("btn-sync").onclick = () => loadFieldList();
   document.getElementById("btn-close-point").onclick = () => { commitPoint(); closeSheet("pointsheet"); };
   document.getElementById("pt-visited").onchange = commitPoint;
+
+  // Crew identity (shown on the office Monitor view).
+  const cn = document.getElementById("crewname");
+  if (window.beePublish) cn.textContent = window.beePublish.getCrew().name;
+  document.getElementById("btn-crew").onclick = () => {
+    const name = prompt("Crew name (shown on the office map):",
+                        window.beePublish ? window.beePublish.getCrew().name : "");
+    if (name && window.beePublish) { window.beePublish.setCrew(name); cn.textContent = name; }
+  };
 });

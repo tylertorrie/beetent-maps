@@ -36,6 +36,8 @@
       <button id="btn-sync">&#8635; Sync</button>
       <button id="btn-close-fields">&times;</button>
     </div>
+    <div id="crewbar">You are: <b id="crewname">—</b>
+      <button id="btn-crew">Change</button></div>
     <ul id="fieldlist"></ul>
     <div id="syncnote"></div>
   </div>
@@ -51,6 +53,11 @@
     <textarea id="pt-note" placeholder="Note&hellip;"></textarea>
   </div>
 
-  <script src="app.js"></script>
+  <!-- Firebase relay (online-only; safe to fail offline). compat SDK = simplest. -->
+  <script defer src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+  <script defer src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script>
+  <script defer src="firebase-config.js"></script>
+  <script defer src="publish.js"></script>
+  <script defer src="app.js"></script>
 </body>
 </html>

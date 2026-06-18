@@ -55,5 +55,10 @@ fields/**/*_map.json
 !reference/
 !reference/**
 
+# Firebase relay config — contains the shared auth token, NEVER commit (repo is
+# public). Each device fills its own copy from the *.example templates.
+firebase_config.json
+tablet/firebase-config.js
+
 # Compiled/installed dependencies that ship with the source
 # (shapefile.py, simplekml, utm, fpdf are vendored — DO track them)

@@ -50,6 +50,9 @@ html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; }
 }
 .hidden { display: none !important; }
 
+#crewbar { padding: 10px 14px; font-size: 14px; border-bottom: 1px solid #222; opacity: .9; }
+#crewbar button { float: right; background: #333; color: #fff; border: 0; border-radius: 6px; padding: 4px 10px; }
+
 #fieldlist { list-style: none; margin: 0; padding: 0; }
 #fieldlist li { padding: 14px; border-bottom: 1px solid #222; }
 #fieldlist li small { display: block; opacity: .6; }

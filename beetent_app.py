@@ -1696,12 +1696,41 @@ class BeetentApp(ctk.CTk):
 
     def _monitor_start(self):
         if self._mon_feed is None:
-            import monitor_feed
-            self._mon_feed = monitor_feed.MockFeed()   # TODO: swap for real relay client
+            self._mon_feed = self._make_crew_feed()
             self._mon_feed.on_update = lambda c: self.after(0, self._monitor_on_update, c)
+            self._mon_feed.on_remove = lambda cid: self.after(0, self._monitor_remove, cid)
             self._mon_feed.start()
         if self._mon_prune_job is None:
             self._monitor_prune()
+
+    def _make_crew_feed(self):
+        """Real FirebaseFeed when firebase_config.json is present, else the
+        MockFeed simulator. The status banner reflects which one is live."""
+        import monitor_feed
+        cfg = Path(__file__).resolve().parent / "firebase_config.json"
+        try:
+            if cfg.exists():
+                data = json.loads(cfg.read_text(encoding="utf-8"))
+                url = (data.get("databaseURL") or "").strip()
+                if url:
+                    self._mon_status.configure(text="● LIVE", text_color="#1faa59")
+                    return monitor_feed.FirebaseFeed(url, data.get("token") or None)
+        except Exception as e:
+            self._log(f"Firebase config error: {e}")
+        self._mon_status.configure(text="● LIVE (simulated)", text_color="#d8a200")
+        return monitor_feed.MockFeed()
+
+    def _monitor_remove(self, cid):
+        m = self._mon_markers.pop(cid, None)
+        if m is not None:
+            try: m.delete()
+            except Exception: pass
+        self._mon_marker_color.pop(cid, None)
+        self._mon_state.pop(cid, None)
+        row = self._mon_rows.pop(cid, None)
+        if row is not None:
+            try: row["card"].destroy()
+            except Exception: pass
 
     @staticmethod
     def _mon_fix_color(fix):

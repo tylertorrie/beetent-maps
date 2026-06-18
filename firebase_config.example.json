@@ -1,0 +1,5 @@
+{
+  "_comment": "Copy this file to firebase_config.json (gitignored) and fill in your values. See tablet/FIREBASE_SETUP.md.",
+  "databaseURL": "https://YOUR-PROJECT-default-rtdb.firebaseio.com",
+  "token": ""
+}
