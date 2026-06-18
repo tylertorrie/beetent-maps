@@ -1591,6 +1591,7 @@ class BeetentApp(ctk.CTk):
             fill="x", padx=8, pady=(0, 6))
         for text, cmd in [("🗺  Map View", self._open_map_view),
                           ("📊  Overview", self._open_overview_view),
+                          ("📡  Monitor",  self._open_monitor_view),
                           ("📁  Files",    self._open_files_view)]:
             ctk.CTkButton(self.nav_drawer, text=text, anchor="w", height=40,
                           fg_color="transparent", hover_color=UI_HOVER,
@@ -1615,7 +1616,8 @@ class BeetentApp(ctk.CTk):
     def _hide_all_views(self):
         for v in (self.body_frame,
                   getattr(self, "files_view", None),
-                  getattr(self, "overview_view", None)):
+                  getattr(self, "overview_view", None),
+                  getattr(self, "monitor_view", None)):
             if v is not None and v.winfo_ismapped():
                 v.pack_forget()
 
@@ -1648,6 +1650,150 @@ class BeetentApp(ctk.CTk):
         self._apply_toolbar_for_view("overview")
         self._overview_refresh_filter_options()
         self._overview_refresh()
+
+    # ── Monitor view ────────────────────────────────────────────────────────
+    # Live map of field crews (flaggers / shelter crews). Fed by monitor_feed:
+    # a MockFeed today, the real relay client (Firebase/MQTT/WS) once chosen.
+    def _open_monitor_view(self):
+        self._close_nav_drawer()
+        self._hide_all_views()
+        if getattr(self, "monitor_view", None) is None:
+            self._build_monitor_view()
+        self.monitor_view.pack(fill="both", expand=True)
+        self._apply_toolbar_for_view("monitor")
+        self._monitor_start()
+
+    def _build_monitor_view(self):
+        self.monitor_view = ctk.CTkFrame(self, corner_radius=0)
+        self._mon_markers = {}        # crew_id -> map marker
+        self._mon_marker_color = {}   # crew_id -> last marker colour (recolour on change)
+        self._mon_rows = {}           # crew_id -> dict of row widgets
+        self._mon_state = {}          # crew_id -> last crew dict
+        self._mon_feed = None
+        self._mon_prune_job = None
+        self._mon_selected = None
+
+        hdr = ctk.CTkFrame(self.monitor_view, fg_color="transparent")
+        hdr.pack(fill="x", padx=12, pady=(10, 4))
+        ctk.CTkLabel(hdr, text="Monitor", text_color=UI_TEXT,
+                     font=ctk.CTkFont(family=FONT_HEADING, size=18)).pack(side="left")
+        # Honest banner: this is simulated until the relay is wired in.
+        self._mon_status = ctk.CTkLabel(
+            hdr, text="● LIVE (simulated)", text_color="#d8a200",
+            font=ctk.CTkFont(family=FONT_LABEL, size=12))
+        self._mon_status.pack(side="right")
+
+        body = ctk.CTkFrame(self.monitor_view, fg_color="transparent")
+        body.pack(fill="both", expand=True, padx=12, pady=(2, 10))
+
+        self.monitor_map = tkintermapview.TkinterMapView(body, corner_radius=6)
+        self.monitor_map.pack(side="left", fill="both", expand=True)
+        self.monitor_map.set_position(DEFAULT_LAT, DEFAULT_LON)
+        self.monitor_map.set_zoom(15)
+
+        self._mon_panel = ctk.CTkScrollableFrame(body, width=300, label_text="Crews")
+        self._mon_panel.pack(side="right", fill="y", padx=(8, 0))
+
+    def _monitor_start(self):
+        if self._mon_feed is None:
+            import monitor_feed
+            self._mon_feed = monitor_feed.MockFeed()   # TODO: swap for real relay client
+            self._mon_feed.on_update = lambda c: self.after(0, self._monitor_on_update, c)
+            self._mon_feed.start()
+        if self._mon_prune_job is None:
+            self._monitor_prune()
+
+    @staticmethod
+    def _mon_fix_color(fix):
+        return {4: "#1faa59", 5: "#d8a200", 2: "#3a7bd5"}.get(fix, "#c0392b")
+
+    @staticmethod
+    def _mon_fix_text(fix):
+        return {4: "RTK", 5: "FLOAT", 2: "DGPS", 1: "GPS"}.get(fix, "NO FIX")
+
+    def _monitor_on_update(self, crew):
+        cid = crew.get("id")
+        if cid is None or not hasattr(self, "monitor_map"):
+            return
+        self._mon_state[cid] = crew
+        color = self._mon_fix_color(crew.get("fix"))
+        m = self._mon_markers.get(cid)
+        # tkintermapview markers don't recolour in place — recreate on colour change.
+        if m is None or self._mon_marker_color.get(cid) != color:
+            if m is not None:
+                try: m.delete()
+                except Exception: pass
+            m = self.monitor_map.set_marker(
+                crew["lat"], crew["lon"], text=crew.get("name", cid),
+                marker_color_circle=color, marker_color_outside="#222222",
+                text_color=UI_TEXT)
+            self._mon_markers[cid] = m
+            self._mon_marker_color[cid] = color
+        else:
+            m.set_position(crew["lat"], crew["lon"])
+        self._monitor_render_row(crew, color)
+
+    def _monitor_render_row(self, crew, color):
+        cid = crew["id"]
+        row = self._mon_rows.get(cid)
+        if row is None:
+            card = ctk.CTkFrame(self._mon_panel, fg_color=UI_CARD, corner_radius=8,
+                                border_width=1, border_color=UI_BORDER)
+            card.pack(fill="x", padx=2, pady=4)
+            top = ctk.CTkFrame(card, fg_color="transparent")
+            top.pack(fill="x", padx=8, pady=(6, 0))
+            name = ctk.CTkLabel(top, text="", text_color=UI_TEXT,
+                                font=ctk.CTkFont(family=FONT_LABEL, size=14, weight="bold"))
+            name.pack(side="left")
+            badge = ctk.CTkLabel(top, text="", width=54, corner_radius=6,
+                                 font=ctk.CTkFont(size=11, weight="bold"))
+            badge.pack(side="right")
+            field = ctk.CTkLabel(card, text="", anchor="w", text_color=UI_TEXT,
+                                 font=ctk.CTkFont(family=FONT_LABEL, size=12))
+            field.pack(fill="x", padx=8)
+            prog = ctk.CTkLabel(card, text="", anchor="w", text_color=UI_TEXT,
+                                font=ctk.CTkFont(family=FONT_LABEL, size=12))
+            prog.pack(fill="x", padx=8)
+            seen = ctk.CTkLabel(card, text="", anchor="w", text_color="#888888",
+                                font=ctk.CTkFont(family=FONT_LABEL, size=11))
+            seen.pack(fill="x", padx=8, pady=(0, 6))
+            for w in (card, top, name, field, prog, seen):
+                w.bind("<Button-1>", lambda e, c=cid: self._monitor_focus(c))
+            row = {"card": card, "name": name, "badge": badge,
+                   "field": field, "prog": prog, "seen": seen}
+            self._mon_rows[cid] = row
+        row["name"].configure(text=crew.get("name", cid))
+        row["badge"].configure(text=self._mon_fix_text(crew.get("fix")), fg_color=color,
+                               text_color="#111111" if crew.get("fix") == 5 else "#ffffff")
+        row["field"].configure(text="📍 " + str(crew.get("field", "—")))
+        row["prog"].configure(text=f"🐝 {crew.get('placed', 0)}/{crew.get('total', 0)} placed")
+        row["seen"].configure(text="updated just now", text_color="#888888")
+        row["card"].configure(border_color="#1faa59" if self._mon_selected == cid else UI_BORDER)
+
+    def _monitor_focus(self, cid):
+        self._mon_selected = cid
+        crew = self._mon_state.get(cid)
+        if crew:
+            self.monitor_map.set_position(crew["lat"], crew["lon"])
+            self.monitor_map.set_zoom(18)
+        for c, row in self._mon_rows.items():
+            row["card"].configure(border_color="#1faa59" if c == cid else UI_BORDER)
+        # TODO Phase 4: state-mirror — overlay this crew's field + placed shelters here.
+
+    def _monitor_prune(self):
+        import time
+        now = time.time()
+        for cid, crew in list(self._mon_state.items()):
+            row = self._mon_rows.get(cid)
+            if row is None:
+                continue
+            age = now - crew.get("ts", now)
+            if age > 8:
+                row["seen"].configure(text=f"⚠ stale — {int(age)}s ago", text_color="#c0392b")
+            else:
+                row["seen"].configure(text=f"updated {int(age)}s ago", text_color="#888888")
+        if getattr(self, "monitor_view", None) is not None:
+            self._mon_prune_job = self.monitor_view.after(2000, self._monitor_prune)
 
     def _toggle_sidebar(self):
         """Collapse the Map-view right panel to a thin ◀ tab, or restore it."""
