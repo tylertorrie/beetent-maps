@@ -1361,5 +1361,27 @@
     "role": "flag",
     "generated": "2026-06-18T12:08:33",
     "size": 675148
+  },
+  {
+    "id": "pdfs/Stolk SE 9-11-14 2026 Shelter Map 3.pdf",
+    "kind": "pdf",
+    "name": "Stolk SE 9-11-14 2026 Shelter Map 3.pdf",
+    "relpath": "pdfs/Stolk SE 9-11-14 2026 Shelter Map 3.pdf",
+    "is_dir": false,
+    "companies": [
+      "Corteva"
+    ],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "Stolk SE 9-11-14"
+    ],
+    "types": [
+      "PDF"
+    ],
+    "role": "flag",
+    "generated": "2026-06-18T12:22:03",
+    "size": 663356
   }
 ]
