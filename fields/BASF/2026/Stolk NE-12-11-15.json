@@ -15,7 +15,7 @@
   "num_male_rows": "2",
   "planter_width_ft": "36.666",
   "outside_sprayer_pass": "No",
-  "track_exclusion_ft": "10",
+  "track_exclusion_ft": "5",
   "boundary_polygon": [
     [
       49.902373332195715,
@@ -789,7 +789,8 @@
     213.41,
     266.56,
     319.38,
-    373.74
+    373.74,
+    120.62
   ],
   "corner_arms": [
     {
