@@ -2459,16 +2459,26 @@ class BeetentApp(ctk.CTk):
         self._files_refresh()
 
     def _files_print(self, path):
-        """Send a file straight to the default printer via the Windows 'print'
-        shell verb."""
+        """Send a file to the default printer via the Windows 'print' shell verb.
+        Many default PDF apps (browsers like Edge/Chrome) don't register a 'print'
+        verb (WinError 1155), so fall back to opening the file for a manual
+        Ctrl+P instead of dead-ending with an error."""
+        path = str(path)
         try:
-            os.startfile(str(path), "print")
+            os.startfile(path, "print")
             self._status("Sent to printer: %s" % Path(path).name)
+            return
+        except Exception:
+            pass
+        # No 'print' verb for this file type — open it so the user can print.
+        try:
+            os.startfile(path)
+            self._status("No auto-print app set — opened %s; press Ctrl+P to print. "
+                         "(Set Adobe Reader/SumatraPDF as your default PDF app for "
+                         "one-click printing.)" % Path(path).name)
         except Exception as ex:
             tkinter.messagebox.showerror(
-                "Print failed",
-                "Windows couldn't print this file automatically:\n\n%s\n\n"
-                "Try opening it and printing from there instead." % ex)
+                "Print failed", "Couldn't print or open this file:\n\n%s" % ex)
 
     def _files_add_row(self, path, label, icon, meta, on_open, on_print=None):
         row = ctk.CTkFrame(self._fv_scroll, fg_color=UI_HOVER, corner_radius=6)
@@ -2698,25 +2708,62 @@ class BeetentApp(ctk.CTk):
                 "shelters", "gpa"]
 
     def _ov_load_prefs(self):
+        self._ov_widths = {}        # column key -> user-set pixel width
         try:
             p = DATA_DIR / "overview_prefs.json"
             if p.exists():
                 d = json.loads(p.read_text(encoding="utf-8"))
+                if isinstance(d.get("widths"), dict):
+                    self._ov_widths = {k: int(v) for k, v in d["widths"].items()
+                                       if isinstance(v, (int, float))}
+                self._ov_widths_saved = dict(self._ov_widths)
                 if isinstance(d.get("visible"), list):
                     keys = {k for k, _, _ in self._overview_columns()}
                     return [k for k in d["visible"] if k in keys]
         except Exception:
             pass
+        self._ov_widths_saved = dict(self._ov_widths)
         return self._ov_default_visible()
 
     def _ov_save_prefs(self):
         try:
             DATA_DIR.mkdir(parents=True, exist_ok=True)
             (DATA_DIR / "overview_prefs.json").write_text(
-                json.dumps({"visible": self._ov_visible}, indent=2), encoding="utf-8")
+                json.dumps({"visible": self._ov_visible,
+                            "widths": getattr(self, "_ov_widths", {})}, indent=2),
+                encoding="utf-8")
             self._git_push("overview columns")
         except Exception:
             pass
+
+    def _ov_capture_widths(self, event=None):
+        """Read the live column widths into _ov_widths (called during a resize drag)."""
+        t = getattr(self, "ov_tree", None)
+        if not t:
+            return
+        try:
+            for k in t["columns"]:
+                self._ov_widths[k] = t.column(k, "width")
+        except Exception:
+            pass
+
+    def _ov_on_col_release(self, event=None):
+        """After a column-separator drag, re-apply the captured widths (defeats any
+        ttk snap-back) and persist them. No-op on a plain click (no width change)."""
+        t = getattr(self, "ov_tree", None)
+        if not t:
+            return
+        self._ov_capture_widths()
+        if self._ov_widths == getattr(self, "_ov_widths_saved", None):
+            return                      # nothing resized — don't churn git
+        try:
+            for k, w in self._ov_widths.items():
+                if k in t["columns"]:
+                    t.column(k, width=w)
+        except Exception:
+            pass
+        self._ov_widths_saved = dict(self._ov_widths)
+        self._ov_save_prefs()
 
     def _overview_row(self, f):
         """Compute one spreadsheet row (raw typed values) from a field dict.
@@ -2832,6 +2879,10 @@ class BeetentApp(ctk.CTk):
         vsb.pack(side="right", fill="y")
         hsb.pack(side="bottom", fill="x")
         self.ov_tree.pack(side="left", fill="both", expand=True)
+        # Persist user-resized column widths: track live during a separator drag,
+        # then re-apply + save on release (survives refreshes and restarts).
+        self.ov_tree.bind("<B1-Motion>", self._ov_capture_widths, add="+")
+        self.ov_tree.bind("<ButtonRelease-1>", self._ov_on_col_release, add="+")
         self._ov_rows = []
 
     def _overview_refresh_filter_options(self):
@@ -2863,7 +2914,7 @@ class BeetentApp(ctk.CTk):
         for k in visible:
             self.ov_tree.heading(k, text=label[k],
                                  command=lambda c=k: self._ov_sort(c))
-            self.ov_tree.column(k, width=(160 if k == "field" else 95),
+            self.ov_tree.column(k, width=self._ov_widths.get(k, 160 if k == "field" else 95),
                                 anchor=("w" if kind[k] == "text" else "e"),
                                 stretch=(k == "field"))
         for iid in self.ov_tree.get_children():
@@ -9433,6 +9484,14 @@ class BeetentApp(ctk.CTk):
                     idx = int(self._drag_item.split("_")[1])
                     self._on_shelter_tap(idx)
                 except (ValueError, IndexError): pass
+            elif self.click_mode == "boundary_edit" and was_pin_drag and \
+               self._drag_item and self._drag_item.startswith("bnd_"):
+                # Tapping an existing vertex selects it (shows 🗑 Delete Vertex /
+                # Del to remove); only a click on empty map adds a new vertex.
+                try:
+                    idx=int(self._drag_item.split("_")[1])
+                    self._select_bnd_vertex(idx)
+                except (ValueError,IndexError): pass
             elif self.click_mode is not None:
                 try:
                     lat,lon=self.map_widget.convert_canvas_coords_to_decimal_coords(event.x,event.y)
