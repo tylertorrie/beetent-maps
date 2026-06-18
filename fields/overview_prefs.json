@@ -10,10 +10,10 @@
     "buffer"
   ],
   "widths": {
-    "field": 213,
+    "field": 386,
     "company": 240,
     "year": 204,
-    "acres": 324,
+    "acres": 374,
     "gpa": 344,
     "total_gals": 95,
     "total_trays": 95,
