@@ -450,20 +450,7 @@
   "sprayer_routes_around_inner": true,
   "bays_through_inner": false,
   "manual_shelter_pins": [],
-  "shelter_overrides": {
-    "5": [
-      49.79399955468043,
-      -111.92182880279324
-    ],
-    "76": [
-      49.79940489287664,
-      -111.91273074981473
-    ],
-    "75": [
-      49.79996582230864,
-      -111.91344421741269
-    ]
-  },
+  "shelter_overrides": {},
   "Planting_angle": "90",
   "shelter_rows": "",
   "bay_gap_in": "0",
