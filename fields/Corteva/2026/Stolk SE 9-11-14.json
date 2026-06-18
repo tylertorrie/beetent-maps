@@ -376,7 +376,12 @@
     384.98
   ],
   "corner_arms": [],
-  "shelter_overrides": {},
+  "shelter_overrides": {
+    "54": [
+      49.8928727315485,
+      -111.85312611824799
+    ]
+  },
   "gals_per_acre": "3",
   "acres": "66.37",
   "gals_per_tray": "2",
