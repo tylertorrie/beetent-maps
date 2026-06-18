@@ -15,6 +15,10 @@ window.beeTiles = (function () {
   const ZMIN = 13, ZMAX = 19;          // Esri native max = 19; MapLibre overzooms past it
   const MAX_TILES_PER_FIELD = 2000;    // safety cap (~30 MB) per field
   const CONCURRENCY = 6;
+  // Whole-cache LRU cap: ~20k tiles ≈ 250–350 MB. When exceeded (checked after
+  // Sync and on startup), evict least-recently-used tiles down to the target.
+  const MAX_CACHE_TILES = 20000;
+  const EVICT_TARGET = 16000;
 
   // 1x1 transparent PNG, used when a tile is missing offline.
   const TRANSPARENT = Uint8Array.from(
@@ -100,8 +104,29 @@ window.beeTiles = (function () {
     }
     async function worker() { while (i < keys.length) await one(keys[i++]); }
     await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+    // Refresh recency for the whole field (including tiles that were already
+    // cached and thus skipped) so an actively-synced field survives eviction.
+    if (keys.length) await beeDB.touchTiles(keys).catch(() => {});
     return { total: keys.length, stored };
   }
 
-  return { registerProtocol, cacheFieldTiles, tileCount: () => beeDB.countTiles() };
+  // Mark a field's tiles as recently used (e.g. when the field is opened), so
+  // fields a crew keeps using don't get evicted in favour of incidental tiles.
+  async function touchField(fc) {
+    try {
+      const keys = tileList(fc);
+      if (keys.length) await beeDB.touchTiles(keys);
+    } catch (e) { /* ignore */ }
+  }
+
+  // Enforce the whole-cache cap. Returns how many tiles were evicted.
+  async function evictIfNeeded() {
+    try { return await beeDB.evictTiles(MAX_CACHE_TILES, EVICT_TARGET); }
+    catch (e) { return 0; }
+  }
+
+  return {
+    registerProtocol, cacheFieldTiles, touchField, evictIfNeeded,
+    tileCount: () => beeDB.countTiles(),
+  };
 })();

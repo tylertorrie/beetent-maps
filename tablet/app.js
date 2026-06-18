@@ -209,9 +209,12 @@ async function syncAll() {
       }
     } catch (e) { /* skip this one */ }
   }
+  let evicted = 0;
+  if (window.beeTiles) { try { evicted = await beeTiles.evictIfNeeded(); } catch (e) {} }
   let tiles = 0;
   try { tiles = window.beeTiles ? await beeTiles.tileCount() : 0; } catch (e) {}
-  note.textContent = `Synced ${ok}/${items.length} field(s); ${tiles} map tiles cached for offline.`;
+  note.textContent = `Synced ${ok}/${items.length} field(s); ${tiles} map tiles cached`
+    + (evicted ? ` (evicted ${evicted} old)` : "") + ".";
   loadFieldList();
 }
 
@@ -232,6 +235,7 @@ async function loadField(url, name) {
     }
   }
   activeField = fc;
+  if (window.beeTiles) beeTiles.touchField(fc);   // keep this field's tiles fresh (LRU)
 
   // Load this field's saved placement state from IndexedDB into `visited`.
   const saved = (await beeDB.getState(activeFieldFile).catch(() => null)) || {};
@@ -347,6 +351,7 @@ function updateNet() {
 window.addEventListener("DOMContentLoaded", () => {
   initMap();
   connectPosition();
+  if (window.beeTiles) beeTiles.evictIfNeeded();   // trim cache if it grew past the cap
   updateNet();
   window.addEventListener("online", updateNet);
   window.addEventListener("offline", updateNet);

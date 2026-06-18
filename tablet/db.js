@@ -13,7 +13,9 @@
 
 window.beeDB = (function () {
   const NAME = "beetent";
-  const STORES = ["fields", "state", "meta", "tiles"];   // tiles = cached satellite imagery
+  // tiles = cached satellite image bytes; tile_meta = key -> last-used timestamp
+  // (kept separate so eviction can scan timestamps without loading the imagery).
+  const STORES = ["fields", "state", "meta", "tiles", "tile_meta"];
   let dbp = null;
 
   const createMissing = (db) => {
@@ -55,6 +57,42 @@ window.beeDB = (function () {
     });
   }
 
+  // Run over multiple stores (no return value); resolves on commit.
+  async function runTx(stores, mode, fn) {
+    const db = await open();
+    return new Promise((resolve, reject) => {
+      const t = db.transaction(stores, mode);
+      fn(...stores.map((s) => t.objectStore(s)));
+      t.oncomplete = () => resolve();
+      t.onerror = () => reject(t.error);
+      t.onabort = () => reject(t.error);
+    });
+  }
+
+  // LRU eviction: if the tile cache exceeds maxCount, delete the least-recently
+  // used tiles down to targetCount. Scans tile_meta (timestamps only, tiny) for
+  // ordering; tiles with no meta entry (legacy) sort as oldest and go first.
+  async function evictTiles(maxCount, targetCount) {
+    const db = await open();
+    const keys = await new Promise((res, rej) => {
+      const r = db.transaction("tiles", "readonly").objectStore("tiles").getAllKeys();
+      r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+    });
+    if (keys.length <= maxCount) return 0;
+    const used = await new Promise((res, rej) => {
+      const m = new Map();
+      const cur = db.transaction("tile_meta", "readonly").objectStore("tile_meta").openCursor();
+      cur.onsuccess = () => { const c = cur.result; if (c) { m.set(c.key, c.value); c.continue(); } else res(m); };
+      cur.onerror = () => rej(cur.error);
+    });
+    keys.sort((a, b) => (used.get(a) || 0) - (used.get(b) || 0));   // oldest first
+    const drop = keys.slice(0, keys.length - targetCount);
+    await runTx(["tiles", "tile_meta"], "readwrite", (tiles, meta) => {
+      for (const k of drop) { tiles.delete(k); meta.delete(k); }
+    });
+    return drop.length;
+  }
+
   return {
     getIndex: () => run("meta", "readonly", s => s.get("fields_index")),
     putIndex: (list) => run("meta", "readwrite", s => s.put(list, "fields_index")),
@@ -63,7 +101,11 @@ window.beeDB = (function () {
     getState: (file) => run("state", "readonly", s => s.get(file)),
     putState: (file, map) => run("state", "readwrite", s => s.put(map, file)),
     getTile: (key) => run("tiles", "readonly", s => s.get(key)),
-    putTile: (key, buf) => run("tiles", "readwrite", s => s.put(buf, key)),
+    putTile: (key, buf) => runTx(["tiles", "tile_meta"], "readwrite",
+      (tiles, meta) => { tiles.put(buf, key); meta.put(Date.now(), key); }),
+    touchTiles: (keys) => runTx(["tile_meta"], "readwrite",
+      (meta) => { const now = Date.now(); for (const k of keys) meta.put(now, k); }),
     countTiles: () => run("tiles", "readonly", s => s.count()),
+    evictTiles: (maxCount, targetCount) => evictTiles(maxCount, targetCount),
   };
 })();
