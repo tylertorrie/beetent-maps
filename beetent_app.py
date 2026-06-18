@@ -2045,7 +2045,7 @@ class BeetentApp(ctk.CTk):
         self._fv_role = tk.StringVar(value="All")
         self._fv_role_cb = ctk.CTkComboBox(
             flt, variable=self._fv_role, width=160,
-            values=["All", "Agronomist", "Flag/Shelter Crew", "Bee Delivery"],
+            values=["All", "Agronomist", "Flagger", "Shelter Crew", "Bee Delivery"],
             command=lambda _: self._files_refresh())
         # Sort (right side)
         self._fv_sort = tk.StringVar(value="Newest first")
@@ -2203,8 +2203,8 @@ class BeetentApp(ctk.CTk):
         typ = self._fv_type.get(); role = self._fv_role.get()
         COMPONENT = {"KML": "KML", "AgGPS": "AgGPS", "GeoJSON": "GeoJSON",
                      "JD Buffer Zones": "JD", "Boundary": "Boundary"}
-        role_map = {"Agronomist": "agronomist", "Flag/Shelter Crew": "flag",
-                    "Bee Delivery": "bee"}
+        role_map = {"Agronomist": "agronomist", "Flagger": "flag",
+                    "Shelter Crew": "shelter", "Bee Delivery": "bee"}
         out = []
         for r in load_output_index():
             if not (OUTPUT_DIR / r.get("relpath", "")).exists():
@@ -2255,8 +2255,8 @@ class BeetentApp(ctk.CTk):
             "KML": "Shelter Pins KML", "AgGPS": "AgGPS", "GeoJSON": "GeoJSON Files",
             "JD Buffer Zones": "John Deere Shelter Buffer Zones",
             "Boundary": "Boundary Files"}
-        role_disp = {"agronomist": "Agronomist", "flag": "Flag/Shelter",
-                     "bee": "Bee Delivery"}
+        role_disp = {"agronomist": "Agronomist", "flag": "Flagger",
+                     "shelter": "Shelter Crew", "bee": "Bee Delivery"}
 
         def meta_of(r, lead):
             parts = [lead,
@@ -10188,7 +10188,7 @@ class BeetentApp(ctk.CTk):
         ctk.CTkLabel(pad, text="Prepared for:").pack(anchor="w")
         role_var = tk.StringVar(value="Agronomist")
         ctk.CTkSegmentedButton(pad,
-                               values=["Agronomist", "Flag/Shelter Crew", "Bee Delivery"],
+                               values=["Agronomist", "Flagger", "Shelter Crew", "Bee Delivery"],
                                variable=role_var).pack(anchor="w", pady=(2,10), fill="x")
 
         # Save path — file for single, folder for batch
@@ -10243,12 +10243,14 @@ class BeetentApp(ctk.CTk):
         self.wait_window(dlg)
         if not result["go"]: return
 
-        role = {"Agronomist":        "agronomist",
-                "Flag/Shelter Crew": "flag",
-                "Bee Delivery":      "bee"}[role_var.get()]
+        role = {"Agronomist":   "agronomist",
+                "Flagger":      "flag",
+                "Shelter Crew": "shelter",
+                "Bee Delivery": "bee"}[role_var.get()]
         # Each role fixes the pin labels: agronomist/bee → tray counts,
-        # flag/shelter crew → shelter numbers.
-        label_mode = {"agronomist": "trays", "flag": "shelters", "bee": "trays"}[role]
+        # flagger/shelter crew → shelter numbers.
+        label_mode = {"agronomist": "trays", "flag": "shelters",
+                      "shelter": "shelters", "bee": "trays"}[role]
 
         if is_single:
             co0, yr0, nm0 = selected[0]
@@ -10500,11 +10502,15 @@ class BeetentApp(ctk.CTk):
 
         role tailors the content for the job:
           - "agronomist": full detail; tray-count pins; drop "Gap Between Bays"
-            when it's 0 ft and drop "Shelters in Outside Pass".
-          - "flag" (Flag/Shelter Crew): shelter-number pins; field details only
-            (no gallons / trays-per / distribution / outside-pass rows).
+            when it's 0 ft and drop "Shelters in Outside Pass". One page only.
+          - "flag" (Flagger) / "shelter" (Shelter Crew): shelter-number pins;
+            field details only (no gallons / trays-per / distribution /
+            outside-pass rows). Same map + data layout for both.
           - "bee" (Bee Delivery): tray-count pins; drop the planting/spray/row
             geometry rows and the outside-pass row.
+        Every non-agronomist role gets a second page: a prep / at-field /
+        end-of-job checklist with a notes box (Flagger fully populated; the
+        others carry the structure with items to be filled in later).
         The bottom data tables auto-size their rows to fill the page."""
         import fpdf as _fpdf
         import tempfile, math as _math
@@ -10597,7 +10603,8 @@ class BeetentApp(ctk.CTk):
                       "trays":    "Tray Counts",
                       "off":      "None"}[label_mode]
         role_disp = {"agronomist": "Agronomist",
-                     "flag":       "Flag / Shelter Crew",
+                     "flag":       "Flagger",
+                     "shelter":    "Shelter Crew",
                      "bee":        "Bee Delivery"}.get(role, str(role).title())
 
         # ── Colour palette ─────────────────────────────────────────────────
@@ -10654,12 +10661,16 @@ class BeetentApp(ctk.CTk):
         # ── HEADER BACKGROUND ─────────────────────────────────────────────
         _fill(0, 3, PW, 37, HBGR)
 
-        # ── LOGO ──────────────────────────────────────────────────────────
+        # ── LOGO (reusable across pages) ───────────────────────────────────
         LQSEP = ML + 82           # x of vertical separator (97 mm)
         LQ_CX = LQSEP / 2        # horizontal centre of left quadrant
         HDR_TOP = 3; HDR_BOT = 38  # header content band
         logo_path = str(Path(__file__).parent / "assets" / "pdflogo.png")
-        if os.path.exists(logo_path):
+
+        def _draw_logo(cx, top, bot):
+            """Draw the header logo centred at x=cx within the [top,bot] band."""
+            if not os.path.exists(logo_path):
+                return
             try:
                 from PIL import Image as _LI
                 _logo_img = _LI.open(logo_path)
@@ -10681,15 +10692,17 @@ class BeetentApp(ctk.CTk):
                 aspect = 1.446
                 _logo_embed = logo_path
                 _logo_tmp   = None
-            logo_w = min(22, (HDR_BOT - HDR_TOP - 10) / aspect)  # 5 mm pad top+bottom
+            logo_w = min(22, (bot - top - 10) / aspect)  # 5 mm pad top+bottom
             logo_h = logo_w * aspect
-            logo_x = LQ_CX - logo_w / 2
-            logo_y = HDR_TOP + (HDR_BOT - HDR_TOP - logo_h) / 2
+            logo_x = cx - logo_w / 2
+            logo_y = top + (bot - top - logo_h) / 2
             pdf.image(_logo_embed, logo_x, logo_y, logo_w)
             try:
                 if _logo_tmp: os.unlink(_logo_tmp.name)
             except Exception:
                 pass
+
+        _draw_logo(LQ_CX, HDR_TOP, HDR_BOT)
 
         # ── Vertical separator ─────────────────────────────────────────────
         _vline(ML + 82, 7, 37, DBDR, 0.4)
@@ -10798,7 +10811,7 @@ class BeetentApp(ctk.CTk):
         if role == "agronomist":
             if _gap_zero: rm_left.add("Gap Between Bays")
             rm_right.add("Shelters in Outside Pass")
-        elif role == "flag":
+        elif role in ("flag", "shelter"):
             rm_right.update(["Gals / Acre", "Total Gals", "Gals / Tray",
                              "Trays per Shelter", "Tray Distribution",
                              "Shelters in Outside Pass"])
@@ -10855,6 +10868,112 @@ class BeetentApp(ctk.CTk):
         _txt(ML + CW * 0.5, foot_y, CW * 0.5, 5,
              f"Generated: {date_str}",
              'Helvetica', 'I', 7, MGRAY, 'R')
+
+        def _page_footer():
+            _hline(0, foot_y - 2.5, PW, GOLD, 1.5)
+            _txt(ML, foot_y, CW * 0.5, 5,
+                 "Shelter Mapping App  ·  TNT Pollination",
+                 'Helvetica', '', 7, MGRAY, 'L')
+            _txt(ML + CW * 0.5, foot_y, CW * 0.5, 5,
+                 f"Generated: {date_str}", 'Helvetica', 'I', 7, MGRAY, 'R')
+
+        # ── PAGE 2: ROLE CHECKLIST (every non-agronomist role) ─────────────
+        # Flagger is fully specified. Shelter Crew and Bee Delivery get the
+        # same page structure with the section bars + notes box; their items
+        # are added later (see the empty lists below).
+        if role != "agronomist":
+            if role == "flag":
+                checklist = [
+                    ("BEFORE LEAVING THE SHOP YARD", [
+                        "Sprayer has a full tank of chemical and sprays properly (tested)",
+                        "At least %s flags loaded - one per shelter in this field"
+                            % (shelters_disp if n_shelters else "____"),
+                        "Guidance file uploaded to the monitor - confirmed visible on screen",
+                        "Confirmed it is safe to enter the field",
+                        "Side-by-side fuelled; tires checked and look good",
+                    ]),
+                    ("AT THE FIELD - BEFORE FLAGGING", [
+                        "Planter angle matches the map:  %s" % plant_disp,
+                        "Sprayer angle is correct:  %s" % spray_disp,
+                        "Row spacing %s   ·   Female rows: %s   ·   Male rows: %s"
+                            % (rs_disp, nf_s or "--", nm_s or "--"),
+                        "Parked in the marked parking area",
+                        "Reviewed the shelter layout on the map before starting",
+                    ]),
+                    ("END OF JOB", [
+                        "Reported task complete to the manager / logged it in the app",
+                        "Marked any shelter flags that were missed",
+                        "Marked any flags that had to be moved, and noted why",
+                        "Confirmed flags placed = shelters requested (%s)"
+                            % (shelters_disp if n_shelters else "____"),
+                        "No trash or trace left on or near the field",
+                    ]),
+                ]
+            else:   # shelter crew / bee delivery — structure now, items later
+                checklist = [
+                    ("BEFORE LEAVING THE SHOP YARD", []),
+                    ("AT THE FIELD - BEFORE STARTING", []),
+                    ("END OF JOB", []),
+                ]
+
+            pdf.add_page()
+            # Header band (mirrors page 1, with a role title instead of the map)
+            _fill(0, 0, PW, 3, GOLD)
+            _fill(0, 3, PW, 37, HBGR)
+            _draw_logo(LQ_CX, HDR_TOP, HDR_BOT)
+            _vline(ML + 82, 7, 37, DBDR, 0.4)
+            rxc = ML + 85; rwc = PW - MR - rxc
+            _txt(rxc, 11, rwc, 9, field_name, 'Helvetica', 'B', 18, NAVY, 'C')
+            _txt(rxc, 23, rwc, 6, f"{company}  ·  {year}", 'Helvetica', '', 11,
+                 (80, 100, 120), 'C')
+            _txt(rxc, 30, rwc, 5, f"{role_disp} Checklist", 'Helvetica', 'B', 10,
+                 (180, 130, 10), 'C')
+            _fill(0, 38, PW, 2.5, GOLD)
+
+            # Size section rows to fill the page while reserving a notes box.
+            content_top = 46.0
+            foot_top    = PH - 13
+            min_notes   = 30.0
+            SEC_BAR_H   = 7.5
+            n_items     = sum(len(items) for _, items in checklist) or 1
+            overhead    = len(checklist) * (SEC_BAR_H + 4.0)
+            avail_sec   = foot_top - content_top - min_notes - overhead
+            row_h       = max(7.0, min(10.5, avail_sec / n_items))
+            box         = 4.2
+
+            y = content_top
+            for title, items in checklist:
+                _fill(0, y, PW, SEC_BAR_H, NAVY)
+                _txt(ML + 2, y + 1.4, CW, 5.0, title, 'Helvetica', 'B', 9, WHITE, 'L')
+                y += SEC_BAR_H + 1.5
+                if not items:
+                    _txt(ML + 6, y, CW - 12, 4, "(checklist items to be added)",
+                         'Helvetica', 'I', 9, MGRAY, 'L')
+                    y += row_h
+                for it in items:
+                    pdf.set_draw_color(*NAVY); pdf.set_line_width(0.4)
+                    pdf.rect(ML + 3, y + (row_h - box) / 2.0, box, box)
+                    _txt(ML + 3 + box + 3, y + (row_h - 4) / 2.0,
+                         CW - (box + 9), 4, it, 'Helvetica', '', 9.5, NAVY, 'L')
+                    _hline(ML + 3, y + row_h, CW - 3, (232, 237, 243), 0.2)
+                    y += row_h
+                y += 2.5
+
+            # ── NOTES BOX (fills remaining space down to the footer) ──
+            ny = y
+            _fill(0, ny, PW, SEC_BAR_H, NAVY)
+            _txt(ML + 2, ny + 1.4, CW, 5.0, "NOTES", 'Helvetica', 'B', 9, WHITE, 'L')
+            box_top = ny + SEC_BAR_H + 1.5
+            box_bot = foot_top - 1.5
+            if box_bot > box_top:
+                pdf.set_draw_color(*DBDR); pdf.set_line_width(0.3)
+                pdf.rect(ML, box_top, CW, box_bot - box_top)
+                ly = box_top + 7
+                while ly < box_bot - 2:
+                    _hline(ML + 3, ly, CW - 6, (225, 231, 238), 0.2)
+                    ly += 7
+
+            _page_footer()
 
         # ── WRITE FILE ────────────────────────────────────────────────────
         pdf.output(save_path, 'F')
