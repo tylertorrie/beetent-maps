@@ -30,7 +30,9 @@ const SATELLITE = {
   sources: {
     esri: {
       type: "raster",
-      tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"],
+      // Served via the beetile:// protocol (tiles.js): cache-first from IndexedDB,
+      // network fallback, so imagery works offline once cached.
+      tiles: ["beetile://{z}/{x}/{y}"],
       tileSize: 256,
       maxzoom: 19,
       attribution: "Esri World Imagery",
@@ -55,6 +57,7 @@ const visited = {};      // label -> {visited, note}  (local only for now)
 
 // ---- Map setup --------------------------------------------------------------
 function initMap() {
+  if (window.beeTiles) beeTiles.registerProtocol();   // must precede map creation
   map = new maplibregl.Map({
     container: "map",
     style: SATELLITE,
@@ -194,10 +197,21 @@ async function syncAll() {
   for (const it of items) {
     try {
       const r = await fetch("fields/" + it.file, { cache: "no-store" });
-      if (r.ok) { await beeDB.putField(it.file, await r.json()); ok++; }
+      if (!r.ok) continue;
+      const fc = await r.json();
+      await beeDB.putField(it.file, fc);
+      ok++;
+      // Pre-download satellite tiles covering this field for offline imagery.
+      if (window.beeTiles) {
+        await beeTiles.cacheFieldTiles(fc, (d, t) => {
+          if (d % 20 === 0 || d === t) note.textContent = `Maps: ${it.name} — ${d}/${t} tiles`;
+        });
+      }
     } catch (e) { /* skip this one */ }
   }
-  note.textContent = `Synced ${ok}/${items.length} field(s) for offline use.`;
+  let tiles = 0;
+  try { tiles = window.beeTiles ? await beeTiles.tileCount() : 0; } catch (e) {}
+  note.textContent = `Synced ${ok}/${items.length} field(s); ${tiles} map tiles cached for offline.`;
   loadFieldList();
 }
 

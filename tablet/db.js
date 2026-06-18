@@ -13,7 +13,7 @@
 
 window.beeDB = (function () {
   const NAME = "beetent";
-  const STORES = ["fields", "state", "meta"];
+  const STORES = ["fields", "state", "meta", "tiles"];   // tiles = cached satellite imagery
   let dbp = null;
 
   const createMissing = (db) => {
@@ -62,5 +62,8 @@ window.beeDB = (function () {
     putField: (file, fc) => run("fields", "readwrite", s => s.put(fc, file)),
     getState: (file) => run("state", "readonly", s => s.get(file)),
     putState: (file, map) => run("state", "readwrite", s => s.put(map, file)),
+    getTile: (key) => run("tiles", "readonly", s => s.get(key)),
+    putTile: (key, buf) => run("tiles", "readwrite", s => s.put(buf, key)),
+    countTiles: () => run("tiles", "readonly", s => s.count()),
   };
 })();
