@@ -1734,12 +1734,19 @@ class BeetentApp(ctk.CTk):
                 data = json.loads(cfg.read_text(encoding="utf-8"))
                 url = (data.get("databaseURL") or "").strip()
                 if url:
-                    self._mon_status.configure(text="● LIVE", text_color="#1faa59")
-                    return monitor_feed.FirebaseFeed(url, data.get("token") or None)
+                    # First connection can take ~15s on a slow network; show a
+                    # connecting state until the first poll lands, then go LIVE.
+                    self._mon_status.configure(text="● Connecting…", text_color="#d8a200")
+                    feed = monitor_feed.FirebaseFeed(url, data.get("token") or None)
+                    feed.on_connect = lambda: self.after(0, self._monitor_set_live)
+                    return feed
         except Exception as e:
             self._log(f"Firebase config error: {e}")
         self._mon_status.configure(text="● LIVE (simulated)", text_color="#d8a200")
         return monitor_feed.MockFeed()
+
+    def _monitor_set_live(self):
+        self._mon_status.configure(text="● LIVE", text_color="#1faa59")
 
     def _monitor_remove(self, cid):
         if cid == self._mon_mirror_crew:

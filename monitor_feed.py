@@ -32,8 +32,9 @@ class CrewFeed:
     """Base interface. Subclasses fill in start()/stop()."""
 
     def __init__(self):
-        self.on_update = None   # callable(crew_dict)
-        self.on_remove = None   # callable(crew_id)  (optional)
+        self.on_update = None    # callable(crew_dict)
+        self.on_remove = None    # callable(crew_id)   (optional)
+        self.on_connect = None   # callable()  — fired once on first successful poll
 
     def start(self):
         raise NotImplementedError
@@ -96,23 +97,30 @@ class MockFeed(CrewFeed):
 
 
 class FirebaseFeed(CrewFeed):
-    """Subscribe to ``/{path}`` in a Firebase Realtime Database over its REST
-    streaming (Server-Sent Events) endpoint — pure ``requests``, no SDK.
+    """Poll ``/{path}`` in a Firebase Realtime Database over plain REST GET —
+    pure ``requests``, no SDK.
+
+    We poll rather than use the SSE streaming endpoint: ``requests``' line
+    iterator buffers the event stream and never surfaces it (curl gets the same
+    events instantly, so it's a client-library quirk, not the server). A plain
+    GET every ~1.5 s is rock-solid, trivially small for a handful of crews, and
+    near-real-time. on_remove fires for crews that vanish between polls (a
+    tablet's onDisconnect clears its node).
 
     db_url : e.g. "https://my-proj-default-rtdb.firebaseio.com"
     token  : optional auth token / database secret appended as ?auth=...
     path   : node holding the crews (default "crews").
-
-    Reconnects automatically with backoff. Emits on_update(crew) per crew and
-    on_remove(crew_id) when a crew node is deleted.
     """
 
-    def __init__(self, db_url, token=None, path="crews"):
+    def __init__(self, db_url, token=None, path="crews", interval=1.5):
         super().__init__()
         self._url = f"{db_url.rstrip('/')}/{path}.json"
         self._token = token or None
+        self._interval = interval
         self._stop = threading.Event()
         self._thread = None
+        self._known = set()       # crew ids seen on the last poll, for removal detection
+        self._connected = False   # becomes True after the first successful poll
 
     def start(self):
         if self._thread is not None:
@@ -127,52 +135,33 @@ class FirebaseFeed(CrewFeed):
 
     def _run(self):
         import requests
+        # A persistent Session is essential: opening a fresh TLS connection to
+        # Firebase can take many seconds on some networks, but a kept-alive
+        # connection polls in ~0.1 s. We pay the handshake once, then reuse it;
+        # frequent polling also keeps the connection warm so it isn't dropped.
+        session = requests.Session()
         params = {"auth": self._token} if self._token else None
-        headers = {"Accept": "text/event-stream"}
         while not self._stop.is_set():
             try:
-                with requests.get(self._url, params=params, headers=headers,
-                                  stream=True, timeout=(10, 70)) as r:
-                    event = None
-                    for raw in r.iter_lines(decode_unicode=True):
-                        if self._stop.is_set():
-                            break
-                        if not raw:
-                            continue
-                        line = raw.strip()
-                        if line.startswith("event:"):
-                            event = line[6:].strip()
-                        elif line.startswith("data:"):
-                            self._handle(event, line[5:].strip())
+                r = session.get(self._url, params=params, timeout=20)
+                if r.status_code == 200:
+                    data = r.json()
+                    present = set()
+                    if isinstance(data, dict):
+                        for cid, crew in data.items():
+                            present.add(cid)
+                            self._emit(cid, crew)
+                    for gone in (self._known - present):
+                        if self.on_remove:
+                            self.on_remove(gone)
+                    self._known = present
+                    if not self._connected:
+                        self._connected = True
+                        if self.on_connect:
+                            self.on_connect()
             except Exception:
-                if self._stop.is_set():
-                    break
-                self._stop.wait(3.0)   # reconnect backoff
-
-    def _handle(self, event, payload):
-        import json
-        if event not in ("put", "patch"):
-            return  # ignore keep-alive / auth_revoked
-        try:
-            msg = json.loads(payload)
-        except (ValueError, TypeError):
-            return
-        if not isinstance(msg, dict):
-            return
-        path = msg.get("path", "/")
-        data = msg.get("data")
-        if path == "/":
-            # Whole subtree: dict of {crew_id: crew} on first sync, or null.
-            if isinstance(data, dict):
-                for cid, crew in data.items():
-                    self._emit(cid, crew)
-        else:
-            cid = path.strip("/").split("/")[0]
-            if data is None:
-                if self.on_remove:
-                    self.on_remove(cid)
-            elif isinstance(data, dict):
-                self._emit(cid, data)
+                pass   # transient network error — next poll retries
+            self._stop.wait(self._interval)
 
     def _emit(self, cid, crew):
         if not isinstance(crew, dict):
