@@ -1951,5 +1951,8 @@
   "PP2_Latitude": "",
   "PP2_Longitude": "",
   "Radius2": "",
-  "two_pivots": false
+  "two_pivots": false,
+  "tray_overrides": {
+    "73": 3
+  }
 }
