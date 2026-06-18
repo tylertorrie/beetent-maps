@@ -1919,7 +1919,12 @@
       ]
     }
   ],
-  "shelter_overrides": {},
+  "shelter_overrides": {
+    "104": [
+      49.89719131615455,
+      -111.91735851764679
+    ]
+  },
   "gals_per_acre": "3",
   "acres": "152.64",
   "gals_per_tray": "2",
@@ -1942,5 +1947,9 @@
   "shelters_in_outside_pass": "Yes",
   "shelter_at_pivot": false,
   "tire_width_ft": "14",
-  "shelter_buffer_m": "3.048"
+  "shelter_buffer_m": "3.048",
+  "PP2_Latitude": "",
+  "PP2_Longitude": "",
+  "Radius2": "",
+  "two_pivots": false
 }
