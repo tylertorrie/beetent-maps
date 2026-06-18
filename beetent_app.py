@@ -1708,6 +1708,7 @@ class BeetentApp(ctk.CTk):
         mapwrap.pack(side="left", fill="both", expand=True)
         self.monitor_map = tkintermapview.TkinterMapView(mapwrap, corner_radius=6)
         self.monitor_map.pack(fill="both", expand=True, padx=2, pady=2)
+        self.monitor_map.set_tile_server(SATELLITE_URL, max_zoom=21)   # match main view
         self.monitor_map.set_position(DEFAULT_LAT, DEFAULT_LON)
         self.monitor_map.set_zoom(15)
 
