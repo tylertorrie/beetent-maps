@@ -1142,13 +1142,20 @@ def male_bay_shelter_laterals(nf, nm, layout, custom, total_rows, rs_m, offset_m
     runs = mask_runs(mask, 'M') if mask else []
     if not runs or total_rows <= 0 or rs_m <= 0:
         return []
+    # The planter SNAKES: every other pass is driven the opposite direction, so
+    # its row mask is mirrored. For an asymmetric pattern (e.g. 2M·12F·4M·6F)
+    # this is what makes adjacent passes' edge bays combine into a uniform
+    # structure. Odd passes use the reversed mask; both this and the bay overlay
+    # (_redraw_bays) flip on i % 2 so shelters and male bays stay locked.
+    runs_rev = mask_runs(mask[::-1], 'M')
     pass_w = total_rows * rs_m
     half = total_rows / 2.0
     n_pass = int(radius / pass_w) + 2
     xs = []
     for i in range(-n_pass, n_pass + 1):
         xc = (i + 0.5) * pass_w                 # pass centre (pivot sits on a boundary)
-        for (s, e) in runs:
+        runs_i = runs if (i % 2 == 0) else runs_rev
+        for (s, e) in runs_i:
             xs.append(xc + (s - half) * rs_m - offset_m)   # male-bay west edge − offset
     return sorted(set(round(x, 4) for x in xs))
 

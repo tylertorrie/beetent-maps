@@ -9095,12 +9095,16 @@ class BeetentApp(ctk.CTk):
                                       self.custom_mask_var.get(),
                                       total_rows=g["total_rows"])
         if not mask: return
-        runs = maketentgrid.mask_runs(mask, 'M')
-        if not runs: return
+        # Planter snakes: odd passes are mirrored (see male_bay_shelter_laterals).
+        # Both flip on i % 2 so male bays and shelter rows stay locked together.
+        runs_fwd = maketentgrid.mask_runs(mask, 'M')
+        runs_rev = maketentgrid.mask_runs(mask[::-1], 'M')
+        if not runs_fwd: return
         rs_m = g["rs_m"]; tr = g["total_rows"]; pass_w = g["pass_w"]
         half = tr / 2.0
         for i in range(-g["n_pass"], g["n_pass"] + 1):
             xc = (i + 0.5) * pass_w + g["lat_shift"]      # pass centre
+            runs = runs_fwd if (i % 2 == 0) else runs_rev
             for (s, e) in runs:
                 # M run covers rows s..e-1; band spans the run, gap_m inset each side.
                 x1 = xc + (s - half) * rs_m + gap_m
