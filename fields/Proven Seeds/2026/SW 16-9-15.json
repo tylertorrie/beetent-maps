@@ -18,7 +18,7 @@
   "num_female_rows": "16",
   "num_male_rows": "4",
   "total_rows": "20",
-  "row_layout": "centered",
+  "row_layout": "custom",
   "custom_row_mask": "",
   "use_bays": true,
   "outside_sprayer_pass": "Yes",
@@ -433,5 +433,9 @@
         -111.9899781001094
       ]
     ]
-  ]
+  ],
+  "PP2_Latitude": "",
+  "PP2_Longitude": "",
+  "Radius2": "",
+  "two_pivots": false
 }
