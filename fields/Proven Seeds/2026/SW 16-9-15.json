@@ -17,7 +17,7 @@
   "row_spacing_in": "18",
   "num_female_rows": "12",
   "num_male_rows": "4",
-  "total_rows": "20",
+  "total_rows": "24",
   "row_layout": "custom",
   "custom_row_mask": "MMFFFFFFFFFFFFMMMMFFFFFF",
   "use_bays": true,
