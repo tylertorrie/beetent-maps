@@ -175,8 +175,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.92322419416192,
-          49.79906454492422
+          -111.92252532284466,
+          49.79930511978621
         ]
       }
     },
@@ -191,8 +191,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.92322437994505,
-          49.797637735973865
+          -111.9225254949827,
+          49.79811470558417
         ]
       }
     },
@@ -201,70 +201,6 @@
       "properties": {
         "type": "shelter",
         "label": "S-03",
-        "visited": false,
-        "note": ""
-      },
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -111.92322456571335,
-          49.79621092667032
-        ]
-      }
-    },
-    {
-      "type": "Feature",
-      "properties": {
-        "type": "shelter",
-        "label": "S-04",
-        "visited": false,
-        "note": ""
-      },
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -111.92322475497957,
-          49.79475713389291
-        ]
-      }
-    },
-    {
-      "type": "Feature",
-      "properties": {
-        "type": "shelter",
-        "label": "S-05",
-        "visited": false,
-        "note": ""
-      },
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -111.92252607967818,
-          49.79407067182686
-        ]
-      }
-    },
-    {
-      "type": "Feature",
-      "properties": {
-        "type": "shelter",
-        "label": "S-06",
-        "visited": false,
-        "note": ""
-      },
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -111.92252587340195,
-          49.79549748165815
-        ]
-      }
-    },
-    {
-      "type": "Feature",
-      "properties": {
-        "type": "shelter",
-        "label": "S-07",
         "visited": false,
         "note": ""
       },
@@ -280,6 +216,70 @@
       "type": "Feature",
       "properties": {
         "type": "shelter",
+        "label": "S-04",
+        "visited": false,
+        "note": ""
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92252583922438,
+          49.79573387644252
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "shelter",
+        "label": "S-05",
+        "visited": false,
+        "note": ""
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92252601132803,
+          49.79454346150293
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "shelter",
+        "label": "S-06",
+        "visited": false,
+        "note": ""
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92182733447875,
+          49.793948209501956
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "shelter",
+        "label": "S-07",
+        "visited": false,
+        "note": ""
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92182714525235,
+          49.795138624562604
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "shelter",
         "label": "S-08",
         "visited": false,
         "note": ""
@@ -287,8 +287,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.92252546080012,
-          49.7983511002612
+          -111.92182695601335,
+          49.79632903937741
         ]
       }
     },
@@ -303,8 +303,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.9225252544745,
-          49.79977790903296
+          -111.92182676676175,
+          49.79751945394637
         ]
       }
     },
@@ -319,8 +319,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.92182652111846,
-          49.799064460244225
+          -111.92182657749755,
+          49.798709868269476
         ]
       }
     },
@@ -335,8 +335,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.9218267479701,
-          49.79763765129813
+          -111.92182638822075,
+          49.799900282346776
         ]
       }
     },
@@ -351,8 +351,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.92182697480362,
-          49.79621084199883
+          -111.92112764287862,
+          49.799305026677445
         ]
       }
     },
@@ -367,8 +367,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.92182720161905,
-          49.79478403234635
+          -111.92112784928158,
+          49.798114612479296
         ]
       }
     },
@@ -377,38 +377,6 @@
       "properties": {
         "type": "shelter",
         "label": "S-14",
-        "visited": false,
-        "note": ""
-      },
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -111.9211285503636,
-          49.79407057873524
-        ]
-      }
-    },
-    {
-      "type": "Feature",
-      "properties": {
-        "type": "shelter",
-        "label": "S-15",
-        "visited": false,
-        "note": ""
-      },
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -111.92112830302707,
-          49.79549738856185
-        ]
-      }
-    },
-    {
-      "type": "Feature",
-      "properties": {
-        "type": "shelter",
-        "label": "S-16",
         "visited": false,
         "note": ""
       },
@@ -424,6 +392,38 @@
       "type": "Feature",
       "properties": {
         "type": "shelter",
+        "label": "S-15",
+        "visited": false,
+        "note": ""
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92112826204628,
+          49.79573378334545
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "shelter",
+        "label": "S-16",
+        "visited": false,
+        "note": ""
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92112846840803,
+          49.794543368409755
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "shelter",
         "label": "S-17",
         "visited": false,
         "note": ""
@@ -431,8 +431,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.92112780829478,
-          49.79835100715556
+          -111.92042980869073,
+          49.79394810798426
         ]
       }
     },
@@ -447,8 +447,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.92112756089902,
-          49.79977781592265
+          -111.92042958520739,
+          49.795138523040656
         ]
       }
     },
@@ -463,8 +463,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.92042858014075,
-          49.80049116729612
+          -111.92042936170917,
+          49.79632893785122
         ]
       }
     },
@@ -479,8 +479,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.92042884808228,
-          49.799064358708264
+          -111.92042913819606,
+          49.797519352415925
         ]
       }
     },
@@ -495,8 +495,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.92042911600241,
-          49.79763754976726
+          -111.92042891466807,
+          49.79870976673478
         ]
       }
     },
@@ -511,8 +511,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.92042938390118,
-          49.79621074047305
+          -111.92042869112518,
+          49.799900180807825
         ]
       }
     },
@@ -527,8 +527,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.92042965177855,
-          49.79478393082567
+          -111.9197299629205,
+          49.799304916712565
         ]
       }
     },
@@ -543,8 +543,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.92042991963454,
-          49.793357120825114
+          -111.9197302035884,
+          49.79811450251903
         ]
       }
     },
@@ -553,38 +553,6 @@
       "properties": {
         "type": "shelter",
         "label": "S-25",
-        "visited": false,
-        "note": ""
-      },
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -111.91973102105698,
-          49.7940704687906
-        ]
-      }
-    },
-    {
-      "type": "Feature",
-      "properties": {
-        "type": "shelter",
-        "label": "S-26",
-        "visited": false,
-        "note": ""
-      },
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -111.91973073266014,
-          49.7954972786117
-        ]
-      }
-    },
-    {
-      "type": "Feature",
-      "properties": {
-        "type": "shelter",
-        "label": "S-27",
         "visited": false,
         "note": ""
       },
@@ -600,6 +568,38 @@
       "type": "Feature",
       "properties": {
         "type": "shelter",
+        "label": "S-26",
+        "visited": false,
+        "note": ""
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.91973068487613,
+          49.79573367339437
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "shelter",
+        "label": "S-27",
+        "visited": false,
+        "note": ""
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.91973092549595,
+          49.79454325846329
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "shelter",
         "label": "S-28",
         "visited": false,
         "note": ""
@@ -607,8 +607,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.9197301557974,
-          49.79835089719437
+          -111.91903228291132,
+          49.79394798961363
         ]
       }
     },
@@ -623,8 +623,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.9197298673315,
-          49.79977770595594
+          -111.91903202517102,
+          49.79513840466507
         ]
       }
     },
@@ -639,8 +639,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.91903086604138,
-          49.800491048898245
+          -111.91903176741356,
+          49.796328819470666
         ]
       }
     },
@@ -655,8 +655,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.91903117505468,
-          49.799064240316326
+          -111.91903150963894,
+          49.797519234030425
         ]
       }
     },
@@ -671,8 +671,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.91903148404333,
-          49.79763743138127
+          -111.91903125184716,
+          49.79870964834432
         ]
       }
     },
@@ -687,8 +687,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.9190317930073,
-          49.796210622093
+          -111.91903099403821,
+          49.79990006241241
         ]
       }
     },
@@ -703,8 +703,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.91903210194663,
-          49.79478381245155
+          -111.91833228297163,
+          49.799304789891565
         ]
       }
     },
@@ -719,8 +719,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.9190324108613,
-          49.793357002456936
+          -111.91833255790448,
+          49.798114375703335
         ]
       }
     },
@@ -729,38 +729,6 @@
       "properties": {
         "type": "shelter",
         "label": "S-36",
-        "visited": false,
-        "note": ""
-      },
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -111.9183334917596,
-          49.79407034199295
-        ]
-      }
-    },
-    {
-      "type": "Feature",
-      "properties": {
-        "type": "shelter",
-        "label": "S-37",
-        "visited": false,
-        "note": ""
-      },
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -111.91833316230245,
-          49.79549715180769
-        ]
-      }
-    },
-    {
-      "type": "Feature",
-      "properties": {
-        "type": "shelter",
-        "label": "S-38",
         "visited": false,
         "note": ""
       },
@@ -776,6 +744,38 @@
       "type": "Feature",
       "properties": {
         "type": "shelter",
+        "label": "S-37",
+        "visited": false,
+        "note": ""
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.91833310771523,
+          49.79573354658931
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "shelter",
+        "label": "S-38",
+        "visited": false,
+        "note": ""
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.91833338259313,
+          49.794543131663524
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "shelter",
         "label": "S-39",
         "visited": false,
         "note": ""
@@ -783,8 +783,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.91833250330926,
-          49.79835077037763
+          -111.9176347571418,
+          49.79394785439005
         ]
       }
     },
@@ -799,8 +799,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.91833217377321,
-          49.79977757913284
+          -111.91763446514456,
+          49.79513826943583
         ]
       }
     },
@@ -815,8 +815,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.91763315195192,
-          49.80049091364354
+          -111.91763417312788,
+          49.796328684235775
         ]
       }
     },
@@ -831,8 +831,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.917633502037,
-          49.79906410506842
+          -111.91763388109175,
+          49.79751909878986
         ]
       }
     },
@@ -847,8 +847,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.91763385209414,
-          49.797637296140145
+          -111.91763358903617,
+          49.798709513098096
         ]
       }
     },
@@ -863,8 +863,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.91763420212335,
-          49.79621048685866
+          -111.91763329696114,
+          49.79989992716052
         ]
       }
     },
@@ -879,8 +879,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.91763455212462,
-          49.794783677224004
+          -111.91693460303334,
+          49.79930464621445
         ]
       }
     },
@@ -895,8 +895,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.91763490209796,
-          49.79335686723617
+          -111.91693491223111,
+          49.79811423203224
         ]
       }
     },
@@ -905,38 +905,6 @@
       "properties": {
         "type": "shelter",
         "label": "S-47",
-        "visited": false,
-        "note": ""
-      },
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -111.91693596247278,
-          49.79407019834228
-        ]
-      }
-    },
-    {
-      "type": "Feature",
-      "properties": {
-        "type": "shelter",
-        "label": "S-48",
-        "visited": false,
-        "note": ""
-      },
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -111.91693559195532,
-          49.79549700814981
-        ]
-      }
-    },
-    {
-      "type": "Feature",
-      "properties": {
-        "type": "shelter",
-        "label": "S-49",
         "visited": false,
         "note": ""
       },
@@ -952,6 +920,38 @@
       "type": "Feature",
       "properties": {
         "type": "shelter",
+        "label": "S-48",
+        "visited": false,
+        "note": ""
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.91693553056487,
+          49.79573340293024
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "shelter",
+        "label": "S-49",
+        "visited": false,
+        "note": ""
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.91693583970088,
+          49.79454298801047
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "shelter",
         "label": "S-50",
         "visited": false,
         "note": ""
@@ -959,8 +959,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.91693485083168,
-          49.798350626705336
+          -111.9162372313835,
+          49.79394770231353
         ]
       }
     },
@@ -975,8 +975,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.91693448022549,
-          49.79977743545333
+          -111.91623690512932,
+          49.79513811735295
         ]
       }
     },
@@ -991,8 +991,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.91623543787368,
-          49.800490761532025
+          -111.91623657885341,
+          49.79632853214652
         ]
       }
     },
@@ -1007,8 +1007,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.91623582903054,
-          49.79906395296453
+          -111.91623625255576,
+          49.79751894669424
         ]
       }
     },
@@ -1023,8 +1023,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.9162362201562,
-          49.79763714404389
+          -111.9162359262364,
+          49.79870936099611
         ]
       }
     },
@@ -1039,8 +1039,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.91623661125061,
-          49.79621033477004
+          -111.9162355998953,
+          49.79989977505217
         ]
       }
     },
@@ -1055,8 +1055,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.91623700231384,
-          49.79478352514301
+          -111.91553692310694,
+          49.799304485681226
         ]
       }
     },
@@ -1071,8 +1071,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.91623739334584,
-          49.793356715162815
+          -111.91553726656963,
+          49.79811407150573
         ]
       }
     },
@@ -1081,38 +1081,6 @@
       "properties": {
         "type": "shelter",
         "label": "S-58",
-        "visited": false,
-        "note": ""
-      },
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -111.91553843319784,
-          49.79407003783861
-        ]
-      }
-    },
-    {
-      "type": "Feature",
-      "properties": {
-        "type": "shelter",
-        "label": "S-59",
-        "visited": false,
-        "note": ""
-      },
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -111.91553802162007,
-          49.79549684763808
-        ]
-      }
-    },
-    {
-      "type": "Feature",
-      "properties": {
-        "type": "shelter",
-        "label": "S-60",
         "visited": false,
         "note": ""
       },
@@ -1128,6 +1096,38 @@
       "type": "Feature",
       "properties": {
         "type": "shelter",
+        "label": "S-59",
+        "visited": false,
+        "note": ""
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.91553795342642,
+          49.79573324241718
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "shelter",
+        "label": "S-60",
+        "visited": false,
+        "note": ""
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.91553829682051,
+          49.79454282750413
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "shelter",
         "label": "S-61",
         "visited": false,
         "note": ""
@@ -1135,8 +1135,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.915537198366,
-          49.79835046617749
+          -111.91483970563776,
+          49.79394753338408
         ]
       }
     },
@@ -1151,8 +1151,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.91553678668967,
-          49.79977727491744
+          -111.91483934512662,
+          49.79513794841642
         ]
       }
     },
@@ -1167,8 +1167,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.91483815603664,
-          49.79906378400468
+          -111.91483898459148,
+          49.79632836320292
         ]
       }
     },
@@ -1183,8 +1183,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.91483858823078,
-          49.79763697509251
+          -111.91483862403234,
+          49.79751877774356
         ]
       }
     },
@@ -1199,8 +1199,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.91483902039043,
-          49.79621016582714
+          -111.91483826344918,
+          49.79870919203836
         ]
       }
     },
@@ -1215,8 +1215,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.91483945251558,
-          49.79478335620859
+          -111.91483790284201,
+          49.799899606087344
         ]
       }
     },
@@ -1231,8 +1231,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.91414090393609,
-          49.79406986048192
+          -111.91413924319373,
+          49.79930430829188
         ]
       }
     },
@@ -1247,8 +1247,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.91414045129802,
-          49.795496670272485
+          -111.91413962092136,
+          49.79811389412381
         ]
       }
     },
@@ -1279,8 +1279,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.9141395459135,
-          49.7983502887941
+          -111.91414037630116,
+          49.79573306505011
         ]
       }
     },
@@ -1295,8 +1295,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.91413909316705,
-          49.799777097525144
+          -111.91414075395333,
+          49.794542650144486
         ]
       }
     },
@@ -1311,8 +1311,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.91344048305659,
-          49.79906359818885
+          -111.91344178513778,
+          49.79513776262625
         ]
       }
     },
@@ -1327,8 +1327,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.91344095631922,
-          49.79763678928601
+          -111.91344139034342,
+          49.796328177404966
         ]
       }
     },
@@ -1343,8 +1343,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.9134414295441,
-          49.79620998002996
+          -111.91344099552276,
+          49.79751859193783
         ]
       }
     },
@@ -1359,8 +1359,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.9134419027312,
-          49.79478317042073
+          -111.91344060067583,
+          49.79870900622485
         ]
       }
     },
@@ -1375,8 +1375,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.91274284831108,
-          49.795590916959235
+          -111.91344020580259,
+          49.79989942026606
         ]
       }
     },
@@ -1391,24 +1391,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.91274238725272,
-          49.79692328548068
-        ]
-      }
-    },
-    {
-      "type": "Feature",
-      "properties": {
-        "type": "shelter",
-        "label": "S-78",
-        "visited": false,
-        "note": ""
-      },
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          -111.91274189347554,
-          49.79835009455516
+          -111.91274156329504,
+          49.79930411404642
         ]
       }
     }
