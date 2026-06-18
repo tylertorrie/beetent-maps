@@ -1672,6 +1672,9 @@ class BeetentApp(ctk.CTk):
         self._mon_feed = None
         self._mon_prune_job = None
         self._mon_selected = None
+        self._mon_mirror = {"polys": []}     # overlay polygons for the mirrored field
+        self._mon_mirror_shelters = {}       # label -> {marker, placed, latlon}
+        self._mon_mirror_crew = None         # crew_id currently being state-mirrored
 
         hdr = ctk.CTkFrame(self.monitor_view, fg_color="transparent")
         hdr.pack(fill="x", padx=12, pady=(10, 4))
@@ -1683,8 +1686,20 @@ class BeetentApp(ctk.CTk):
             font=ctk.CTkFont(family=FONT_LABEL, size=12))
         self._mon_status.pack(side="right")
 
+        # Mirror bar — shown only while state-mirroring a crew (hidden otherwise).
+        self._mon_mirror_bar = ctk.CTkFrame(self.monitor_view, fg_color=UI_CARD,
+                                            corner_radius=6)
+        self._mon_mirror_label = ctk.CTkLabel(self._mon_mirror_bar, text="",
+                                              text_color=UI_TEXT,
+                                              font=ctk.CTkFont(family=FONT_LABEL, size=13))
+        self._mon_mirror_label.pack(side="left", padx=10, pady=4)
+        ctk.CTkButton(self._mon_mirror_bar, text="✕ Stop mirroring", width=130,
+                      fg_color="#3a3a3a", command=self._monitor_clear_mirror
+                      ).pack(side="right", padx=8, pady=4)
+
         body = ctk.CTkFrame(self.monitor_view, fg_color="transparent")
         body.pack(fill="both", expand=True, padx=12, pady=(2, 10))
+        self._mon_body = body
 
         self.monitor_map = tkintermapview.TkinterMapView(body, corner_radius=6)
         self.monitor_map.pack(side="left", fill="both", expand=True)
@@ -1721,6 +1736,8 @@ class BeetentApp(ctk.CTk):
         return monitor_feed.MockFeed()
 
     def _monitor_remove(self, cid):
+        if cid == self._mon_mirror_crew:
+            self._monitor_clear_mirror()
         m = self._mon_markers.pop(cid, None)
         if m is not None:
             try: m.delete()
@@ -1761,6 +1778,8 @@ class BeetentApp(ctk.CTk):
         else:
             m.set_position(crew["lat"], crew["lon"])
         self._monitor_render_row(crew, color)
+        if cid == self._mon_mirror_crew:
+            self._monitor_update_mirror(crew)
 
     def _monitor_render_row(self, crew, color):
         cid = crew["id"]
@@ -1801,13 +1820,124 @@ class BeetentApp(ctk.CTk):
 
     def _monitor_focus(self, cid):
         self._mon_selected = cid
-        crew = self._mon_state.get(cid)
-        if crew:
-            self.monitor_map.set_position(crew["lat"], crew["lon"])
-            self.monitor_map.set_zoom(18)
         for c, row in self._mon_rows.items():
             row["card"].configure(border_color="#1faa59" if c == cid else UI_BORDER)
-        # TODO Phase 4: state-mirror — overlay this crew's field + placed shelters here.
+        # State-mirror: overlay this crew's field + which shelters they've placed.
+        self._monitor_mirror(cid)
+
+    # ── Monitor state-mirror ────────────────────────────────────────────────
+    def _load_tablet_field(self, field_file):
+        """Read a tablet GeoJSON from tablet/fields/ → {boundaries, shelters}.
+        boundaries: [[(lat,lon), ...], ...]; shelters: [(label, (lat,lon)), ...].
+        Returns None if the file is missing or unreadable."""
+        if not field_file:
+            return None
+        p = Path(__file__).resolve().parent / "tablet" / "fields" / field_file
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+        boundaries, shelters = [], []
+        for feat in data.get("features", []):
+            g = feat.get("geometry") or {}
+            props = feat.get("properties") or {}
+            t = props.get("type")
+            if t == "boundary" and g.get("type") == "Polygon" and g.get("coordinates"):
+                boundaries.append([(lat, lon) for lon, lat in g["coordinates"][0]])
+            elif t == "shelter" and g.get("type") == "Point":
+                lon, lat = g["coordinates"]
+                shelters.append((props.get("label", ""), (lat, lon)))
+        return {"boundaries": boundaries, "shelters": shelters}
+
+    def _monitor_mirror(self, cid):
+        crew = self._mon_state.get(cid)
+        if not crew:
+            return
+        self._monitor_clear_mirror(keep_selection=True)
+        geo = self._load_tablet_field(crew.get("field_file"))
+        if geo is None:
+            self._mon_mirror_crew = cid
+            self._mon_mirror_label.configure(
+                text=f"⚠ {crew.get('name', cid)} — field geometry not found locally "
+                     f"({crew.get('field', '?')})")
+            self._show_mirror_bar()
+            # Still center on the crew so they're not lost.
+            self.monitor_map.set_position(crew["lat"], crew["lon"])
+            self.monitor_map.set_zoom(17)
+            return
+        self._mon_mirror_crew = cid
+        placed = set(crew.get("placed_ids") or [])
+        for poly in geo["boundaries"]:
+            try:
+                p = self.monitor_map.set_polygon(poly, outline_color="#FFD700",
+                                                 border_width=2)
+                self._mon_mirror["polys"].append(p)
+            except Exception:
+                pass
+        for label, (lat, lon) in geo["shelters"]:
+            is_placed = label in placed
+            self._mon_mirror_shelters[label] = self._mon_make_shelter(label, lat, lon, is_placed)
+        self._monitor_fit(geo)
+        self._show_mirror_bar()
+
+    def _mon_make_shelter(self, label, lat, lon, is_placed):
+        color = "#1faa59" if is_placed else "#B8860B"   # green placed / gold pending
+        m = self.monitor_map.set_marker(lat, lon, text=label, marker_color_circle=color,
+                                        marker_color_outside="#222222", text_color="#ffffff")
+        return {"marker": m, "placed": is_placed, "latlon": (lat, lon)}
+
+    def _monitor_update_mirror(self, crew):
+        """Recolour only the shelters whose placed-state changed (markers can't
+        recolour in place, so flip ones recreate)."""
+        placed = set(crew.get("placed_ids") or [])
+        for label, info in self._mon_mirror_shelters.items():
+            want = label in placed
+            if want != info["placed"]:
+                try: info["marker"].delete()
+                except Exception: pass
+                lat, lon = info["latlon"]
+                self._mon_mirror_shelters[label] = self._mon_make_shelter(label, lat, lon, want)
+        self._show_mirror_bar()
+
+    def _monitor_fit(self, geo):
+        lats, lons = [], []
+        for poly in geo["boundaries"]:
+            for la, lo in poly:
+                lats.append(la); lons.append(lo)
+        for _, (la, lo) in geo["shelters"]:
+            lats.append(la); lons.append(lo)
+        if not lats:
+            return
+        try:
+            self.monitor_map.fit_bounding_box((max(lats), min(lons)), (min(lats), max(lons)))
+        except Exception:
+            self.monitor_map.set_position(sum(lats) / len(lats), sum(lons) / len(lons))
+
+    def _show_mirror_bar(self):
+        crew = self._mon_state.get(self._mon_mirror_crew) or {}
+        if self._mon_mirror_shelters:
+            self._mon_mirror_label.configure(
+                text=f"👁 Mirroring {crew.get('name', '')} — {crew.get('field', '')}   "
+                     f"🐝 {crew.get('placed', 0)}/{crew.get('total', 0)} placed")
+        if not self._mon_mirror_bar.winfo_ismapped():
+            self._mon_mirror_bar.pack(fill="x", padx=12, pady=(0, 4), before=self._mon_body)
+
+    def _monitor_clear_mirror(self, keep_selection=False):
+        for p in self._mon_mirror["polys"]:
+            try: p.delete()
+            except Exception: pass
+        self._mon_mirror["polys"].clear()
+        for info in self._mon_mirror_shelters.values():
+            try: info["marker"].delete()
+            except Exception: pass
+        self._mon_mirror_shelters.clear()
+        self._mon_mirror_crew = None
+        if self._mon_mirror_bar.winfo_ismapped():
+            self._mon_mirror_bar.pack_forget()
+        if not keep_selection:
+            self._mon_selected = None
+            for row in self._mon_rows.values():
+                row["card"].configure(border_color=UI_BORDER)
 
     def _monitor_prune(self):
         import time

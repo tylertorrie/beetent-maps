@@ -16,8 +16,10 @@ window.beePublish = (function () {
   let enabled = false;
   let pos = null;       // last position object
   let field = "—";
+  let fieldFile = null; // geojson filename — lets the office locate the geometry
   let total = 0;
   let placed = 0;
+  let placedIds = [];   // labels of placed shelters, for the Monitor state-mirror
 
   function crewId() {
     let id = localStorage.getItem("beeCrewId");
@@ -51,7 +53,8 @@ window.beePublish = (function () {
       id: crewId(), name: crewName(),
       lat: pos.lat, lon: pos.lon, course: pos.course ?? null,
       fix: pos.fix ?? 0, sats: pos.sats ?? 0, hdop: pos.hdop ?? null,
-      field: field, placed: placed, total: total,
+      field: field, field_file: fieldFile, placed: placed, total: total,
+      placed_ids: placedIds,
       ts: Date.now() / 1000,
     }).catch(() => { /* transient network error — next tick retries */ });
   }
@@ -61,8 +64,12 @@ window.beePublish = (function () {
     getCrew() { return { id: crewId(), name: crewName() }; },
     setCrew(name) { if (name) localStorage.setItem("beeCrewName", name); write(); },
     setPos(p) { pos = p; },
-    setField(name, totalShelters) { field = name || "—"; total = totalShelters || 0; write(); },
-    setProgress(placedCount) { placed = placedCount || 0; write(); },
+    setField(name, totalShelters, file) {
+      field = name || "—"; total = totalShelters || 0; fieldFile = file || null; write();
+    },
+    setProgress(placedCount, ids) {
+      placed = placedCount || 0; placedIds = ids || []; write();
+    },
     _init: init,
   };
 })();

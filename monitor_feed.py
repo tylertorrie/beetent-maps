@@ -45,7 +45,7 @@ class CrewFeed:
 class MockFeed(CrewFeed):
     """Simulated crews looping around a centre point at ~1 Hz."""
 
-    def __init__(self, center=(53.5461, -113.4912), crews=3, total_shelters=40):
+    def __init__(self, center=(53.5461, -113.4912), crews=3, total_shelters=10):
         super().__init__()
         self._center = center
         self._n = crews
@@ -76,15 +76,18 @@ class MockFeed(CrewFeed):
                 lat = clat + radius * math.sin(ang)
                 lon = clon + radius * math.cos(ang) * 1.6   # lon scale fudge
                 course = (math.degrees(ang) + 90) % 360
-                placed = min(self._total, int(now / 3) + i * 5)
+                placed = min(self._total, int(now / 5) + i)
+                placed_ids = [f"S-{k:02d}" for k in range(1, placed + 1)]
                 # Crew 2 simulates an RTK-float (degraded) fix to exercise the UI.
                 fix = 5 if i == 1 else 4
                 crew = {
                     "id": cid, "name": name,
                     "lat": lat, "lon": lon, "course": round(course, 1),
                     "fix": fix, "sats": 14, "hdop": 0.8,
-                    "field": "North Quarter",
+                    "field": "North Quarter (sample)",
+                    "field_file": "sample_field.geojson",
                     "placed": placed, "total": self._total,
+                    "placed_ids": placed_ids,
                     "ts": time.time(),
                 }
                 if self.on_update:

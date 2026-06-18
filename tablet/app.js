@@ -163,6 +163,7 @@ async function loadField(url, name) {
     const r = await fetch(url, { cache: "no-store" });
     const fc = await r.json();
     activeField = fc;
+    activeFieldFile = url.split("/").pop();   // e.g. Corteva__2026__North_Quarter.geojson
     // Re-apply any local visited state for this field.
     for (const f of fc.features) {
       if (f.properties.type === "shelter") {
@@ -197,20 +198,26 @@ function eachCoord(geom, fn) {
   else if (geom.type === "LineString") geom.coordinates.forEach(fn);
 }
 
-// Shelter totals for the active field, for the office Monitor view.
+let activeFieldFile = null;   // geojson filename of the active field (for the Monitor mirror)
+
+// Shelter totals + which shelters are placed, for the office Monitor view.
 function fieldProgress() {
-  let total = 0, placed = 0;
+  let total = 0;
+  const placedIds = [];
   for (const f of (activeField?.features || [])) {
-    if (f.properties.type === "shelter") { total++; if (f.properties.visited) placed++; }
+    if (f.properties.type === "shelter") {
+      total++;
+      if (f.properties.visited) placedIds.push(f.properties.label);
+    }
   }
-  return { total, placed };
+  return { total, placed: placedIds.length, placedIds };
 }
 
 function publishFieldState(name) {
   if (!window.beePublish) return;
-  const { total, placed } = fieldProgress();
-  window.beePublish.setField(name, total);
-  window.beePublish.setProgress(placed);
+  const { total, placed, placedIds } = fieldProgress();
+  window.beePublish.setField(name, total, activeFieldFile);
+  window.beePublish.setProgress(placed, placedIds);
 }
 
 // ---- Point detail -----------------------------------------------------------
@@ -240,7 +247,10 @@ function commitPoint() {
     }
   }
   map.getSource("field").setData(activeField);
-  if (window.beePublish) window.beePublish.setProgress(fieldProgress().placed);
+  if (window.beePublish) {
+    const p = fieldProgress();
+    window.beePublish.setProgress(p.placed, p.placedIds);
+  }
   // TODO: persist visited/notes to IndexedDB for offline (Phase 3).
 }
 
