@@ -1,6 +1,12 @@
 {
-  "updated": "2026-06-18T11:18:33",
+  "updated": "2026-06-18T12:18:20",
   "fields": [
+    {
+      "name": "Stolk SE 9-11-14",
+      "company": "Corteva",
+      "year": "2026",
+      "file": "Corteva__2026__Stolk_SE_9-11-14.geojson"
+    },
     {
       "name": "NW 1-10-15",
       "company": "Proven Seeds",
