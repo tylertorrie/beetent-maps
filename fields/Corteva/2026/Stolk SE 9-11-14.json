@@ -62534,7 +62534,7 @@
   "bay_gap_in": "0",
   "shelters_in_outside_pass": "Yes",
   "tire_width_ft": "14",
-  "shelter_at_pivot": true,
+  "shelter_at_pivot": false,
   "PP2_Latitude": "",
   "PP2_Longitude": "",
   "Radius2": "",
