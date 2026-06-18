@@ -1701,8 +1701,13 @@ class BeetentApp(ctk.CTk):
         body.pack(fill="both", expand=True, padx=12, pady=(2, 10))
         self._mon_body = body
 
-        self.monitor_map = tkintermapview.TkinterMapView(body, corner_radius=6)
-        self.monitor_map.pack(side="left", fill="both", expand=True)
+        # TkinterMapView reads its parent's bg colour for its rounded corners, so
+        # it must sit in a NON-transparent frame (a "transparent" CTk parent makes
+        # Tk choke with: unknown color name "transparent"). Mirror the main map view.
+        mapwrap = ctk.CTkFrame(body, corner_radius=8)
+        mapwrap.pack(side="left", fill="both", expand=True)
+        self.monitor_map = tkintermapview.TkinterMapView(mapwrap, corner_radius=6)
+        self.monitor_map.pack(fill="both", expand=True, padx=2, pady=2)
         self.monitor_map.set_position(DEFAULT_LAT, DEFAULT_LON)
         self.monitor_map.set_zoom(15)
 
