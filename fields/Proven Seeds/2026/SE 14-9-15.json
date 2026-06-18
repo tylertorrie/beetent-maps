@@ -349,7 +349,7 @@
   "Planting_angle": "0",
   "shelter_rows": "",
   "bay_gap_in": "0",
-  "shelters_in_outside_pass": "Yes",
+  "shelters_in_outside_pass": "No",
   "shelter_at_pivot": false,
   "tire_width_ft": "14",
   "PP2_Latitude": "",
