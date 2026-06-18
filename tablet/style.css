@@ -1,6 +1,6 @@
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; }
-#map { position: absolute; inset: 0; }
+#map { position: absolute; inset: 0; background: #1b2b1b; }
 
 #topbar {
   position: absolute; top: 0; left: 0; right: 0; height: 48px;
@@ -14,6 +14,8 @@ html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; }
 .fix-dgps  { background: #3a7bd5; color: #fff; }    /* 2 = DGPS */
 .fix-gps   { background: #777; color: #fff; }        /* 1 = autonomous */
 .fix-none  { background: #c0392b; color: #fff; }     /* 0 = no fix */
+#netpill { font-weight: 700; font-size: 12px; padding: 3px 9px; border-radius: 6px;
+           background: #7a4a00; color: #ffd9a0; letter-spacing: .5px; }
 
 #controls {
   position: absolute; bottom: 0; left: 0; right: 0; height: 56px;

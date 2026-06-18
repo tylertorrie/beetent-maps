@@ -24,6 +24,9 @@ const GROUND_ZOOM = 21;
 // falls back to vector-only (no base) when offline on the ESP32 AP.
 const SATELLITE = {
   version: 8,
+  // Vendored font (tablet/vendor/fonts) so shelter labels render offline. The
+  // {fontstack} matches the "text-font" on the labels layer below ("OpenSans").
+  glyphs: "vendor/fonts/{fontstack}/{range}.pbf",
   sources: {
     esri: {
       type: "raster",
@@ -33,7 +36,12 @@ const SATELLITE = {
       attribution: "Esri World Imagery",
     },
   },
-  layers: [{ id: "sat", type: "raster", source: "esri" }],
+  layers: [
+    // Solid base so the map shows a field-green backdrop (not blank) when
+    // satellite tiles can't load offline; geometry layers still render on top.
+    { id: "bg", type: "background", paint: { "background-color": "#1b2b1b" } },
+    { id: "sat", type: "raster", source: "esri" },
+  ],
 };
 
 // ---- State ------------------------------------------------------------------
@@ -82,7 +90,8 @@ function initMap() {
     map.addLayer({ id: "shelter-labels", type: "symbol",
       filter: ["==", ["get", "type"], "shelter"],
       source: "field",
-      layout: { "text-field": ["get", "label"], "text-size": 11, "text-offset": [0, 1.2] },
+      layout: { "text-field": ["get", "label"], "text-font": ["OpenSans"],
+                "text-size": 11, "text-offset": [0, 1.2] },
       paint: { "text-color": "#fff", "text-halo-color": "#000", "text-halo-width": 1.2 } });
 
     map.on("click", "shelters", (e) => openPoint(e.features[0]));
@@ -137,17 +146,28 @@ function setFix(fix) {
 // ---- Field loading ----------------------------------------------------------
 async function loadFieldList() {
   const ul = document.getElementById("fieldlist");
+  const note = document.getElementById("syncnote");
   ul.innerHTML = "";
-  let items = [];
+  let items = [], fromCache = false;
   try {
     const r = await fetch(FIELDS_INDEX, { cache: "no-store" });
-    if (r.ok) items = (await r.json()).fields || [];
-  } catch (e) { /* offline / no index yet */ }
+    if (!r.ok) throw new Error("http " + r.status);
+    items = (await r.json()).fields || [];
+    await beeDB.putIndex(items);                 // keep a copy for offline
+  } catch (e) {
+    items = (await beeDB.getIndex().catch(() => null)) || [];   // offline fallback
+    fromCache = true;
+  }
 
   if (!items.length) {
-    document.getElementById("syncnote").textContent =
-      "No field index found — showing the bundled sample.";
+    note.textContent = fromCache
+      ? "Offline and no fields cached yet — showing the bundled sample."
+      : "No field index found — showing the bundled sample.";
     await loadField("fields/sample_field.geojson", "North Quarter (sample)");
+  } else {
+    note.textContent = fromCache
+      ? `Offline — ${items.length} field(s) from cache.`
+      : `${items.length} field(s). Tap Sync to cache all for offline.`;
   }
 
   for (const it of items) {
@@ -158,27 +178,64 @@ async function loadFieldList() {
   }
 }
 
+// Download the index + every field's GeoJSON into IndexedDB so the whole set is
+// available offline. Run at the yard before heading out (the "Sync" button).
+async function syncAll() {
+  const note = document.getElementById("syncnote");
+  if (!navigator.onLine) { note.textContent = "Offline — connect to sync."; return; }
+  note.textContent = "Syncing…";
+  let items = [];
+  try {
+    const r = await fetch(FIELDS_INDEX, { cache: "no-store" });
+    items = (await r.json()).fields || [];
+    await beeDB.putIndex(items);
+  } catch (e) { note.textContent = "Sync failed — no field index."; return; }
+  let ok = 0;
+  for (const it of items) {
+    try {
+      const r = await fetch("fields/" + it.file, { cache: "no-store" });
+      if (r.ok) { await beeDB.putField(it.file, await r.json()); ok++; }
+    } catch (e) { /* skip this one */ }
+  }
+  note.textContent = `Synced ${ok}/${items.length} field(s) for offline use.`;
+  loadFieldList();
+}
+
 async function loadField(url, name) {
+  activeFieldFile = url.split("/").pop();   // e.g. Corteva__2026__North_Quarter.geojson
+  let fc = null;
   try {
     const r = await fetch(url, { cache: "no-store" });
-    const fc = await r.json();
-    activeField = fc;
-    activeFieldFile = url.split("/").pop();   // e.g. Corteva__2026__North_Quarter.geojson
-    // Re-apply any local visited state for this field.
-    for (const f of fc.features) {
-      if (f.properties.type === "shelter") {
-        const v = visited[f.properties.label];
-        if (v) { f.properties.visited = v.visited; f.properties.note = v.note; }
-      }
-    }
-    map.getSource("field").setData(fc);
-    const fname = name || fc.name || "Field";
-    document.getElementById("fieldname").textContent = fname;
-    publishFieldState(fname);
-    fitToField();
+    if (!r.ok) throw new Error("http " + r.status);
+    fc = await r.json();
+    await beeDB.putField(activeFieldFile, fc);          // cache for offline
   } catch (e) {
-    console.error("loadField failed", e);
+    fc = await beeDB.getField(activeFieldFile).catch(() => null);   // offline fallback
+    if (!fc) {
+      document.getElementById("syncnote").textContent =
+        "This field isn't cached for offline — Sync while online first.";
+      return;
+    }
   }
+  activeField = fc;
+
+  // Load this field's saved placement state from IndexedDB into `visited`.
+  const saved = (await beeDB.getState(activeFieldFile).catch(() => null)) || {};
+  Object.keys(visited).forEach((k) => delete visited[k]);
+  Object.assign(visited, saved);
+  for (const f of fc.features) {
+    if (f.properties.type === "shelter") {
+      const v = visited[f.properties.label];
+      if (v) { f.properties.visited = v.visited; f.properties.note = v.note; }
+      else { f.properties.visited = !!f.properties.visited; }
+    }
+  }
+
+  map.getSource("field").setData(fc);
+  const fname = name || fc.name || "Field";
+  document.getElementById("fieldname").textContent = fname;
+  publishFieldState(fname);
+  fitToField();
 }
 
 function fitToField() {
@@ -247,11 +304,11 @@ function commitPoint() {
     }
   }
   map.getSource("field").setData(activeField);
+  if (activeFieldFile) beeDB.putState(activeFieldFile, { ...visited }).catch(() => {});
   if (window.beePublish) {
     const p = fieldProgress();
     window.beePublish.setProgress(p.placed, p.placedIds);
   }
-  // TODO: persist visited/notes to IndexedDB for offline (Phase 3).
 }
 
 // ---- View switching ---------------------------------------------------------
@@ -267,16 +324,24 @@ function setMode(m) {
 function show(id) { document.getElementById(id).classList.remove("hidden"); }
 function closeSheet(id) { document.getElementById(id).classList.add("hidden"); }
 
+// ---- Online / offline indicator ---------------------------------------------
+function updateNet() {
+  document.getElementById("netpill").classList.toggle("hidden", navigator.onLine);
+}
+
 // ---- Wire up ----------------------------------------------------------------
 window.addEventListener("DOMContentLoaded", () => {
   initMap();
   connectPosition();
+  updateNet();
+  window.addEventListener("online", updateNet);
+  window.addEventListener("offline", updateNet);
 
   document.getElementById("btn-overview").onclick = () => setMode("overview");
   document.getElementById("btn-ground").onclick = () => setMode("ground");
   document.getElementById("btn-fields").onclick = () => { loadFieldList(); show("fieldsheet"); };
   document.getElementById("btn-close-fields").onclick = () => closeSheet("fieldsheet");
-  document.getElementById("btn-sync").onclick = () => loadFieldList();
+  document.getElementById("btn-sync").onclick = () => syncAll();
   document.getElementById("btn-close-point").onclick = () => { commitPoint(); closeSheet("pointsheet"); };
   document.getElementById("pt-visited").onchange = commitPoint;
 

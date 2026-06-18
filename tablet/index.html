@@ -6,10 +6,10 @@
   <meta name="theme-color" content="#111111" />
   <link rel="manifest" href="manifest.webmanifest" />
   <title>Bee Tent Field</title>
-  <!-- MapLibre via CDN for the scaffold. TODO: vendor locally so it works
-       offline when served from the ESP32 (no internet in the field). -->
-  <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
-  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <!-- MapLibre vendored locally (tablet/vendor) so the app loads with no internet
+       when served from the ESP32 AP in the field. -->
+  <link href="vendor/maplibre-gl.css" rel="stylesheet" />
+  <script src="vendor/maplibre-gl.js"></script>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -18,6 +18,7 @@
   <!-- Top bar: field name + RTK fix badge (always visible) -->
   <div id="topbar">
     <div id="fieldname">No field</div>
+    <div id="netpill" class="hidden">OFFLINE</div>
     <div id="fixbadge" class="fix-none">NO FIX</div>
   </div>
 
@@ -58,6 +59,7 @@
   <script defer src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script>
   <script defer src="firebase-config.js"></script>
   <script defer src="publish.js"></script>
+  <script defer src="db.js"></script>
   <script defer src="app.js"></script>
 </body>
 </html>
