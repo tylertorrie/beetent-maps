@@ -1252,5 +1252,23 @@
     "role": "flag",
     "generated": "2026-06-18T00:34:59",
     "size": 708195
+  },
+  {
+    "id": "pdfs/Overview Summary All companies 2026 2026-06-18.pdf",
+    "kind": "overview",
+    "name": "Overview Summary All companies 2026 2026-06-18.pdf",
+    "relpath": "pdfs/Overview Summary All companies 2026 2026-06-18.pdf",
+    "is_dir": false,
+    "companies": [],
+    "years": [
+      "2026"
+    ],
+    "fields": [],
+    "types": [
+      "Overview"
+    ],
+    "role": null,
+    "generated": "2026-06-18T00:39:15",
+    "size": 2640
   }
 ]
