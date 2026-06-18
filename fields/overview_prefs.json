@@ -8,5 +8,16 @@
     "total_trays",
     "shelters",
     "buffer"
-  ]
+  ],
+  "widths": {
+    "field": 396,
+    "company": 95,
+    "year": 95,
+    "acres": 95,
+    "gpa": 95,
+    "total_gals": 95,
+    "total_trays": 95,
+    "shelters": 95,
+    "buffer": 95
+  }
 }
