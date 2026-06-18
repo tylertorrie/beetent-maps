@@ -1952,7 +1952,5 @@
   "PP2_Longitude": "",
   "Radius2": "",
   "two_pivots": false,
-  "tray_overrides": {
-    "73": 2
-  }
+  "tray_overrides": {}
 }
