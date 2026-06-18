@@ -10,11 +10,11 @@
     "buffer"
   ],
   "widths": {
-    "field": 635,
+    "field": 213,
     "company": 240,
     "year": 204,
     "acres": 324,
-    "gpa": 517,
+    "gpa": 344,
     "total_gals": 95,
     "total_trays": 95,
     "shelters": 95,
