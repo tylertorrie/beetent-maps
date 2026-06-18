@@ -19,7 +19,7 @@
   "num_male_rows": "4",
   "total_rows": "20",
   "row_layout": "custom",
-  "custom_row_mask": "MMFFF",
+  "custom_row_mask": "MMFFFFFFF",
   "use_bays": true,
   "outside_sprayer_pass": "Yes",
   "track_exclusion_ft": "10",
