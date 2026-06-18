@@ -1132,12 +1132,18 @@ def mask_runs(mask, char):
 MALE_BAY_OFFSET_FT = 5.0   # shelter row sits this far WEST of each male bay's west edge
 
 
-def male_bay_shelter_laterals(nf, nm, layout, custom, total_rows, rs_m, offset_m, radius):
+def male_bay_shelter_laterals(nf, nm, layout, custom, total_rows, rs_m, offset_m, radius,
+                              phase=0):
     """Sorted lateral (pre-rotation, +x = east) positions of shelter rows — ONE per
     male bay — each placed offset_m WEST of its male bay's west edge so the shelter's
     east-facing opening points into the male bay. Passes tile at pass_w = total_rows*rs_m
     with the pivot on a pass boundary, matching the bay overlay (_redraw_bays). Returns
-    [] if the row mask has no male runs (caller then falls back to the old grid)."""
+    [] if the row mask has no male runs (caller then falls back to the old grid).
+
+    `phase` (0 or 1) chooses which parity of pass uses the forward (vs mirrored)
+    mask — i.e. which side the planter started on. Only meaningful for an
+    asymmetric mask; for a symmetric one the reversed runs equal the forward
+    ones so phase has no effect. Must match the bay overlay's phase."""
     mask = resolve_row_mask(nf, nm, layout, custom, total_rows)
     runs = mask_runs(mask, 'M') if mask else []
     if not runs or total_rows <= 0 or rs_m <= 0:
@@ -1154,7 +1160,7 @@ def male_bay_shelter_laterals(nf, nm, layout, custom, total_rows, rs_m, offset_m
     xs = []
     for i in range(-n_pass, n_pass + 1):
         xc = (i + 0.5) * pass_w                 # pass centre (pivot sits on a boundary)
-        runs_i = runs if (i % 2 == 0) else runs_rev
+        runs_i = runs if ((i + phase) % 2 == 0) else runs_rev
         for (s, e) in runs_i:
             xs.append(xc + (s - half) * rs_m - offset_m)   # male-bay west edge − offset
     return sorted(set(round(x, 4) for x in xs))
@@ -1481,8 +1487,9 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
             layout = str(field_dict.get('row_layout') or 'centered')
             custom = str(field_dict.get('custom_row_mask') or '')
             offset_m = MALE_BAY_OFFSET_FT * 0.3048
+            phase = 1 if field_dict.get('pass_phase_swap') else 0
             bay_laterals = male_bay_shelter_laterals(
-                nf_i, nm_i, layout, custom, total_rows_i, rs_m, offset_m, radius)
+                nf_i, nm_i, layout, custom, total_rows_i, rs_m, offset_m, radius, phase)
             if bay_laterals:
                 # Shelter COLUMNS are spaced at the sprayer-boom width (one row per
                 # sprayer pass — the "at the edge of sprayer booms" rule), and each

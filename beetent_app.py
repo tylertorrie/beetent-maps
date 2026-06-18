@@ -3646,6 +3646,18 @@ class BeetentApp(ctk.CTk):
                                         font=ctk.CTkFont(family=FONT_BODY,size=10))
         self.row_mask_lbl.pack(fill="x",pady=(2,4))
 
+        # Swap which side the planter started on. On an ASYMMETRIC mask the
+        # snake phase matters: starting one bay over shifts the whole pattern.
+        # Only shown when the mask is actually asymmetric (_calc_bays toggles
+        # visibility); for a symmetric mask the swap is a no-op.
+        self.pass_phase_swap_var=tk.BooleanVar(value=False)
+        self.pass_phase_swap_cb=ctk.CTkCheckBox(
+            self._bay_only_frame,
+            text="Swap first pass (planter started other side)",
+            variable=self.pass_phase_swap_var,
+            font=ctk.CTkFont(family=FONT_LABEL,size=11),
+            command=self._on_pass_phase_swap)
+
         # Per-field switch: use the uploaded JD planter passes (if any) as the
         # ground truth for shelter placement, OR fall back to the synthetic
         # math grid computed from the bay calculator. Default ON — if you
@@ -5050,6 +5062,7 @@ class BeetentApp(ctk.CTk):
         rl = f.get("row_layout","centered")
         self.row_layout_var.set(self._row_layout_inverse.get(rl,"Centered male"))
         self.custom_mask_var.set(str(f.get("custom_row_mask","")))
+        self.pass_phase_swap_var.set(bool(f.get("pass_phase_swap", False)))
         # Default OFF when no planter data has been uploaded; respect the
         # saved value (which may be False if the user manually turned it off).
         has_planter = bool(f.get("planter_passes"))
@@ -5104,6 +5117,7 @@ class BeetentApp(ctk.CTk):
         f["shelter_mode"]=self._shelter_mode_labels.get(self.shelter_mode_var.get(),"total")
         f["row_layout"]=self._row_layout_labels.get(self.row_layout_var.get(),"centered")
         f["custom_row_mask"]=self.custom_mask_var.get().strip()
+        f["pass_phase_swap"]=bool(self.pass_phase_swap_var.get())
         f["use_imported_passes"]=bool(self.use_imported_passes_var.get())
         f["use_bays"]=bool(self.use_bays_var.get())
         # Company: prefer the form's Company entry (user can type anything,
@@ -8621,6 +8635,13 @@ class BeetentApp(ctk.CTk):
         except Exception: pass
         self._on_bay_change()   # schedule a recalc so the preview updates
 
+    def _on_pass_phase_swap(self):
+        """Snake-phase swap toggled. Mirror the value into current_field so
+        both the bay overlay and the shelter engine pick it up, then redraw."""
+        self.current_field["pass_phase_swap"] = bool(self.pass_phase_swap_var.get())
+        if self.show_bays.get(): self._redraw_bays()
+        self._on_form_change()   # debounced shelter recompute
+
     def _calc_bays(self):
         try:
             rs=float(self.fv["row_spacing_in"].get() or 22)
@@ -8687,6 +8708,15 @@ class BeetentApp(ctk.CTk):
             else:
                 self.bay_gap_lbl.configure(text="Gap: none")
         self.row_mask_lbl.configure(text=f"Mask: {mask or '—'}")
+        # The first-pass-swap option only does anything for an ASYMMETRIC mask
+        # (a symmetric one reads the same reversed). Show the checkbox only then.
+        asymmetric = bool(mask) and mask != mask[::-1]
+        try:
+            if asymmetric:
+                self.pass_phase_swap_cb.pack(fill="x", pady=(0, 4))
+            else:
+                self.pass_phase_swap_cb.pack_forget()
+        except Exception: pass
         self._status(f"Bay layout: female {f_in:.0f}\" ({f_ft:.2f} ft), male {m_in:.0f}\" ({m_ft:.2f} ft); planter {total_rows} rows")
         if self.show_bays.get(): self._redraw_bays()
         if self.show_shelters.get(): self._redraw_shelters()
@@ -9102,9 +9132,11 @@ class BeetentApp(ctk.CTk):
         if not runs_fwd: return
         rs_m = g["rs_m"]; tr = g["total_rows"]; pass_w = g["pass_w"]
         half = tr / 2.0
+        # phase chooses which side the planter started on (see pass_phase_swap).
+        phase = 1 if self.current_field.get("pass_phase_swap") else 0
         for i in range(-g["n_pass"], g["n_pass"] + 1):
             xc = (i + 0.5) * pass_w + g["lat_shift"]      # pass centre
-            runs = runs_fwd if (i % 2 == 0) else runs_rev
+            runs = runs_fwd if ((i + phase) % 2 == 0) else runs_rev
             for (s, e) in runs:
                 # M run covers rows s..e-1; band spans the run, gap_m inset each side.
                 x1 = xc + (s - half) * rs_m + gap_m
