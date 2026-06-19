@@ -26,8 +26,10 @@ import threading
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-HTTP_PORT = 8000
-WS_PORT = 8081
+# Ports are env-configurable so a second instance (e.g. a preview server) can run
+# alongside a sim you already started on the defaults.
+HTTP_PORT = int(os.environ.get("PORT", os.environ.get("HTTP_PORT", 8000)))
+WS_PORT = int(os.environ.get("WS_PORT", 8081))
 WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 # Centre of the sample field; the unit drives a small circle around it.
@@ -127,7 +129,11 @@ def handle_ws(conn, addr):
 def serve_ws():
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    srv.bind(("", WS_PORT))
+    try:
+        srv.bind(("", WS_PORT))
+    except OSError as e:
+        print(f"  WS   : port {WS_PORT} unavailable ({e}); HTTP-only")
+        return
     srv.listen(5)
     print(f"  WS   : ws://localhost:{WS_PORT}")
     while True:

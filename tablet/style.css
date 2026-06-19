@@ -14,6 +14,13 @@ html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; }
 .fix-dgps  { background: #3a7bd5; color: #fff; }    /* 2 = DGPS */
 .fix-gps   { background: #777; color: #fff; }        /* 1 = autonomous */
 .fix-none  { background: #c0392b; color: #fff; }     /* 0 = no fix */
+.fix-tablet { background: #2d6cdf; color: #fff; }    /* tablet GPS: shows accuracy */
+
+#srcpill { font-weight: 700; font-size: 12px; padding: 3px 9px; border-radius: 6px;
+           letter-spacing: .3px; white-space: nowrap; }
+.src-globe  { background: #1faa59; color: #fff; }    /* RTK from the globe */
+.src-tablet { background: #2d6cdf; color: #fff; }    /* tablet's own GPS */
+.src-none   { background: #555;    color: #ddd; }    /* no position at all */
 #netpill { font-weight: 700; font-size: 12px; padding: 3px 9px; border-radius: 6px;
            background: #7a4a00; color: #ffd9a0; letter-spacing: .5px; }
 

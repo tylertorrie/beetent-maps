@@ -56,6 +56,13 @@ let labelMode = "number"; // shelter pin labels: "number" | "trays"
 let proxShelter = null;   // label of the shelter we're currently within 10 ft of
 const visited = {};       // label -> {visited, note}  (local only for now)
 
+// Position source: prefer the globe (ESP32/sim over WebSocket); fall back to the
+// tablet's own GPS when the globe goes quiet. The top-bar pill shows which.
+let posSource = "none";          // "globe" | "tablet" | "none"
+let lastGlobeTs = 0, lastTabletTs = 0, lastAnyTs = 0;
+let geoState = "off";            // "off" | "ok" | "denied" | "unavailable"
+const GLOBE_STALE_MS = 4000;     // globe considered lost after this gap
+
 // ---- Map setup --------------------------------------------------------------
 function initMap() {
   if (window.beeTiles) beeTiles.registerProtocol();   // must precede map creation
@@ -130,30 +137,84 @@ function initMap() {
 const emptyFC = () => ({ type: "FeatureCollection", features: [] });
 
 // ---- Position source --------------------------------------------------------
+// The globe (or the dev simulator) over WebSocket.
 function connectPosition() {
   let ws;
   try { ws = new WebSocket(WS_URL); }
-  catch (e) { console.warn("WS construct failed", e); return; }
-
+  catch (e) { setTimeout(connectPosition, 2000); return; }
   ws.onmessage = (ev) => {
-    try { onPosition(JSON.parse(ev.data)); } catch (e) { /* ignore junk frame */ }
+    try { onPosition(JSON.parse(ev.data), "globe"); } catch (e) { /* junk frame */ }
   };
-  ws.onclose = () => { setFix(null); setTimeout(connectPosition, 2000); };
-  ws.onerror = () => ws.close();
+  ws.onclose = () => setTimeout(connectPosition, 2000);
+  ws.onerror = () => { try { ws.close(); } catch (e) {} };
 }
 
-function onPosition(p) {
+// The tablet's built-in GPS — the fallback when the globe isn't connected.
+// NOTE: browsers only allow geolocation in a SECURE context (https or localhost),
+// so this stays denied when the app is served over plain http (e.g. an ESP32 AP).
+function startGeo() {
+  if (!navigator.geolocation) { geoState = "unavailable"; return; }
+  navigator.geolocation.watchPosition(
+    (gp) => {
+      geoState = "ok";
+      const h = gp.coords.heading;
+      onPosition({
+        lat: gp.coords.latitude, lon: gp.coords.longitude,
+        course: (h != null && !isNaN(h)) ? h : undefined,
+        acc: gp.coords.accuracy, sats: null, hdop: null,
+      }, "tablet");
+    },
+    (err) => { geoState = (err && err.code === 1) ? "denied" : "unavailable"; },
+    { enableHighAccuracy: true, maximumAge: 1000, timeout: 12000 }
+  );
+}
+
+function onPosition(p, source) {
+  const now = Date.now();
+  if (source === "globe") lastGlobeTs = now;
+  else if (source === "tablet") {
+    lastTabletTs = now;
+    if (now - lastGlobeTs < GLOBE_STALE_MS) return;   // globe wins while it's fresh
+  }
+  lastAnyTs = now;
+  posSource = source;
+
   pos = p;
   meMarker.setLngLat([p.lon, p.lat]);
-  if (typeof p.course === "number") meMarker.setRotation(p.course);
+  if (typeof p.course === "number" && !isNaN(p.course)) meMarker.setRotation(p.course);
   if (!meMarker._map) meMarker.addTo(map);
 
-  setFix(p.fix);
-  document.getElementById("sats").textContent = p.sats ?? 0;
-  document.getElementById("hdop").textContent = (p.hdop ?? "--");
+  updateStatus(p, source);
   if (window.beePublish) window.beePublish.setPos(p);
-
   if (mode === "work") checkProximity(p);
+}
+
+function updateStatus(p, source) {
+  const src = document.getElementById("srcpill");
+  if (source === "globe") {
+    src.textContent = "\u{1F6F0} GLOBE"; src.className = "src-globe";
+    setFix(p.fix);                                   // RTK FIX / FLOAT / etc.
+  } else {
+    src.textContent = "\u{1F4F1} TABLET GPS"; src.className = "src-tablet";
+    const fb = document.getElementById("fixbadge");
+    fb.className = "fix-tablet";
+    fb.textContent = (p.acc != null) ? `±${Math.round(p.acc)} m` : "GPS";
+  }
+  document.getElementById("sats").textContent = (p.sats ?? "—");
+  document.getElementById("hdop").textContent = (p.hdop ?? "--");
+}
+
+// Bring up tablet GPS once the globe goes quiet; flag total signal loss.
+function statusWatchdog() {
+  const now = Date.now();
+  if (now - lastGlobeTs > GLOBE_STALE_MS && geoState === "off") startGeo();
+  if (now - lastAnyTs > GLOBE_STALE_MS + 2000) {
+    posSource = "none";
+    const src = document.getElementById("srcpill");
+    src.textContent = "— NO SIGNAL"; src.className = "src-none";
+    setFix(null);
+  }
+  setTimeout(statusWatchdog, 1500);
 }
 
 function setFix(fix) {
@@ -503,6 +564,7 @@ function updateNet() {
 window.addEventListener("DOMContentLoaded", () => {
   initMap();
   connectPosition();
+  statusWatchdog();                                // globe→tablet-GPS fallback + signal pill
   if (window.beeTiles) beeTiles.evictIfNeeded();   // trim cache if it grew past the cap
   updateNet();
   window.addEventListener("online", updateNet);
