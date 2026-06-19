@@ -1905,7 +1905,11 @@ class BeetentApp(ctk.CTk):
                 pins.append({"qr": str(rec.get("shelter_qr", "")),
                              "lat": float(rec.get("lat")), "lon": float(rec.get("lon")),
                              "placed": str(rec.get("placed_at", "")),
-                             "user": str(rec.get("placed_by", ""))})
+                             "user": str(rec.get("placed_by", "")),
+                             # extra scan detail for the shelter→tray popup (Phase C)
+                             "gps_source": rec.get("gps_source", ""),
+                             "fix": rec.get("fix"), "hdop": rec.get("hdop"),
+                             "acc": rec.get("acc")})
             except (TypeError, ValueError):
                 continue
         # Only overwrite when live scans are present — an empty snapshot must not
@@ -8431,7 +8435,8 @@ class BeetentApp(ctk.CTk):
             try:
                 m = self.map_widget.set_marker(lat, lon, text=lbl,
                         marker_color_circle="#1E90FF", marker_color_outside="#0A3D7A",
-                        text_color="#FFFFFF", font=(FONT_LABEL, 11))
+                        text_color="#FFFFFF", font=(FONT_LABEL, 11),
+                        command=lambda mk, i=seq: self._on_actual_shelter_tap(i))
                 self.shelter_markers.append(m)
             except Exception: pass
             if show_circles:
@@ -8445,6 +8450,68 @@ class BeetentApp(ctk.CTk):
                 text=f"ACTUAL placement — {len(self.shelter_positions)} shelters scanned",
                 text_color=UI_ACCENT)
         self._status(f"Showing ACTUAL placement — {len(self.shelter_positions)} scanned pins.")
+
+    def _on_actual_shelter_tap(self, seq):
+        """Detail popup for a scanned (actual) shelter: its placement info and the
+        trays scanned into it — the Field → Shelter → Trays branch of the tree."""
+        pins = self.current_field.get("actual_shelter_pins") or []
+        if seq < 0 or seq >= len(pins): return
+        p = pins[seq]
+        qr = str(p.get("qr", "") or "")
+        title_id = qr or f"#{seq + 1}"
+        trays = [t for t in (self.current_field.get("tray_records") or [])
+                 if isinstance(t, dict) and str(t.get("shelter_qr", "")) == qr]
+
+        def _dt(s):
+            s = str(s or "")
+            return s[:16].replace("T", " ") if s else "—"
+
+        win = ctk.CTkToplevel(self); win.title(f"Shelter {title_id}"); win.grab_set()
+        win.geometry("440x470")
+        pad = ctk.CTkFrame(win, fg_color="transparent")
+        pad.pack(fill="both", expand=True, padx=18, pady=14)
+
+        ctk.CTkLabel(pad, text=f"Shelter {title_id}",
+                     font=ctk.CTkFont(family=FONT_HEADING, size=16, weight="bold")).pack(anchor="w")
+        ctk.CTkLabel(pad, text=str(self.current_field.get("Name", "") or ""),
+                     text_color=UI_MUTED, font=ctk.CTkFont(size=12)).pack(anchor="w", pady=(0, 8))
+
+        def _info(label, value):
+            r = ctk.CTkFrame(pad, fg_color="transparent"); r.pack(fill="x", pady=1)
+            ctk.CTkLabel(r, text=label, width=90, anchor="w", text_color=UI_MUTED,
+                         font=ctk.CTkFont(size=12)).pack(side="left")
+            ctk.CTkLabel(r, text=value, anchor="w",
+                         font=ctk.CTkFont(size=12)).pack(side="left", fill="x", expand=True)
+
+        _info("Placed", f"{_dt(p.get('placed'))}  ·  {p.get('user') or '—'}")
+        gps_bits = [p.get("gps_source") or "—"]
+        if p.get("fix") is not None: gps_bits.append(self._mon_fix_text(p.get("fix")))
+        if p.get("hdop") is not None: gps_bits.append(f"HDOP {p.get('hdop')}")
+        if p.get("acc") is not None: gps_bits.append(f"±{p.get('acc')} m")
+        _info("GPS", "  ·  ".join(str(b) for b in gps_bits))
+        try:
+            _info("Location", f"{float(p.get('lat')):.7f}, {float(p.get('lon')):.7f}")
+        except (TypeError, ValueError):
+            _info("Location", "—")
+
+        ctk.CTkLabel(pad, text=f"Trays  ({len(trays)})",
+                     font=ctk.CTkFont(size=13, weight="bold")).pack(anchor="w", pady=(12, 2))
+        sc = ctk.CTkScrollableFrame(pad, fg_color=UI_CARD, height=170)
+        sc.pack(fill="both", expand=True)
+        if not trays:
+            ctk.CTkLabel(sc, text="No trays scanned into this shelter yet.",
+                         text_color=UI_MUTED).pack(anchor="w", padx=8, pady=8)
+        else:
+            for t in trays:
+                row = ctk.CTkFrame(sc, fg_color="transparent"); row.pack(fill="x", padx=4, pady=2)
+                ctk.CTkLabel(row, text=str(t.get("tray_qr", "") or "—"), anchor="w",
+                             font=ctk.CTkFont(size=12, weight="bold")).pack(side="left")
+                ctk.CTkLabel(row, text=f"{_dt(t.get('scanned_at'))} · {t.get('scanned_by') or '—'}",
+                             anchor="e", text_color=UI_MUTED,
+                             font=ctk.CTkFont(size=11)).pack(side="right")
+        ctk.CTkButton(pad, text="Close", command=win.destroy).pack(pady=(12, 0))
+        try: _center_on_parent(win, self)
+        except Exception: pass
 
     def _pivot_far_from_boundary(self):
         """True when the pivot sits implausibly far outside the field boundary —
