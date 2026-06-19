@@ -10003,7 +10003,55 @@ class BeetentApp(ctk.CTk):
         metric = self.unit_var.get() == "Metric"
         shelters = self._final_shelter_positions(f, metric)
         boundary = f.get("boundary_polygon") or None
-        field_geojson.write_field(f, shelters, boundary)
+        trays = self._final_shelter_trays(f, metric)
+        tracks = self._field_track_circles(f)
+        field_geojson.write_field(f, shelters, boundary,
+                                  shelter_trays=trays, tracks=tracks)
+
+    def _final_shelter_trays(self, f, metric):
+        """Per-shelter tray counts aligned 1:1 with _final_shelter_positions
+        (same deletion / manual-pin handling). Empty list if unavailable."""
+        trays = list(getattr(self, "shelter_tray_counts", []) or [])
+        if not trays:
+            return []
+        try:
+            positions = maketentgrid.get_tent_positions(f, use_metric=metric)
+        except Exception:
+            return []
+        n = len(positions)
+        trays = (trays + [0] * n)[:n]            # align length to the grid
+        overrides = f.get("shelter_overrides") or {}
+        deleted = set()
+        for k, v in overrides.items():
+            try:
+                idx = int(k)
+                if 0 <= idx < n and v is None:
+                    deleted.add(idx)
+            except (ValueError, TypeError):
+                pass
+        out = [t for i, t in enumerate(trays) if i not in deleted]
+        if str(f.get("shelter_mode") or "").strip().lower() != "manual":
+            out += [0] * len(f.get("manual_shelter_pins") or [])   # manual pins: unknown
+        return out
+
+    def _field_track_circles(self, f):
+        """Pivot wheel-track circles as (center_lat, center_lon, radius_m), for
+        both pivots when the field has two."""
+        out = []
+        def add(plat, plon, radii):
+            try:
+                clat, clon = float(plat), float(plon)
+            except (TypeError, ValueError):
+                return
+            for r in (radii or []):
+                try:
+                    out.append((clat, clon, float(r)))
+                except (TypeError, ValueError):
+                    pass
+        add(f.get("PP_Latitude"), f.get("PP_Longitude"), f.get("pivot_tracks"))
+        if f.get("two_pivots"):
+            add(f.get("PP2_Latitude"), f.get("PP2_Longitude"), f.get("pivot_tracks2"))
+        return out
 
     def _final_shelter_positions(self, f, metric, use_actual=False):
         """Shelter positions exactly as drawn on the map: get_tent_positions

@@ -22,10 +22,18 @@
     <div id="fixbadge" class="fix-none">NO FIX</div>
   </div>
 
+  <!-- Work-view tools: switch shelter pin labels between numbers and trays. -->
+  <div id="worktools" class="hidden">
+    <button id="btn-labelmode">Show trays</button>
+  </div>
+
+  <!-- Arrival banner: shown when within 10 ft of a shelter. -->
+  <div id="arrival" class="hidden"></div>
+
   <!-- Bottom controls -->
   <div id="controls">
-    <button id="btn-overview" class="active">Overview</button>
-    <button id="btn-ground">Ground</button>
+    <button id="btn-work" class="active">Work</button>
+    <button id="btn-map">Map</button>
     <button id="btn-fields">Fields</button>
     <div id="stats"><span id="sats">0</span> sats &middot; HDOP <span id="hdop">--</span></div>
   </div>

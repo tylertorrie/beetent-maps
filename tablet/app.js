@@ -50,10 +50,11 @@ const SATELLITE = {
 let map;
 let meMarker;            // live position marker
 let pos = null;          // last position object from the source
-let mode = "overview";   // "overview" | "ground"
-let activeField = null;  // GeoJSON FeatureCollection
-let followGround = true; // recenter on each fix while in ground view
-const visited = {};      // label -> {visited, note}  (local only for now)
+let mode = "work";        // "work" (active field) | "map" (all synced fields)
+let activeField = null;   // GeoJSON FeatureCollection
+let labelMode = "number"; // shelter pin labels: "number" | "trays"
+let proxShelter = null;   // label of the shelter we're currently within 10 ft of
+const visited = {};       // label -> {visited, note}  (local only for now)
 
 // ---- Map setup --------------------------------------------------------------
 function initMap() {
@@ -77,9 +78,10 @@ function initMap() {
       filter: ["==", ["get", "type"], "boundary"],
       source: "field", paint: { "line-color": "#FFD700", "line-width": 2 } });
 
-    map.addLayer({ id: "tracks-fill", type: "fill",
+    map.addLayer({ id: "tracks-line", type: "line",
       filter: ["==", ["get", "type"], "pivot_track"],
-      source: "field", paint: { "fill-color": "#FF6600", "fill-opacity": 0.15 } });
+      source: "field",
+      paint: { "line-color": "#FF6600", "line-width": 1.5, "line-opacity": 0.85 } });
 
     map.addLayer({ id: "shelters", type: "circle",
       filter: ["==", ["get", "type"], "shelter"],
@@ -99,11 +101,30 @@ function initMap() {
 
     map.on("click", "shelters", (e) => openPoint(e.features[0]));
 
-    loadFieldList();
-  });
+    // All-fields overview ("Map" view): every synced field's boundary + name.
+    map.addSource("allfields", { type: "geojson", data: emptyFC() });
+    map.addLayer({ id: "allfields-fill", type: "fill",
+      filter: ["==", ["get", "type"], "boundary"],
+      source: "allfields", paint: { "fill-color": "#FFD700", "fill-opacity": 0.08 } });
+    map.addLayer({ id: "allfields-line", type: "line",
+      filter: ["==", ["get", "type"], "boundary"],
+      source: "allfields", paint: { "line-color": "#FFD700", "line-width": 2 } });
+    map.addLayer({ id: "allfields-label", type: "symbol",
+      filter: ["==", ["get", "type"], "label"],
+      source: "allfields",
+      layout: { "text-field": ["get", "name"], "text-font": ["OpenSans"],
+                "text-size": 14, "text-allow-overlap": true },
+      paint: { "text-color": "#fff", "text-halo-color": "#000", "text-halo-width": 1.5 } });
+    map.on("click", "allfields-fill", (e) => {
+      const f = e.features[0];
+      if (f && f.properties.file) loadField("fields/" + f.properties.file, f.properties.name);
+      setMode("work");
+    });
 
-  // In ground view a user pan turns off auto-follow until they re-enter ground.
-  map.on("dragstart", () => { if (mode === "ground") followGround = false; });
+    loadFieldList();
+    applyLabelMode();
+    setMode("work");
+  });
 }
 
 const emptyFC = () => ({ type: "FeatureCollection", features: [] });
@@ -132,9 +153,7 @@ function onPosition(p) {
   document.getElementById("hdop").textContent = (p.hdop ?? "--");
   if (window.beePublish) window.beePublish.setPos(p);
 
-  if (mode === "ground" && followGround) {
-    map.easeTo({ center: [p.lon, p.lat], zoom: GROUND_ZOOM, duration: 250 });
-  }
+  if (mode === "work") checkProximity(p);
 }
 
 function setFix(fix) {
@@ -235,6 +254,7 @@ async function loadField(url, name) {
     }
   }
   activeField = fc;
+  proxShelter = null; hideArrival();              // reset proximity for the new field
   if (window.beeTiles) beeTiles.touchField(fc);   // keep this field's tiles fresh (LRU)
 
   // Load this field's saved placement state from IndexedDB into `visited`.
@@ -330,12 +350,137 @@ function commitPoint() {
 }
 
 // ---- View switching ---------------------------------------------------------
+const FIELD_LAYERS = ["boundary-line", "tracks-line", "shelters", "shelter-labels"];
+const MAP_LAYERS = ["allfields-fill", "allfields-line", "allfields-label"];
+
+function setLayers(ids, vis) {
+  for (const id of ids) if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", vis);
+}
+
 function setMode(m) {
   mode = m;
-  document.getElementById("btn-overview").classList.toggle("active", m === "overview");
-  document.getElementById("btn-ground").classList.toggle("active", m === "ground");
-  if (m === "overview") fitToField();
-  else { followGround = true; if (pos) map.easeTo({ center: [pos.lon, pos.lat], zoom: GROUND_ZOOM }); }
+  document.getElementById("btn-work").classList.toggle("active", m === "work");
+  document.getElementById("btn-map").classList.toggle("active", m === "map");
+  document.getElementById("worktools").classList.toggle("hidden", m !== "work");
+  if (m === "work") {
+    setLayers(MAP_LAYERS, "none"); setLayers(FIELD_LAYERS, "visible");
+    fitToField();
+  } else {
+    setLayers(FIELD_LAYERS, "none"); setLayers(MAP_LAYERS, "visible");
+    hideArrival();
+    showAllFields();
+  }
+}
+
+// Shelter pin labels: numbers vs tray counts.
+function applyLabelMode() {
+  if (!map.getLayer("shelter-labels")) return;
+  const expr = labelMode === "trays"
+    ? ["case", ["has", "trays"], ["concat", ["to-string", ["get", "trays"]], "t"], "—"]
+    : ["get", "label"];
+  map.setLayoutProperty("shelter-labels", "text-field", expr);
+  const btn = document.getElementById("btn-labelmode");
+  if (btn) btn.textContent = labelMode === "trays" ? "Show numbers" : "Show trays";
+}
+function toggleLabelMode() {
+  labelMode = labelMode === "trays" ? "number" : "trays";
+  applyLabelMode();
+}
+
+// ---- Proximity alert (within 10 ft of a shelter) ----------------------------
+const ARRIVE_M = 3.048;   // 10 feet
+
+function haversine(lat1, lon1, lat2, lon2) {
+  const R = 6371000, toR = Math.PI / 180;
+  const dLat = (lat2 - lat1) * toR, dLon = (lon2 - lon1) * toR;
+  const a = Math.sin(dLat / 2) ** 2 +
+            Math.cos(lat1 * toR) * Math.cos(lat2 * toR) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+function checkProximity(p) {
+  if (!activeField) return;
+  let best = null, bestD = Infinity;
+  for (const f of activeField.features) {
+    if (f.properties.type !== "shelter") continue;
+    const [lo, la] = f.geometry.coordinates;
+    const d = haversine(p.lat, p.lon, la, lo);
+    if (d < bestD) { bestD = d; best = f; }
+  }
+  if (best && bestD <= ARRIVE_M) {
+    if (proxShelter !== best.properties.label) { proxShelter = best.properties.label; arrive(best); }
+  } else if (proxShelter && bestD > ARRIVE_M + 2) {   // 2 m hysteresis before re-arming
+    proxShelter = null; hideArrival();
+  }
+}
+
+function arrive(feature) {
+  const label = feature.properties.label;
+  const trays = feature.properties.trays;
+  const sub = (labelMode === "trays" && trays != null)
+    ? `<div class="arrive-sub">${trays} tray${trays === 1 ? "" : "s"}</div>` : "";
+  const el = document.getElementById("arrival");
+  el.innerHTML = `&#10003; You're at ${label}${sub}`;
+  el.classList.remove("hidden");
+  el.style.animation = "none"; void el.offsetWidth; el.style.animation = "";   // restart pop
+  if (navigator.vibrate) navigator.vibrate([200, 80, 200]);
+  beep();
+}
+function hideArrival() {
+  const el = document.getElementById("arrival");
+  if (el) el.classList.add("hidden");
+}
+
+let audioCtx = null;
+function beep() {
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.type = "sine"; o.frequency.value = 880;
+    o.connect(g); g.connect(audioCtx.destination);
+    const t = audioCtx.currentTime;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.3, t + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.4);
+    o.start(t); o.stop(t + 0.4);
+  } catch (e) { /* audio blocked — vibration + banner still fire */ }
+}
+
+// ---- All-fields overview ("Map" view) ---------------------------------------
+async function buildAllFields() {
+  const feats = [];
+  let items = [];
+  try { items = (await beeDB.getIndex()) || []; } catch (e) { /* ignore */ }
+  if (!items.length) {
+    try { const r = await fetch(FIELDS_INDEX, { cache: "no-store" }); if (r.ok) items = (await r.json()).fields || []; }
+    catch (e) { /* offline, no index */ }
+  }
+  for (const it of items) {
+    let fc = null;
+    try { fc = await beeDB.getField(it.file); } catch (e) { /* ignore */ }
+    if (!fc) { try { const r = await fetch("fields/" + it.file); if (r.ok) fc = await r.json(); } catch (e) {} }
+    if (!fc) continue;
+    const b = (fc.features || []).find((f) => f.properties.type === "boundary");
+    if (!b) continue;
+    feats.push({ type: "Feature", properties: { type: "boundary", name: it.name, file: it.file }, geometry: b.geometry });
+    const ring = (b.geometry.coordinates && b.geometry.coordinates[0]) || [];
+    if (ring.length) {
+      let sx = 0, sy = 0;
+      for (const [x, y] of ring) { sx += x; sy += y; }
+      feats.push({ type: "Feature", properties: { type: "label", name: it.name },
+                   geometry: { type: "Point", coordinates: [sx / ring.length, sy / ring.length] } });
+    }
+  }
+  return { type: "FeatureCollection", features: feats };
+}
+
+async function showAllFields() {
+  const fc = await buildAllFields();
+  if (map.getSource("allfields")) map.getSource("allfields").setData(fc);
+  const b = new maplibregl.LngLatBounds();
+  let any = false;
+  for (const f of fc.features) eachCoord(f.geometry, ([lon, lat]) => { b.extend([lon, lat]); any = true; });
+  if (any) map.fitBounds(b, { padding: 50, maxZoom: 15 });
 }
 
 // ---- Sheets -----------------------------------------------------------------
@@ -356,8 +501,9 @@ window.addEventListener("DOMContentLoaded", () => {
   window.addEventListener("online", updateNet);
   window.addEventListener("offline", updateNet);
 
-  document.getElementById("btn-overview").onclick = () => setMode("overview");
-  document.getElementById("btn-ground").onclick = () => setMode("ground");
+  document.getElementById("btn-work").onclick = () => setMode("work");
+  document.getElementById("btn-map").onclick = () => setMode("map");
+  document.getElementById("btn-labelmode").onclick = toggleLabelMode;
   document.getElementById("btn-fields").onclick = () => { loadFieldList(); show("fieldsheet"); };
   document.getElementById("btn-close-fields").onclick = () => closeSheet("fieldsheet");
   document.getElementById("btn-sync").onclick = () => syncAll();
