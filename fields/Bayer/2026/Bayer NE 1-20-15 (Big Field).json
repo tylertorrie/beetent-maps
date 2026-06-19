@@ -20,7 +20,7 @@
   "num_male_rows": "4",
   "bay_gap_in": "0",
   "total_rows": "24",
-  "row_layout": "centered",
+  "row_layout": "custom",
   "custom_row_mask": "",
   "use_bays": true,
   "shelters_in_outside_pass": "Yes",
