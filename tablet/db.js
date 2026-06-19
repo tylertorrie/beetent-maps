@@ -15,7 +15,10 @@ window.beeDB = (function () {
   const NAME = "beetent";
   // tiles = cached satellite image bytes; tile_meta = key -> last-used timestamp
   // (kept separate so eviction can scan timestamps without loading the imagery).
-  const STORES = ["fields", "state", "meta", "tiles", "tile_meta"];
+  // shelter_scans = scanned actual placements keyed by shelter QR;
+  // tray_scans = scanned trays keyed by tray QR (each carries its shelter_qr).
+  const STORES = ["fields", "state", "meta", "tiles", "tile_meta",
+                  "shelter_scans", "tray_scans"];
   let dbp = null;
 
   const createMissing = (db) => {
@@ -98,6 +101,11 @@ window.beeDB = (function () {
     putIndex: (list) => run("meta", "readwrite", s => s.put(list, "fields_index")),
     getMeta: (key) => run("meta", "readonly", s => s.get(key)),
     putMeta: (key, val) => run("meta", "readwrite", s => s.put(val, key)),
+    // Scans — keyed by QR so a re-scan updates in place (no duplicates).
+    addShelterScan: (rec) => run("shelter_scans", "readwrite", s => s.put(rec, rec.shelter_qr)),
+    allShelterScans: () => run("shelter_scans", "readonly", s => s.getAll()),
+    addTrayScan: (rec) => run("tray_scans", "readwrite", s => s.put(rec, rec.tray_qr)),
+    allTrayScans: () => run("tray_scans", "readonly", s => s.getAll()),
     getField: (file) => run("fields", "readonly", s => s.get(file)),
     putField: (file, fc) => run("fields", "readwrite", s => s.put(fc, file)),
     getState: (file) => run("state", "readonly", s => s.get(file)),

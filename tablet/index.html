@@ -40,6 +40,7 @@
   <!-- Bottom controls -->
   <div id="controls">
     <button id="btn-work" class="active">Work</button>
+    <button id="btn-scan" class="accent">Scan</button>
     <button id="btn-map">Map</button>
     <button id="btn-checklist">Checklist</button>
     <button id="btn-fields">Fields</button>
@@ -67,6 +68,42 @@
       <button id="btn-close-checklist">&times;</button>
     </div>
     <div id="checklist-body"></div>
+  </div>
+
+  <!-- Scan drawer: shelter placement + tray placement (QR via hardware
+       scanner on http, or device camera on https). -->
+  <div id="scansheet" class="hidden">
+    <div class="sheet-head">
+      <span>Scan</span>
+      <span id="scan-progress" class="cl-progress"></span>
+      <button id="btn-close-scan">&times;</button>
+    </div>
+    <div id="scan-body">
+      <div class="scan-modes">
+        <button id="scan-mode-shelter" class="active">Shelter</button>
+        <button id="scan-mode-tray">Trays</button>
+      </div>
+      <div id="scan-context" class="hidden"></div>
+      <input id="scan-input" type="text" autocomplete="off" autocapitalize="off"
+             autocorrect="off" spellcheck="false"
+             placeholder="Scan a QR code (or type) then Enter" />
+      <div class="scan-actions">
+        <button id="btn-scan-camera">Use camera</button>
+        <button id="btn-scan-clearshelter" class="hidden">Change shelter</button>
+      </div>
+      <div id="scan-status"></div>
+      <div id="scan-recent"></div>
+    </div>
+  </div>
+
+  <!-- Camera scanner overlay (only when running in a secure context) -->
+  <div id="camoverlay" class="hidden">
+    <video id="cam-video" playsinline muted></video>
+    <div id="cam-reticle"></div>
+    <div id="cam-bar">
+      <span id="cam-hint">Point at the QR code</span>
+      <button id="btn-cam-close">Close camera</button>
+    </div>
   </div>
 
   <!-- Point detail popup -->

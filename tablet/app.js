@@ -108,6 +108,17 @@ function initMap() {
 
     map.on("click", "shelters", (e) => openPoint(e.features[0]));
 
+    // Scanned actual shelter placements — bright green pins dropped at the exact
+    // scan position (distinct from the yellow/green planned shelters).
+    map.addSource("scans", { type: "geojson", data: emptyFC() });
+    map.addLayer({ id: "scan-pins", type: "circle",
+      filter: ["==", ["get", "type"], "scan"],
+      source: "scans",
+      paint: {
+        "circle-radius": 7, "circle-color": "#19e36b",
+        "circle-stroke-color": "#04361b", "circle-stroke-width": 2,
+      } });
+
     // All-fields overview ("Map" view): every synced field's boundary + name.
     map.addSource("allfields", { type: "geojson", data: emptyFC() });
     map.addLayer({ id: "allfields-fill", type: "fill",
@@ -339,6 +350,7 @@ async function loadField(url, name) {
   document.getElementById("fieldname").textContent = fname;
   publishFieldState(fname);
   fitToField();
+  refreshScanLayer(); updateScanProgress();   // show this field's scanned pins
 }
 
 function fitToField() {
@@ -415,7 +427,7 @@ function commitPoint() {
 }
 
 // ---- View switching ---------------------------------------------------------
-const FIELD_LAYERS = ["boundary-line", "tracks-line", "shelters", "shelter-labels"];
+const FIELD_LAYERS = ["boundary-line", "tracks-line", "shelters", "shelter-labels", "scan-pins"];
 const MAP_LAYERS = ["allfields-fill", "allfields-line", "allfields-label"];
 
 function setLayers(ids, vis) {
@@ -663,6 +675,220 @@ async function openChecklist() {
   show("checklistsheet");
 }
 
+// ---- QR scanning: shelter placement + tray placement ------------------------
+// Offline-first (Phase A): scans are stored in IndexedDB and dropped as pins on
+// the map. Hardware keyboard-wedge scanners type into #scan-input (works on the
+// ESP32 over http); the camera path runs only in a secure context (https).
+let scanMode = "shelter";        // "shelter" | "tray"
+let trayShelterQr = null;        // shelter the trays are being attached to
+let _lastCamVal = null, _lastCamTs = 0;   // debounce repeated camera decodes
+
+function pointInRing(lat, lon, ring) {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+    if (((yi > lat) !== (yj > lat)) &&
+        (lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi)) inside = !inside;
+  }
+  return inside;
+}
+function fcBoundaryContains(fc, lat, lon) {
+  for (const f of (fc.features || [])) {
+    const p = f.properties || {};
+    if (p.type === "boundary" && f.geometry && f.geometry.type === "Polygon") {
+      if (pointInRing(lat, lon, f.geometry.coordinates[0])) return true;
+    }
+  }
+  return false;
+}
+// Which field's boundary contains (lat,lon): active field first, then any cached.
+async function detectField(lat, lon) {
+  if (activeField && fcBoundaryContains(activeField, lat, lon))
+    return { id: activeField.field || activeFieldFile, name: activeField.name || "field" };
+  const idx = (await beeDB.getIndex().catch(() => null)) || [];
+  for (const it of idx) {
+    const fc = await beeDB.getField(it.file).catch(() => null);
+    if (fc && fcBoundaryContains(fc, lat, lon))
+      return { id: fc.field || it.file, name: fc.name || it.name };
+  }
+  return null;
+}
+function scanFieldId() {
+  return (activeField && (activeField.field || activeFieldFile)) || null;
+}
+function crewWho() { return window.beePublish ? window.beePublish.getCrew().name : "—"; }
+function nowIso() { return new Date().toISOString(); }
+
+function setScanStatus(msg, cls) {
+  const el = document.getElementById("scan-status");
+  if (el) { el.textContent = msg || ""; el.className = cls || ""; }
+}
+function focusScanInput() {
+  const i = document.getElementById("scan-input");
+  if (i) { i.value = ""; setTimeout(() => i.focus(), 50); }
+}
+
+async function handleScan(raw) {
+  const qr = (raw || "").trim();
+  if (!qr) return;
+  if (scanMode === "shelter") return handleShelterScan(qr);
+  return handleTrayScan(qr);
+}
+
+async function handleShelterScan(qr) {
+  if (!pos || typeof pos.lat !== "number") {
+    setScanStatus("No GPS position yet — wait for a fix, then scan.", "warn"); return;
+  }
+  const lat = pos.lat, lon = pos.lon;
+  const fld = await detectField(lat, lon);
+  const rec = {
+    shelter_qr: qr, lat, lon,
+    field_id: fld ? fld.id : (scanFieldId() || ""),
+    field_name: fld ? fld.name : (activeField ? activeField.name : ""),
+    placed_at: nowIso(), placed_by: crewWho(),
+    gps_source: posSource,
+    fix: (pos.fix != null ? pos.fix : null),
+    hdop: (pos.hdop != null ? pos.hdop : null),
+    acc: (pos.acc != null ? pos.acc : null),
+  };
+  await beeDB.addShelterScan(rec).catch(() => {});
+  await refreshScanLayer();
+  await updateScanProgress();
+  if (navigator.vibrate) navigator.vibrate(60);
+  if (!fld) setScanStatus(`Shelter ${qr} saved — but it's outside every field boundary.`, "warn");
+  else setScanStatus(`Shelter ${qr} placed in ${fld.name}.`, "ok");
+  flashRecent("Shelter " + qr, fld ? fld.name : "no field");
+}
+
+async function handleTrayScan(qr) {
+  if (!trayShelterQr) {
+    trayShelterQr = qr;                       // first tray-mode scan = the shelter
+    document.getElementById("btn-scan-clearshelter").classList.remove("hidden");
+    await updateTrayContext();
+    setScanStatus(`Shelter ${qr} selected — now scan each tray going in it.`, "ok");
+    if (navigator.vibrate) navigator.vibrate(40);
+    return;
+  }
+  const rec = {
+    tray_qr: qr, shelter_qr: trayShelterQr,
+    field_id: scanFieldId() || "",
+    scanned_at: nowIso(), scanned_by: crewWho(),
+  };
+  await beeDB.addTrayScan(rec).catch(() => {});
+  await updateTrayContext();
+  if (navigator.vibrate) navigator.vibrate(60);
+  setScanStatus(`Tray ${qr} added to shelter ${trayShelterQr}.`, "ok");
+  flashRecent("Tray " + qr, "→ " + trayShelterQr);
+}
+
+async function updateTrayContext() {
+  const box = document.getElementById("scan-context");
+  if (!box) return;
+  if (scanMode !== "tray") { box.classList.add("hidden"); return; }
+  box.classList.remove("hidden");
+  if (!trayShelterQr) { box.textContent = "Scan a shelter QR first to attach trays to it."; return; }
+  const all = (await beeDB.allTrayScans().catch(() => [])) || [];
+  const n = all.filter((t) => t.shelter_qr === trayShelterQr).length;
+  box.innerHTML = `Shelter <b>${trayShelterQr}</b> &mdash; <b>${n}</b> tray${n === 1 ? "" : "s"} scanned`;
+}
+
+async function refreshScanLayer() {
+  if (!map.getSource("scans")) return;
+  const fid = scanFieldId();
+  const all = (await beeDB.allShelterScans().catch(() => [])) || [];
+  const here = all.filter((s) => !fid || s.field_id === fid);
+  map.getSource("scans").setData({
+    type: "FeatureCollection",
+    features: here.map((s) => ({
+      type: "Feature", properties: { type: "scan", label: s.shelter_qr },
+      geometry: { type: "Point", coordinates: [s.lon, s.lat] },
+    })),
+  });
+}
+
+async function updateScanProgress() {
+  const el = document.getElementById("scan-progress");
+  if (!el) return;
+  const fid = scanFieldId();
+  const all = (await beeDB.allShelterScans().catch(() => [])) || [];
+  const scanned = all.filter((s) => !fid || s.field_id === fid).length;
+  const planned = fieldProgress().total;
+  const pct = planned ? Math.round((scanned / planned) * 100) : 0;
+  el.textContent = planned ? `${scanned}/${planned} · ${pct}%` : `${scanned} scanned`;
+}
+
+function flashRecent(title, sub) {
+  const box = document.getElementById("scan-recent");
+  if (!box) return;
+  const row = document.createElement("div"); row.className = "row";
+  const t = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  row.innerHTML = `<span>${title}</span><small>${sub} · ${t}</small>`;
+  box.prepend(row);
+  while (box.children.length > 6) box.removeChild(box.lastChild);
+}
+
+function setScanMode(m) {
+  scanMode = m;
+  document.getElementById("scan-mode-shelter").classList.toggle("active", m === "shelter");
+  document.getElementById("scan-mode-tray").classList.toggle("active", m === "tray");
+  document.getElementById("btn-scan-clearshelter").classList.toggle("hidden", m !== "tray" || !trayShelterQr);
+  updateTrayContext();
+  setScanStatus(m === "shelter"
+    ? "Scan a shelter QR to drop a pin at your position."
+    : "Scan a shelter QR, then scan each tray going in it.", "");
+  focusScanInput();
+}
+
+async function openScan() {
+  closeSheet("fieldsheet"); closeSheet("pointsheet"); closeSheet("checklistsheet");
+  await refreshScanLayer();
+  await updateScanProgress();
+  await updateTrayContext();
+  show("scansheet");
+  setScanMode(scanMode);
+}
+
+// ---- Camera QR (secure context only; hardware scanner is the field path) ----
+let camStream = null, camRAF = null, camDetector = null;
+async function openCamera() {
+  if (!window.isSecureContext) {
+    setScanStatus("Camera needs https — use a hardware scanner on the field network.", "warn"); return;
+  }
+  if (!("BarcodeDetector" in window)) {
+    setScanStatus("This browser can't decode QR by camera — use a hardware scanner.", "warn"); return;
+  }
+  try {
+    camDetector = new window.BarcodeDetector({ formats: ["qr_code"] });
+    camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+    const v = document.getElementById("cam-video");
+    v.srcObject = camStream; await v.play();
+    document.getElementById("camoverlay").classList.remove("hidden");
+    scanCameraLoop();
+  } catch (e) {
+    setScanStatus("Couldn't open the camera: " + (e.message || e), "err");
+  }
+}
+async function scanCameraLoop() {
+  if (!camStream) return;
+  try {
+    const codes = await camDetector.detect(document.getElementById("cam-video"));
+    if (codes && codes.length) {
+      const val = codes[0].rawValue, now = Date.now();
+      if (val && (val !== _lastCamVal || now - _lastCamTs > 1500)) {
+        _lastCamVal = val; _lastCamTs = now;
+        await handleScan(val);
+      }
+    }
+  } catch (e) { /* transient detect error — keep looping */ }
+  camRAF = requestAnimationFrame(scanCameraLoop);
+}
+function closeCamera() {
+  if (camRAF) { cancelAnimationFrame(camRAF); camRAF = null; }
+  if (camStream) { camStream.getTracks().forEach((t) => t.stop()); camStream = null; }
+  document.getElementById("camoverlay").classList.add("hidden");
+  focusScanInput();
+}
+
 // ---- Online / offline indicator ---------------------------------------------
 function updateNet() {
   document.getElementById("netpill").classList.toggle("hidden", navigator.onLine);
@@ -692,6 +918,25 @@ window.addEventListener("DOMContentLoaded", () => {
   document.getElementById("btn-close-fields").onclick = () => closeSheet("fieldsheet");
   document.getElementById("btn-checklist").onclick = openChecklist;
   document.getElementById("btn-close-checklist").onclick = () => closeSheet("checklistsheet");
+
+  // Scan drawer + camera
+  document.getElementById("btn-scan").onclick = openScan;
+  document.getElementById("btn-close-scan").onclick = () => closeSheet("scansheet");
+  document.getElementById("scan-mode-shelter").onclick = () => setScanMode("shelter");
+  document.getElementById("scan-mode-tray").onclick = () => { trayShelterQr = null; setScanMode("tray"); };
+  document.getElementById("btn-scan-clearshelter").onclick = () => {
+    trayShelterQr = null;
+    document.getElementById("btn-scan-clearshelter").classList.add("hidden");
+    updateTrayContext();
+    setScanStatus("Scan a shelter QR to attach trays to it.", "");
+    focusScanInput();
+  };
+  document.getElementById("btn-scan-camera").onclick = openCamera;
+  document.getElementById("btn-cam-close").onclick = closeCamera;
+  const si = document.getElementById("scan-input");
+  si.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); const v = si.value; si.value = ""; handleScan(v); }
+  });
   document.getElementById("btn-sync").onclick = () => syncAll();
   document.getElementById("btn-close-point").onclick = () => { commitPoint(); closeSheet("pointsheet"); };
   document.getElementById("pt-visited").onchange = commitPoint;
