@@ -343,16 +343,7 @@
   "bays_through_inner": false,
   "shelter_at_pivot": false,
   "manual_shelter_pins": [],
-  "shelter_overrides": {
-    "52": [
-      50.66755801040734,
-      -111.9588166553337
-    ],
-    "31": [
-      50.67053977686177,
-      -111.96147740667648
-    ]
-  },
+  "shelter_overrides": {},
   "tray_overrides": {},
   "actual_shelter_pins": null,
   "shelter_rows": "",
