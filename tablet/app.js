@@ -139,6 +139,10 @@ const emptyFC = () => ({ type: "FeatureCollection", features: [] });
 // ---- Position source --------------------------------------------------------
 // The globe (or the dev simulator) over WebSocket.
 function connectPosition() {
+  // An insecure ws:// can't run from an https page (mixed content). The globe
+  // link only applies when the app is served over http (e.g. straight from an
+  // ESP32 AP); on https hosting the tablet's own GPS is the live source.
+  if (location.protocol === "https:") return;
   let ws;
   try { ws = new WebSocket(WS_URL); }
   catch (e) { setTimeout(connectPosition, 2000); return; }
@@ -563,8 +567,13 @@ function updateNet() {
 // ---- Wire up ----------------------------------------------------------------
 window.addEventListener("DOMContentLoaded", () => {
   initMap();
-  connectPosition();
-  statusWatchdog();                                // globe→tablet-GPS fallback + signal pill
+  connectPosition();          // globe over ws:// (http hosting only)
+  startGeo();                 // tablet GPS — the source on https, fallback on http
+  statusWatchdog();           // source pill + brings GPS up if the globe drops
+  // Offline app shell (https/secure context only — e.g. GitHub Pages).
+  if ("serviceWorker" in navigator && window.isSecureContext) {
+    navigator.serviceWorker.register("sw.js").catch((e) => console.warn("SW reg failed", e));
+  }
   if (window.beeTiles) beeTiles.evictIfNeeded();   // trim cache if it grew past the cap
   updateNet();
   window.addEventListener("online", updateNet);
