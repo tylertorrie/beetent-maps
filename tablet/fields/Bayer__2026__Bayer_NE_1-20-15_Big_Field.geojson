@@ -2031,6 +2031,22 @@
           50.66606827142145
         ]
       }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "shelter",
+        "label": "S-100",
+        "visited": false,
+        "note": ""
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.95035081385264,
+          50.66481528925644
+        ]
+      }
     }
   ]
 }
