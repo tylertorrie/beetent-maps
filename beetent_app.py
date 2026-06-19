@@ -1130,10 +1130,9 @@ class _ExportTypePicker(ctk.CTkToplevel):
         self._agps_var    = ctk.BooleanVar(value=False)
         self._jd_var      = ctk.BooleanVar(value=False)
         self._kml_var     = ctk.BooleanVar(value=False)
-        self._geojson_var = ctk.BooleanVar(value=False)
         self._bnd_var     = ctk.BooleanVar(value=False)
         self._main_vars = [self._agps_var, self._jd_var,
-                           self._kml_var, self._geojson_var, self._bnd_var]
+                           self._kml_var, self._bnd_var]
 
         frame = ctk.CTkFrame(self, fg_color="transparent")
         frame.pack(fill="both", expand=True, padx=16, pady=(16,4))
@@ -1142,16 +1141,12 @@ class _ExportTypePicker(ctk.CTkToplevel):
                         variable=self._agps_var,
                         command=self._update_ok).pack(anchor="w", pady=4)
 
-        ctk.CTkCheckBox(frame, text="John Deere Shelter Buffer Zones",
+        ctk.CTkCheckBox(frame, text="John Deere Buffer Zone File",
                         variable=self._jd_var,
                         command=self._update_ok).pack(anchor="w", pady=4)
 
         ctk.CTkCheckBox(frame, text="Shelter Pins KML",
                         variable=self._kml_var,
-                        command=self._update_ok).pack(anchor="w", pady=4)
-
-        ctk.CTkCheckBox(frame, text="GeoJSON Files",
-                        variable=self._geojson_var,
                         command=self._update_ok).pack(anchor="w", pady=4)
 
         ctk.CTkCheckBox(frame, text="Boundary Files",
@@ -1203,7 +1198,7 @@ class _ExportTypePicker(ctk.CTkToplevel):
             "agps":     self._agps_var.get(),
             "jd":       self._jd_var.get(),
             "kml":      self._kml_var.get(),
-            "geojson":  self._geojson_var.get(),
+            "geojson":  False,   # folded into the JD Buffer Zone File option
             "boundary": self._bnd_var.get(),
             "actual":   self._actual_var.get(),
         }

@@ -729,9 +729,10 @@ def export_field_outputs(positions_latlon, pivotpoint, out_dir, field_name,
     # plus the shelter buffer zones (counter-clockwise) nested inside it as
     # interior rings. The exterior must be present for JD to nest the buffers,
     # so we include it here even though Boundary Files also ships it standalone.
-    # The Type column labels each ring Exterior / Impassable Interior; the buffer
-    # zones are no-spray / no-drive obstacles around the shelters (keep pesticide
-    # off the bees and the machine off the structures), so they are IMPASSABLE.
+    # The Type column labels each ring Exterior / Passable Interior; the buffer
+    # zones are PASSABLE interior zones — the sprayer can drive through them, but
+    # marking them lets section control shut spray off over each shelter (keeping
+    # pesticide off the bees) without treating them as physical obstacles.
     _have_buffers = bool(buffer_radius_m and buffer_radius_m > 0 and positions_latlon)
     _have_ext = bool(outer_boundary and len(outer_boundary) >= 3)
     if write_jd and (_have_buffers or _have_ext):
@@ -750,7 +751,7 @@ def export_field_outputs(positions_latlon, pivotpoint, out_dir, field_name,
                              clockwise=not _have_ext)
                 w.poly([ring])
                 w.record(jd_client or "", jd_farm or "", field_name, 1,
-                         "Impassable Interior")
+                         "Passable Interior")
         w.close()
         bz_zip_buf = BytesIO()
         with zipfile.ZipFile(bz_zip_buf, 'w', zipfile.ZIP_DEFLATED) as zf:
@@ -770,7 +771,8 @@ def export_field_outputs(positions_latlon, pivotpoint, out_dir, field_name,
                 "boundary (clockwise) with one shelter buffer zone (counter-\n"
                 "clockwise) nested inside per shelter. JD reads the nested loops as\n"
                 "interior rings. The Type column labels each ring Exterior or\n"
-                "Impassable Interior (no-spray / no-drive zones around the bees).\n"
+                "Passable Interior (drive-through, section-control shut-off zones\n"
+                "around the bees).\n"
                 "\n"
                 "To upload: Operations Center → Files → Upload Files → drop this .zip.\n"
                 "The <name>-Deere-Metadata.json + CLIENT_NAME/FARM_NAME/FIELD_NAME/\n"
