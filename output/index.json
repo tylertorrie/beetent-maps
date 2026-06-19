@@ -1471,5 +1471,28 @@
     "role": "agronomist",
     "generated": "2026-06-18T23:09:30",
     "size": 484441
+  },
+  {
+    "id": "exports/Shelter Maps_Proven Seeds_v11",
+    "kind": "export",
+    "name": "Shelter Maps_Proven Seeds_v11",
+    "relpath": "exports/Shelter Maps_Proven Seeds_v11",
+    "is_dir": true,
+    "companies": [
+      "Proven Seeds"
+    ],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "NW 1-10-15",
+      "SE 14-9-15"
+    ],
+    "types": [
+      "AgGPS"
+    ],
+    "role": null,
+    "generated": "2026-06-18T23:49:24",
+    "size": 66997
   }
 ]
