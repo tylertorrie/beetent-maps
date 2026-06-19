@@ -3,7 +3,7 @@
  * tiles are handled separately by the app's IndexedDB cache (db.js / tiles.js),
  * so this SW deliberately does NOT shadow /fields/ or cross-origin tile requests.
  */
-const CACHE = "beetent-shell-v6";   // bump to push shell changes (iOS camera QR via jsQR)
+const CACHE = "beetent-shell-v7";   // bump to push shell changes (Phase B scan sync)
 const ASSETS = [
   "./", "index.html", "app.js", "db.js", "tiles.js", "publish.js", "style.css",
   "manifest.webmanifest",

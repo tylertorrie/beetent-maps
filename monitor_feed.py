@@ -170,3 +170,46 @@ class FirebaseFeed(CrewFeed):
         crew.setdefault("id", cid)
         if self.on_update:
             self.on_update(crew)
+
+
+class JsonPathFeed:
+    """Poll one Firebase Realtime DB path over REST GET and hand the WHOLE JSON
+    snapshot to ``on_data(data)`` each poll (data is the decoded node, or None).
+
+    Used for the scans tree (``scans/<field>`` → {"shelters": {...}, "trays":
+    {...}}). Same plain-``requests`` polling approach as FirebaseFeed; merging is
+    idempotent so a repeated identical snapshot is harmless. ``on_data`` runs on a
+    background thread — marshal onto the Tk main thread in the caller.
+    """
+
+    def __init__(self, db_url, path, token=None, interval=2.0):
+        self.on_data = None
+        self._url = f"{db_url.rstrip('/')}/{path.strip('/')}.json"
+        self._token = token or None
+        self._interval = interval
+        self._stop = threading.Event()
+        self._thread = None
+
+    def start(self):
+        if self._thread is not None:
+            return
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def stop(self):
+        self._stop.set()
+        self._thread = None
+
+    def _run(self):
+        import requests
+        session = requests.Session()
+        params = {"auth": self._token} if self._token else None
+        while not self._stop.is_set():
+            try:
+                r = session.get(self._url, params=params, timeout=20)
+                if r.status_code == 200 and self.on_data:
+                    self.on_data(r.json())
+            except Exception:
+                pass   # transient network error — next poll retries
+            self._stop.wait(self._interval)

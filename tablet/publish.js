@@ -13,7 +13,14 @@ window.beePublish = (function () {
   const PUSH_MS = 2000;
 
   let ref = null;       // firebase db ref for this crew
+  let scansRef = null;  // persistent scans/<field>/{shelters,trays}/<qr> tree
   let enabled = false;
+
+  // Firebase keys may not contain . # $ [ ] / — sanitise field ids and QR codes.
+  function fbKey(s) { return String(s == null ? "" : s).replace(/[.#$\[\]\/]/g, "_"); }
+  function fieldKey(fieldId) {
+    return fbKey(String(fieldId || "").replace(/\.geojson$/i, "")) || "_nofield";
+  }
   let pos = null;       // last position object
   let field = "—";
   let fieldFile = null; // geojson filename — lets the office locate the geometry
@@ -39,6 +46,7 @@ window.beePublish = (function () {
       firebase.initializeApp(window.FIREBASE_CONFIG);
       ref = firebase.database().ref("crews/" + crewId());
       ref.onDisconnect().remove();
+      scansRef = firebase.database().ref("scans");   // persistent — NOT removed
       enabled = true;
       setInterval(write, PUSH_MS);
       console.info("Relay publish enabled as", crewId());
@@ -69,6 +77,19 @@ window.beePublish = (function () {
     },
     setProgress(placedCount, ids) {
       placed = placedCount || 0; placedIds = ids || []; write();
+    },
+    // Push a scan to the persistent scans tree. Returns the set() Promise so the
+    // caller can mark the local record synced, or null when the relay is down
+    // (offline / no SDK) — the caller leaves it queued and flushes on reconnect.
+    pushShelterScan(rec) {
+      if (!enabled || !scansRef || !rec || !rec.shelter_qr) return null;
+      return scansRef.child(fieldKey(rec.field_id)).child("shelters")
+                     .child(fbKey(rec.shelter_qr)).set(rec);
+    },
+    pushTrayScan(rec) {
+      if (!enabled || !scansRef || !rec || !rec.tray_qr) return null;
+      return scansRef.child(fieldKey(rec.field_id)).child("trays")
+                     .child(fbKey(rec.tray_qr)).set(rec);
     },
     _init: init,
   };

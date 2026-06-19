@@ -854,7 +854,8 @@ def blank_field(company="",year=""):
                 manual_shelter_pins=[],       # remembered when shelter_mode="manual"; restored if user switches back
                 shelter_overrides={},
                 tray_overrides={},            # {shelter ident: tray count} — manual per-shelter tray counts
-                actual_shelter_pins=None)     # uploaded scanned placements: [{qr,lat,lon,placed,user}, ...]
+                actual_shelter_pins=None,     # scanned placements: [{qr,lat,lon,placed,user}, ...]
+                tray_records=[])              # scanned trays: [{tray_qr,shelter_qr,scanned_at,scanned_by}, ...]
 
 def _field_dir(company,year):
     d=DATA_DIR/company/str(year); d.mkdir(parents=True,exist_ok=True); return d
@@ -1660,7 +1661,8 @@ class BeetentApp(ctk.CTk):
         for text, cmd in [("🗺  Map View", self._open_map_view),
                           ("📊  Overview", self._open_overview_view),
                           ("📡  Monitor",  self._open_monitor_view),
-                          ("📁  Files",    self._open_files_view)]:
+                          ("📁  Files",    self._open_files_view),
+                          ("📤  Export all to tablet", self._export_all_tablet_geojson)]:
             ctk.CTkButton(self.nav_drawer, text=text, anchor="w", height=40,
                           fg_color="transparent", hover_color=UI_HOVER,
                           text_color=UI_TEXT,
@@ -1738,6 +1740,9 @@ class BeetentApp(ctk.CTk):
         self._mon_rows = {}           # crew_id -> dict of row widgets
         self._mon_state = {}          # crew_id -> last crew dict
         self._mon_feed = None
+        self._scan_feed = None          # live scan ingest for the open field
+        self._scan_feed_key = None      # firebase field key the scan feed is bound to
+        self._scan_last = None          # last ingested snapshot (skip redundant redraws)
         self._mon_prune_job = None
         self._mon_selected = None
         self._mon_mirror = {"polys": []}     # overlay polygons for the mirrored field
@@ -1815,6 +1820,116 @@ class BeetentApp(ctk.CTk):
 
     def _monitor_set_live(self):
         self._mon_status.configure(text="● LIVE", text_color="#1faa59")
+
+    # ── Live scan ingest (tablet → Firebase → this field) ───────────────────
+    def _firebase_cfg(self):
+        """(databaseURL, token) from firebase_config.json, or (None, None)."""
+        try:
+            cfg = Path(__file__).resolve().parent / "firebase_config.json"
+            if cfg.exists():
+                d = json.loads(cfg.read_text(encoding="utf-8"))
+                url = (d.get("databaseURL") or "").strip()
+                if url:
+                    return url, (d.get("token") or None)
+        except Exception:
+            pass
+        return None, None
+
+    @staticmethod
+    def _fb_key(s):
+        # Firebase keys may not contain . # $ [ ] / — mirror the tablet's fbKey.
+        return re.sub(r"[.#$\[\]/]", "_", str(s or ""))
+
+    def _field_firebase_key(self):
+        """Firebase scans key for the open field — matches the tablet field_id
+        (the geojson filename minus extension, sanitised)."""
+        f = self.current_field
+        nm = str(f.get("Name", "") or "").strip()
+        if not nm:
+            return None
+        try:
+            tablet_dir = Path(__file__).resolve().parent / "tablet"
+            if str(tablet_dir) not in sys.path:
+                sys.path.insert(0, str(tablet_dir))
+            import field_geojson
+            fname = field_geojson.field_filename(
+                str(f.get("company", "")), str(f.get("year", "")), nm)
+        except Exception:
+            return None
+        if fname.endswith(".geojson"):
+            fname = fname[:-8]
+        return self._fb_key(fname)
+
+    def _scans_start(self):
+        """(Re)start the live scan feed for the currently open field. Runs
+        whenever a field is open (not just the Monitor view)."""
+        self._scans_stop()
+        url, token = self._firebase_cfg()
+        key = self._field_firebase_key()
+        if not url or not key:
+            return
+        try:
+            self._planned_total = len(maketentgrid.get_tent_positions(
+                self.current_field, use_metric=(self.unit_var.get() == "Metric")))
+        except Exception:
+            self._planned_total = 0
+        self._scan_feed_key = key
+        self._scan_last = None
+        import monitor_feed
+        feed = monitor_feed.JsonPathFeed(url, f"scans/{key}", token)
+        feed.on_data = lambda d, k=key: self.after(0, self._scans_ingest, d, k)
+        self._scan_feed = feed
+        feed.start()
+
+    def _scans_stop(self):
+        if self._scan_feed is not None:
+            try: self._scan_feed.stop()
+            except Exception: pass
+        self._scan_feed = None
+        self._scan_feed_key = None
+
+    def _scans_ingest(self, data, key):
+        """Merge a scans snapshot into the open field's actual pins + tray records."""
+        if key != self._scan_feed_key:
+            return                       # late callback for a field we left
+        shelters = (data or {}).get("shelters") or {}
+        trays = (data or {}).get("trays") or {}
+        snap = json.dumps([shelters, trays], sort_keys=True, default=str)
+        if snap == self._scan_last:
+            return                       # unchanged since last poll
+        self._scan_last = snap
+        pins = []
+        for rec in shelters.values():
+            if not isinstance(rec, dict): continue
+            try:
+                pins.append({"qr": str(rec.get("shelter_qr", "")),
+                             "lat": float(rec.get("lat")), "lon": float(rec.get("lon")),
+                             "placed": str(rec.get("placed_at", "")),
+                             "user": str(rec.get("placed_by", ""))})
+            except (TypeError, ValueError):
+                continue
+        # Only overwrite when live scans are present — an empty snapshot must not
+        # wipe a CSV-imported actual placement (or last session's scans).
+        if pins:
+            self.current_field["actual_shelter_pins"] = pins
+        if trays:
+            self.current_field["tray_records"] = [t for t in trays.values() if isinstance(t, dict)]
+        if pins and getattr(self, "shelter_view", "planned") == "actual":
+            try: self._redraw_shelters()
+            except Exception: pass
+        self._update_scan_progress()
+
+    def _update_scan_progress(self):
+        pins = self.current_field.get("actual_shelter_pins") or []
+        n = len(pins)
+        if not n:
+            return
+        planned = getattr(self, "_planned_total", 0) or 0
+        if planned:
+            self._status(f"Live scans: {n}/{planned} shelters placed "
+                         f"({round(n / planned * 100)}%).")
+        else:
+            self._status(f"Live scans: {n} shelters placed.")
 
     def _monitor_remove(self, cid):
         if cid == self._mon_mirror_crew:
@@ -4846,6 +4961,7 @@ class BeetentApp(ctk.CTk):
             "" if co==ALL_COMPANIES else co,
             "" if yr==ALL_YEARS else yr)
         self._set_menu_checkboxes_visible(False)
+        self._scans_stop()
         self._clear_all_overlays()
         self._form_from_field()
         self._redraw_overview_boundaries()
@@ -4897,6 +5013,7 @@ class BeetentApp(ctk.CTk):
         self._form_from_field()
         self._redraw_all()
         self._zoom_to_field()
+        self._scans_start()             # live scan ingest for this field
         self._set_menu_checkboxes_visible(True)
         # Remove this field's dim overlay (it now has the bright active boundary)
         # and restore the previously-active field's dim overlay — handled by a
@@ -10047,6 +10164,43 @@ class BeetentApp(ctk.CTk):
         if f.get("two_pivots"):
             add(f.get("PP2_Latitude"), f.get("PP2_Longitude"), f.get("pivot_tracks2"))
         return out
+
+    def _export_all_tablet_geojson(self):
+        """Export EVERY saved field to tablet/fields/ so they all show on the
+        tablet's Map view (the per-field export only runs on Save, so older
+        fields were never pushed). Boundary/shelters/tracks come straight from
+        each field file; per-shelter trays are omitted here (they depend on the
+        live bee-allocation of the open field — re-Save a field to include them).
+        Runs in a background thread, then auto-pushes."""
+        self._close_nav_drawer()
+        import sys, threading
+        tablet_dir = Path(__file__).resolve().parent / "tablet"
+        if str(tablet_dir) not in sys.path:
+            sys.path.insert(0, str(tablet_dir))
+        import field_geojson
+        metric = self.unit_var.get() == "Metric"
+        self._status("Exporting all fields to tablet…")
+        def run():
+            count = errors = 0
+            for co in list_companies():
+                for yr in list_years(co):
+                    for name in list_fields(co, yr):
+                        try:
+                            f = load_field(co, yr, name)
+                            if not f:
+                                continue
+                            shelters = self._final_shelter_positions(f, metric)
+                            boundary = f.get("boundary_polygon") or None
+                            tracks = self._field_track_circles(f)
+                            field_geojson.write_field(f, shelters, boundary, tracks=tracks)
+                            count += 1
+                        except Exception:
+                            errors += 1
+            self._git_push("export all fields to tablet")
+            msg = (f"Exported {count} field(s) to tablet"
+                   + (f" ({errors} failed)" if errors else "") + " — Sync on the tablet to see them.")
+            self.after(0, lambda: self._status(msg))
+        threading.Thread(target=run, daemon=True).start()
 
     def _final_shelter_positions(self, f, metric, use_actual=False):
         """Shelter positions exactly as drawn on the map: get_tent_positions

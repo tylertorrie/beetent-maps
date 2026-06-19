@@ -533,11 +533,17 @@ function beep() {
 // ---- All-fields overview ("Map" view) ---------------------------------------
 async function buildAllFields() {
   const feats = [];
-  let items = [];
-  try { items = (await beeDB.getIndex()) || []; } catch (e) { /* ignore */ }
-  if (!items.length) {
-    try { const r = await fetch(FIELDS_INDEX, { cache: "no-store" }); if (r.ok) items = (await r.json()).fields || []; }
-    catch (e) { /* offline, no index */ }
+  let items = null;
+  // Prefer the freshest list when online (so newly-exported fields appear without
+  // a manual Sync); fall back to the cached index when offline.
+  if (navigator.onLine) {
+    try {
+      const r = await fetch(FIELDS_INDEX, { cache: "no-store" });
+      if (r.ok) { items = (await r.json()).fields || []; await beeDB.putIndex(items).catch(() => {}); }
+    } catch (e) { /* offline-ish */ }
+  }
+  if (!items) {
+    try { items = (await beeDB.getIndex()) || []; } catch (e) { items = []; }
   }
   for (const it of items) {
     let fc = null;
@@ -738,7 +744,7 @@ async function handleScan(raw) {
 
 async function handleShelterScan(qr) {
   if (!pos || typeof pos.lat !== "number") {
-    setScanStatus("No GPS position yet — wait for a fix, then scan.", "warn"); return;
+    setScanStatus("No GPS position yet — wait for a fix, then scan.", "warn"); return false;
   }
   const lat = pos.lat, lon = pos.lon;
   const fld = await detectField(lat, lon);
@@ -751,14 +757,17 @@ async function handleShelterScan(qr) {
     fix: (pos.fix != null ? pos.fix : null),
     hdop: (pos.hdop != null ? pos.hdop : null),
     acc: (pos.acc != null ? pos.acc : null),
+    synced: false,
   };
   await beeDB.addShelterScan(rec).catch(() => {});
+  syncShelterRec(rec);            // push to Firebase if online (else stays queued)
   await refreshScanLayer();
   await updateScanProgress();
   if (navigator.vibrate) navigator.vibrate(60);
   if (!fld) setScanStatus(`Shelter ${qr} saved — but it's outside every field boundary.`, "warn");
   else setScanStatus(`Shelter ${qr} placed in ${fld.name}.`, "ok");
   flashRecent("Shelter " + qr, fld ? fld.name : "no field");
+  return true;
 }
 
 async function handleTrayScan(qr) {
@@ -768,18 +777,21 @@ async function handleTrayScan(qr) {
     await updateTrayContext();
     setScanStatus(`Shelter ${qr} selected — now scan each tray going in it.`, "ok");
     if (navigator.vibrate) navigator.vibrate(40);
-    return;
+    return true;
   }
   const rec = {
     tray_qr: qr, shelter_qr: trayShelterQr,
     field_id: scanFieldId() || "",
     scanned_at: nowIso(), scanned_by: crewWho(),
+    synced: false,
   };
   await beeDB.addTrayScan(rec).catch(() => {});
+  syncTrayRec(rec);               // push to Firebase if online (else stays queued)
   await updateTrayContext();
   if (navigator.vibrate) navigator.vibrate(60);
   setScanStatus(`Tray ${qr} added to shelter ${trayShelterQr}.`, "ok");
   flashRecent("Tray " + qr, "→ " + trayShelterQr);
+  return true;
 }
 
 async function updateTrayContext() {
@@ -845,12 +857,36 @@ async function openScan() {
   await refreshScanLayer();
   await updateScanProgress();
   await updateTrayContext();
+  flushScans();                 // push anything queued while offline
   show("scansheet");
   setScanMode(scanMode);
 }
 
+// ---- Firebase sync of scans (Phase B) ---------------------------------------
+// Every scan is saved locally first; these push it to the persistent Firebase
+// tree when the relay is up and mark the local record synced. On the ESP32 (http,
+// no SDK) the push is a no-op and the record stays queued until the tablet has
+// internet again, when flushScans() drains the queue.
+function syncShelterRec(rec) {
+  if (!window.beePublish) return;
+  const p = beePublish.pushShelterScan(rec);
+  if (p) p.then(() => { rec.synced = true; beeDB.addShelterScan(rec).catch(() => {}); })
+         .catch(() => {});
+}
+function syncTrayRec(rec) {
+  if (!window.beePublish) return;
+  const p = beePublish.pushTrayScan(rec);
+  if (p) p.then(() => { rec.synced = true; beeDB.addTrayScan(rec).catch(() => {}); })
+         .catch(() => {});
+}
+async function flushScans() {
+  if (!window.beePublish || !beePublish.enabled) return;
+  for (const s of (await beeDB.allShelterScans().catch(() => [])) || []) if (!s.synced) syncShelterRec(s);
+  for (const t of (await beeDB.allTrayScans().catch(() => [])) || []) if (!t.synced) syncTrayRec(t);
+}
+
 // ---- Camera QR (secure context only; hardware scanner is the field path) ----
-let camStream = null, camRAF = null, camDetector = null, camCanvas = null, _lastJsqrTs = 0;
+let camStream = null, camRAF = null, camDetector = null, camCanvas = null, _lastJsqrTs = 0, _camArmed = true;
 async function openCamera() {
   if (!window.isSecureContext) {
     setScanStatus("Camera needs https — use a hardware scanner on the field network.", "warn"); return;
@@ -866,6 +902,7 @@ async function openCamera() {
     v.srcObject = camStream;
     v.muted = true; v.setAttribute("playsinline", ""); v.setAttribute("autoplay", "");  // iOS: inline, no fullscreen
     await v.play();
+    _camArmed = true;
     document.getElementById("camoverlay").classList.remove("hidden");
     scanCameraLoop();
   } catch (e) {
@@ -895,11 +932,14 @@ async function scanCameraLoop() {
       }
     }
     if (val) {
-      const now = Date.now();
-      if (val !== _lastCamVal || now - _lastCamTs > 1500) {
-        _lastCamVal = val; _lastCamTs = now;
-        await handleScan(val);
+      if (_camArmed && (val !== _lastCamVal || Date.now() - _lastCamTs > 1500)) {
+        _camArmed = false;                       // disarm until the code leaves the frame
+        _lastCamVal = val; _lastCamTs = Date.now();
+        const ok = await handleScan(val);
+        if (ok && scanMode === "shelter") { closeCamera(); return; }   // one shelter, then close
       }
+    } else {
+      _camArmed = true;                          // frame cleared — ready for the next code
     }
   } catch (e) { /* transient — keep looping */ }
   camRAF = requestAnimationFrame(scanCameraLoop);
@@ -959,6 +999,9 @@ window.addEventListener("DOMContentLoaded", () => {
   si.addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); const v = si.value; si.value = ""; handleScan(v); }
   });
+  // Drain the offline scan queue to Firebase on reconnect + periodically.
+  window.addEventListener("online", () => setTimeout(flushScans, 1500));
+  setInterval(flushScans, 20000);
   document.getElementById("btn-sync").onclick = () => syncAll();
   document.getElementById("btn-close-point").onclick = () => { commitPoint(); closeSheet("pointsheet"); };
   document.getElementById("pt-visited").onchange = commitPoint;
