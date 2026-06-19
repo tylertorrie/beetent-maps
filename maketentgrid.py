@@ -654,11 +654,30 @@ def export_field_outputs(positions_latlon, pivotpoint, out_dir, field_name,
         }, indent=4)
 
     def _jd_boundary_record(w):
-        """Declare JD's recognised boundary attribute columns on a shapefile.Writer."""
+        """Declare JD's recognised boundary attribute columns on a shapefile.Writer.
+        Type labels each ring Exterior / Passable Interior / Impassable Interior."""
         w.field("CLIENT_NAME", "C", size=64)
         w.field("FARM_NAME",   "C", size=64)
         w.field("FIELD_NAME",  "C", size=64)
         w.field("POLYGONTYP",  "N", size=4, decimal=0)
+        w.field("Type",        "C", size=20)
+
+    def _close_ring(ring):
+        ring = [tuple(p) for p in ring]
+        if ring and ring[0] != ring[-1]:
+            ring.append(ring[0])
+        return ring
+
+    def _wind(ring, clockwise):
+        """Force ring orientation. ESRI/JD: exterior rings run CLOCKWISE, interior
+        holes COUNTER-CLOCKWISE, so JD's geometric nesting reads CCW loops inside
+        the CW exterior as interior (hole) rings. shapefile.signed_area >= 0 means
+        the ring is currently counter-clockwise."""
+        ring = _close_ring(ring)
+        ccw = shapefile.signed_area(ring) >= 0
+        if clockwise == ccw:          # currently wound the wrong way → flip
+            ring = list(reversed(ring))
+        return ring
 
     # ── Google Earth KML (points) ───────────────────────────────────────────
     if write_kml:
@@ -705,17 +724,33 @@ def export_field_outputs(positions_latlon, pivotpoint, out_dir, field_name,
         writer.writestr(os.path.join(geojson_dir, "%s.geojson" % field_name),
                         jd_geojson_text)
 
-    # ── John Deere Operations Center — Buffer Zones only ────────────────────
-    # JD does not support uploading point shapefiles as pins, so only the
-    # shelter buffer-zone polygons are exported (as Internal Boundaries).
-    if write_jd and buffer_radius_m and buffer_radius_m > 0:
+    # ── John Deere Operations Center — field boundary + shelter buffer holes ─
+    # JD reads a "polygon with holes": the EXTERIOR field boundary (clockwise)
+    # plus the shelter buffer zones (counter-clockwise) nested inside it as
+    # interior rings. The exterior must be present for JD to nest the buffers,
+    # so we include it here even though Boundary Files also ships it standalone.
+    # The Type column labels each ring Exterior / Impassable Interior; the buffer
+    # zones are no-spray / no-drive obstacles around the shelters (keep pesticide
+    # off the bees and the machine off the structures), so they are IMPASSABLE.
+    _have_buffers = bool(buffer_radius_m and buffer_radius_m > 0 and positions_latlon)
+    _have_ext = bool(outer_boundary and len(outer_boundary) >= 3)
+    if write_jd and (_have_buffers or _have_ext):
         shp = BytesIO(); shx = BytesIO(); dbf = BytesIO()
         w = shapefile.Writer(shp=shp, shx=shx, dbf=dbf, shapeType=shapefile.POLYGON)
         _jd_boundary_record(w)
-        for (lat, lon) in positions_latlon:
-            ring = _square_lonlat(lat, lon, buffer_radius_m)
-            w.poly([ring])
-            w.record(jd_client or "", jd_farm or "", field_name, 1)
+        if _have_ext:
+            ext = _wind([(lon, lat) for lat, lon in outer_boundary], clockwise=True)
+            w.poly([ext])
+            w.record(jd_client or "", jd_farm or "", field_name, 1, "Exterior")
+        if _have_buffers:
+            # Interior holes run CCW when there's an exterior to nest them in; with
+            # no exterior they must be CW to be valid standalone polygons.
+            for (lat, lon) in positions_latlon:
+                ring = _wind(_square_lonlat(lat, lon, buffer_radius_m),
+                             clockwise=not _have_ext)
+                w.poly([ring])
+                w.record(jd_client or "", jd_farm or "", field_name, 1,
+                         "Impassable Interior")
         w.close()
         bz_zip_buf = BytesIO()
         with zipfile.ZipFile(bz_zip_buf, 'w', zipfile.ZIP_DEFLATED) as zf:
@@ -726,20 +761,20 @@ def export_field_outputs(positions_latlon, pivotpoint, out_dir, field_name,
             zf.writestr("%s.prj" % base, WGS84_PRJ)
             zf.writestr("%s-Deere-Metadata.json" % base, _jd_metadata_json())
             zf.writestr("README.txt",
-                "Beetent Maps — Shelter Buffer Zones for John Deere Operations Center\n"
+                "Beetent Maps — Field boundary + shelter buffer zones for John Deere\n"
+                "Operations Center.\n"
                 "\n"
-                "This .zip is the shelter-buffer layer for the field \"%s\".\n"
-                "Client: %s   Farm: %s\n"
-                "Contains a polygon shapefile (one circle per shelter) marking\n"
-                "the passable interior zones the sprayer / planter should\n"
-                "drive around.\n"
+                "Field: %s   Client: %s   Farm: %s\n"
                 "\n"
-                "To upload in John Deere Operations Center:\n"
-                "  Files → Upload Files → drop this .zip.\n"
+                "This shapefile is a 'polygon with holes': the EXTERIOR field\n"
+                "boundary (clockwise) with one shelter buffer zone (counter-\n"
+                "clockwise) nested inside per shelter. JD reads the nested loops as\n"
+                "interior rings. The Type column labels each ring Exterior or\n"
+                "Impassable Interior (no-spray / no-drive zones around the bees).\n"
                 "\n"
-                "The included <name>-Deere-Metadata.json + CLIENT_NAME/FARM_NAME/\n"
-                "FIELD_NAME/POLYGONTYP attributes let Operations Center recognise\n"
-                "it as a boundary automatically.\n"
+                "To upload: Operations Center → Files → Upload Files → drop this .zip.\n"
+                "The <name>-Deere-Metadata.json + CLIENT_NAME/FARM_NAME/FIELD_NAME/\n"
+                "POLYGONTYP attributes let it be recognised as a boundary.\n"
                 % (field_name, jd_client or "—", jd_farm or "—"))
         writer.writestr(os.path.join(jd_dir, "%s_Shelter_Buffer_Zones_shp.zip" % field_name),
                         bz_zip_buf.getvalue())
@@ -776,11 +811,9 @@ def export_field_outputs(positions_latlon, pivotpoint, out_dir, field_name,
         bw = shapefile.Writer(shp=bshp, shx=bshx, dbf=bdbf,
                               shapeType=shapefile.POLYGON)
         _jd_boundary_record(bw)
-        ring = [(lon, lat) for lat, lon in outer_boundary]
-        if ring[0] != ring[-1]:
-            ring.append(ring[0])   # ensure closed ring
+        ring = _wind([(lon, lat) for lat, lon in outer_boundary], clockwise=True)
         bw.poly([ring])
-        bw.record(jd_client or "", jd_farm or "", field_name, 1)
+        bw.record(jd_client or "", jd_farm or "", field_name, 1, "Exterior")
         bw.close()
         bnd_zip_buf = BytesIO()
         with zipfile.ZipFile(bnd_zip_buf, 'w', zipfile.ZIP_DEFLATED) as zf:
