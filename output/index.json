@@ -1405,5 +1405,27 @@
     "role": "agronomist",
     "generated": "2026-06-18T23:02:14",
     "size": 615980
+  },
+  {
+    "id": "pdfs/NW 1-20-15 2026 Shelter Map.pdf",
+    "kind": "pdf",
+    "name": "NW 1-20-15 2026 Shelter Map.pdf",
+    "relpath": "pdfs/NW 1-20-15 2026 Shelter Map.pdf",
+    "is_dir": false,
+    "companies": [
+      "Bayer"
+    ],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "NW 1-20-15"
+    ],
+    "types": [
+      "PDF"
+    ],
+    "role": "agronomist",
+    "generated": "2026-06-18T23:02:19",
+    "size": 483686
   }
 ]
