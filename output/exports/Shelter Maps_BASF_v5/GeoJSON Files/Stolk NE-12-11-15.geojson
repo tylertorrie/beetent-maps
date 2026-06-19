@@ -1,0 +1,6452 @@
+{
+  "type": "FeatureCollection",
+  "name": "Stolk NE-12-11-15",
+  "crs": {
+    "type": "name",
+    "properties": {
+      "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+    }
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92620603037244,
+          49.90152725024937
+        ]
+      },
+      "properties": {
+        "id": 1,
+        "name": "Shelter_1",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92620592140332,
+          49.90048285007547
+        ]
+      },
+      "properties": {
+        "id": 2,
+        "name": "Shelter_2",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92620580493387,
+          49.89936649602954
+        ]
+      },
+      "properties": {
+        "id": 3,
+        "name": "Shelter_3",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92620569222483,
+          49.89828611861609
+        ]
+      },
+      "properties": {
+        "id": 4,
+        "name": "Shelter_4",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.9262055795226,
+          49.897205741000256
+        ]
+      },
+      "properties": {
+        "id": 5,
+        "name": "Shelter_5",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92620546682721,
+          49.89612536318203
+        ]
+      },
+      "properties": {
+        "id": 6,
+        "name": "Shelter_6",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92566078757599,
+          49.89558519662332
+        ]
+      },
+      "properties": {
+        "id": 7,
+        "name": "Shelter_7",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92566088810811,
+          49.89666557454356
+        ]
+      },
+      "properties": {
+        "id": 8,
+        "name": "Shelter_8",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92566098864631,
+          49.89774595226145
+        ]
+      },
+      "properties": {
+        "id": 9,
+        "name": "Shelter_9",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92566108919061,
+          49.898826329776945
+        ]
+      },
+      "properties": {
+        "id": 10,
+        "name": "Shelter_10",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92566118974099,
+          49.899906707090075
+        ]
+      },
+      "properties": {
+        "id": 11,
+        "name": "Shelter_11",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92566129029746,
+          49.900987084200835
+        ]
+      },
+      "properties": {
+        "id": 12,
+        "name": "Shelter_12",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92566139086,
+          49.90206746110922
+        ]
+      },
+      "properties": {
+        "id": 13,
+        "name": "Shelter_13",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92511665078285,
+          49.90152729255288
+        ]
+      },
+      "properties": {
+        "id": 14,
+        "name": "Shelter_14",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92511656238653,
+          49.90044691554254
+        ]
+      },
+      "properties": {
+        "id": 15,
+        "name": "Shelter_15",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92511647399556,
+          49.899366538329836
+        ]
+      },
+      "properties": {
+        "id": 16,
+        "name": "Shelter_16",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92511638560993,
+          49.89828616091478
+        ]
+      },
+      "properties": {
+        "id": 17,
+        "name": "Shelter_17",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92511629722965,
+          49.89720578329733
+        ]
+      },
+      "properties": {
+        "id": 18,
+        "name": "Shelter_18",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92511620885473,
+          49.8961254054775
+        ]
+      },
+      "properties": {
+        "id": 19,
+        "name": "Shelter_19",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92457154176199,
+          49.89558523380223
+        ]
+      },
+      "properties": {
+        "id": 20,
+        "name": "Shelter_20",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92457161797437,
+          49.89666561172388
+        ]
+      },
+      "properties": {
+        "id": 21,
+        "name": "Shelter_21",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92457169419136,
+          49.89774598944319
+        ]
+      },
+      "properties": {
+        "id": 22,
+        "name": "Shelter_22",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92457177041297,
+          49.8988263669601
+        ]
+      },
+      "properties": {
+        "id": 23,
+        "name": "Shelter_23",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.9245718466392,
+          49.89990674427463
+        ]
+      },
+      "properties": {
+        "id": 24,
+        "name": "Shelter_24",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92457192287003,
+          49.90098712138681
+        ]
+      },
+      "properties": {
+        "id": 25,
+        "name": "Shelter_25",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92457199910548,
+          49.90206749829662
+        ]
+      },
+      "properties": {
+        "id": 26,
+        "name": "Shelter_26",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92394945836294,
+          49.90152732652185
+        ]
+      },
+      "properties": {
+        "id": 27,
+        "name": "Shelter_27",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92394939603058,
+          49.90044694951022
+        ]
+      },
+      "properties": {
+        "id": 28,
+        "name": "Shelter_28",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.923949333702,
+          49.89936657229623
+        ]
+      },
+      "properties": {
+        "id": 29,
+        "name": "Shelter_29",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92394927137718,
+          49.89828619487987
+        ]
+      },
+      "properties": {
+        "id": 30,
+        "name": "Shelter_30",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92394920905613,
+          49.89720581726114
+        ]
+      },
+      "properties": {
+        "id": 31,
+        "name": "Shelter_31",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92394914673886,
+          49.89612543944002
+        ]
+      },
+      "properties": {
+        "id": 32,
+        "name": "Shelter_32",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92340449288217,
+          49.895589759391086
+        ]
+      },
+      "properties": {
+        "id": 33,
+        "name": "Shelter_33",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92340454282892,
+          49.89666564020567
+        ]
+      },
+      "properties": {
+        "id": 34,
+        "name": "Shelter_34",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92340459298747,
+          49.89774601792606
+        ]
+      },
+      "properties": {
+        "id": 35,
+        "name": "Shelter_35",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92340465003967,
+          49.89897479992837
+        ]
+      },
+      "properties": {
+        "id": 36,
+        "name": "Shelter_36",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92340469331369,
+          49.89990677275968
+        ]
+      },
+      "properties": {
+        "id": 37,
+        "name": "Shelter_37",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92340474348134,
+          49.90098714987293
+        ]
+      },
+      "properties": {
+        "id": 38,
+        "name": "Shelter_38",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92340479365204,
+          49.90206752678382
+        ]
+      },
+      "properties": {
+        "id": 39,
+        "name": "Shelter_39",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92286007876936,
+          49.90152734762709
+        ]
+      },
+      "properties": {
+        "id": 40,
+        "name": "Shelter_40",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92286004076337,
+          49.90044697061466
+        ]
+      },
+      "properties": {
+        "id": 41,
+        "name": "Shelter_41",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92286000275966,
+          49.89936659339986
+        ]
+      },
+      "properties": {
+        "id": 42,
+        "name": "Shelter_42",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92285996475827,
+          49.89828621598271
+        ]
+      },
+      "properties": {
+        "id": 43,
+        "name": "Shelter_43",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92285992675917,
+          49.89720583836317
+        ]
+      },
+      "properties": {
+        "id": 44,
+        "name": "Shelter_44",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92285988876237,
+          49.89612546054124
+        ]
+      },
+      "properties": {
+        "id": 45,
+        "name": "Shelter_45",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92231524685604,
+          49.895585278268
+        ]
+      },
+      "properties": {
+        "id": 46,
+        "name": "Shelter_46",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92231527269182,
+          49.89666565619135
+        ]
+      },
+      "properties": {
+        "id": 47,
+        "name": "Shelter_47",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92231529852916,
+          49.89774603391234
+        ]
+      },
+      "properties": {
+        "id": 48,
+        "name": "Shelter_48",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92231532436806,
+          49.898826411430946
+        ]
+      },
+      "properties": {
+        "id": 49,
+        "name": "Shelter_49",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92231535020852,
+          49.899906788747174
+        ]
+      },
+      "properties": {
+        "id": 50,
+        "name": "Shelter_50",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92231537605056,
+          49.900987165861046
+        ]
+      },
+      "properties": {
+        "id": 51,
+        "name": "Shelter_51",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92231540189415,
+          49.902067542772535
+        ]
+      },
+      "properties": {
+        "id": 52,
+        "name": "Shelter_52",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92169288634659,
+          49.90152735888363
+        ]
+      },
+      "properties": {
+        "id": 53,
+        "name": "Shelter_53",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92169287440456,
+          49.900446981870765
+        ]
+      },
+      "properties": {
+        "id": 54,
+        "name": "Shelter_54",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92169286246325,
+          49.89936660465554
+        ]
+      },
+      "properties": {
+        "id": 55,
+        "name": "Shelter_55",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92169285052266,
+          49.89828622723796
+        ]
+      },
+      "properties": {
+        "id": 56,
+        "name": "Shelter_56",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.9216928385828,
+          49.897205849618
+        ]
+      },
+      "properties": {
+        "id": 57,
+        "name": "Shelter_57",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92169282664365,
+          49.89612547179564
+        ]
+      },
+      "properties": {
+        "id": 58,
+        "name": "Shelter_58",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92114819776529,
+          49.895585284041026
+        ]
+      },
+      "properties": {
+        "id": 59,
+        "name": "Shelter_59",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.9211481975442,
+          49.89666566196459
+        ]
+      },
+      "properties": {
+        "id": 60,
+        "name": "Shelter_60",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92114819732309,
+          49.897746039685806
+        ]
+      },
+      "properties": {
+        "id": 61,
+        "name": "Shelter_61",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92114819688085,
+          49.89990679452107
+        ]
+      },
+      "properties": {
+        "id": 62,
+        "name": "Shelter_62",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92114819665971,
+          49.900987171635165
+        ]
+      },
+      "properties": {
+        "id": 63,
+        "name": "Shelter_63",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92114819643855,
+          49.902067548546874
+        ]
+      },
+      "properties": {
+        "id": 64,
+        "name": "Shelter_64",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92060350675168,
+          49.901527358790595
+        ]
+      },
+      "properties": {
+        "id": 65,
+        "name": "Shelter_65",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92060351913601,
+          49.90044698177773
+        ]
+      },
+      "properties": {
+        "id": 66,
+        "name": "Shelter_66",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92060353151959,
+          49.899366604562516
+        ]
+      },
+      "properties": {
+        "id": 67,
+        "name": "Shelter_67",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92060354390243,
+          49.89828622714494
+        ]
+      },
+      "properties": {
+        "id": 68,
+        "name": "Shelter_68",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.9206035562845,
+          49.89720584952498
+        ]
+      },
+      "properties": {
+        "id": 69,
+        "name": "Shelter_69",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92060356866584,
+          49.896125471702625
+        ]
+      },
+      "properties": {
+        "id": 70,
+        "name": "Shelter_70",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92005895194724,
+          49.89558527883226
+        ]
+      },
+      "properties": {
+        "id": 71,
+        "name": "Shelter_71",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92005892740642,
+          49.89666565675562
+        ]
+      },
+      "properties": {
+        "id": 72,
+        "name": "Shelter_72",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.9200589028641,
+          49.89774603447663
+        ]
+      },
+      "properties": {
+        "id": 73,
+        "name": "Shelter_73",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.9200588783203,
+          49.89882641199526
+        ]
+      },
+      "properties": {
+        "id": 74,
+        "name": "Shelter_74",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92005885377502,
+          49.89990678931151
+        ]
+      },
+      "properties": {
+        "id": 75,
+        "name": "Shelter_75",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92005882922825,
+          49.9009871664254
+        ]
+      },
+      "properties": {
+        "id": 76,
+        "name": "Shelter_76",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.92005880467998,
+          49.90206754333692
+        ]
+      },
+      "properties": {
+        "id": 77,
+        "name": "Shelter_77",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.91943631432893,
+          49.9015273473347
+        ]
+      },
+      "properties": {
+        "id": 78,
+        "name": "Shelter_78",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.91943635277723,
+          49.90044697032228
+        ]
+      },
+      "properties": {
+        "id": 79,
+        "name": "Shelter_79",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.91943639122319,
+          49.89936659310749
+        ]
+      },
+      "properties": {
+        "id": 80,
+        "name": "Shelter_80",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.91943642966683,
+          49.89828621569035
+        ]
+      },
+      "properties": {
+        "id": 81,
+        "name": "Shelter_81",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.91943646810815,
+          49.89720583807082
+        ]
+      },
+      "properties": {
+        "id": 82,
+        "name": "Shelter_82",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.91943650654713,
+          49.89612546024891
+        ]
+      },
+      "properties": {
+        "id": 83,
+        "name": "Shelter_83",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.9188919028572,
+          49.89558526189759
+        ]
+      },
+      "properties": {
+        "id": 84,
+        "name": "Shelter_84",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.9188918522595,
+          49.89666563982031
+        ]
+      },
+      "properties": {
+        "id": 85,
+        "name": "Shelter_85",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.91889180165875,
+          49.89774601754068
+        ]
+      },
+      "properties": {
+        "id": 86,
+        "name": "Shelter_86",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.91889175105493,
+          49.89882639505866
+        ]
+      },
+      "properties": {
+        "id": 87,
+        "name": "Shelter_87",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.91889170044806,
+          49.899906772374266
+        ]
+      },
+      "properties": {
+        "id": 88,
+        "name": "Shelter_88",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.9188916498381,
+          49.90098714948752
+        ]
+      },
+      "properties": {
+        "id": 89,
+        "name": "Shelter_89",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.91889159922509,
+          49.90206752639839
+        ]
+      },
+      "properties": {
+        "id": 90,
+        "name": "Shelter_90",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.91834693473537,
+          49.90152732604339
+        ]
+      },
+      "properties": {
+        "id": 91,
+        "name": "Shelter_91",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.91834699751003,
+          49.90044694903178
+        ]
+      },
+      "properties": {
+        "id": 92,
+        "name": "Shelter_92",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.91834706028088,
+          49.8993665718178
+        ]
+      },
+      "properties": {
+        "id": 93,
+        "name": "Shelter_93",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.91834712304795,
+          49.89828619440147
+        ]
+      },
+      "properties": {
+        "id": 94,
+        "name": "Shelter_94",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.9183471858112,
+          49.89720581678276
+        ]
+      },
+      "properties": {
+        "id": 95,
+        "name": "Shelter_95",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.91834724857067,
+          49.89612543896165
+        ]
+      },
+      "properties": {
+        "id": 96,
+        "name": "Shelter_96",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.91780265610564,
+          49.89559872681946
+        ]
+      },
+      "properties": {
+        "id": 97,
+        "name": "Shelter_97",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.91780258212373,
+          49.8966656134167
+        ]
+      },
+      "properties": {
+        "id": 98,
+        "name": "Shelter_98",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.91780250720176,
+          49.89774599113607
+        ]
+      },
+      "properties": {
+        "id": 99,
+        "name": "Shelter_99",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.91780243227525,
+          49.89882636865305
+        ]
+      },
+      "properties": {
+        "id": 100,
+        "name": "Shelter_100",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.91780235734421,
+          49.89990674596765
+        ]
+      },
+      "properties": {
+        "id": 101,
+        "name": "Shelter_101",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.91780228240863,
+          49.900987123079894
+        ]
+      },
+      "properties": {
+        "id": 102,
+        "name": "Shelter_102",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.91717983115412,
+          49.90044691486475
+        ]
+      },
+      "properties": {
+        "id": 103,
+        "name": "Shelter_103",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.91717991998736,
+          49.89936653765208
+        ]
+      },
+      "properties": {
+        "id": 104,
+        "name": "Shelter_104",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.91718685626984,
+          49.89719477170398
+        ]
+      },
+      "properties": {
+        "id": 105,
+        "name": "Shelter_105",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.91718018645484,
+          49.89612540479982
+        ]
+      },
+      "properties": {
+        "id": 106,
+        "name": "Shelter_106",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.91663560795469,
+          49.89558519585263
+        ]
+      },
+      "properties": {
+        "id": 107,
+        "name": "Shelter_107",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.91663550698038,
+          49.89666557377285
+        ]
+      },
+      "properties": {
+        "id": 108,
+        "name": "Shelter_108",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.91663540599998,
+          49.897745951490705
+        ]
+      },
+      "properties": {
+        "id": 109,
+        "name": "Shelter_109",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.91663520402082,
+          49.89990670631927
+        ]
+      },
+      "properties": {
+        "id": 110,
+        "name": "Shelter_110",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.91663510091995,
+          49.9010095689497
+        ]
+      },
+      "properties": {
+        "id": 111,
+        "name": "Shelter_111",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.91609047589095,
+          49.9004468723768
+        ]
+      },
+      "properties": {
+        "id": 112,
+        "name": "Shelter_112",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.91609058904909,
+          49.89936649516573
+        ]
+      },
+      "properties": {
+        "id": 113,
+        "name": "Shelter_113",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.91609081534482,
+          49.897205740136506
+        ]
+      },
+      "properties": {
+        "id": 114,
+        "name": "Shelter_114",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.9160909284824,
+          49.89612536231832
+        ]
+      },
+      "properties": {
+        "id": 115,
+        "name": "Shelter_115",
+        "type": "bee_shelter"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92622732511661,
+              49.901513534235654
+            ],
+            [
+              -111.92618473562827,
+              49.901513534235654
+            ],
+            [
+              -111.92618473562827,
+              49.90154096626309
+            ],
+            [
+              -111.92622732511661,
+              49.90154096626309
+            ],
+            [
+              -111.92622732511661,
+              49.901513534235654
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 1,
+        "name": "Buffer_1",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92622721568652,
+              49.90046913406175
+            ],
+            [
+              -111.92618462712012,
+              49.90046913406175
+            ],
+            [
+              -111.92618462712012,
+              49.90049656608919
+            ],
+            [
+              -111.92622721568652,
+              49.90049656608919
+            ],
+            [
+              -111.92622721568652,
+              49.90046913406175
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 2,
+        "name": "Buffer_2",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92622709872437,
+              49.899352780015825
+            ],
+            [
+              -111.92618451114338,
+              49.899352780015825
+            ],
+            [
+              -111.92618451114338,
+              49.89938021204326
+            ],
+            [
+              -111.92622709872437,
+              49.89938021204326
+            ],
+            [
+              -111.92622709872437,
+              49.899352780015825
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 3,
+        "name": "Buffer_3",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92622698553852,
+              49.89827240260237
+            ],
+            [
+              -111.92618439891113,
+              49.89827240260237
+            ],
+            [
+              -111.92618439891113,
+              49.89829983462981
+            ],
+            [
+              -111.92622698553852,
+              49.89829983462981
+            ],
+            [
+              -111.92622698553852,
+              49.89827240260237
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 4,
+        "name": "Buffer_4",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92622687235954,
+              49.89719202498654
+            ],
+            [
+              -111.92618428668567,
+              49.89719202498654
+            ],
+            [
+              -111.92618428668567,
+              49.897219457013975
+            ],
+            [
+              -111.92622687235954,
+              49.897219457013975
+            ],
+            [
+              -111.92622687235954,
+              49.89719202498654
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 5,
+        "name": "Buffer_5",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92622675918741,
+              49.89611164716831
+            ],
+            [
+              -111.92618417446701,
+              49.89611164716831
+            ],
+            [
+              -111.92618417446701,
+              49.89613907919575
+            ],
+            [
+              -111.92622675918741,
+              49.89613907919575
+            ],
+            [
+              -111.92622675918741,
+              49.89611164716831
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 6,
+        "name": "Buffer_6",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92568207969785,
+              49.895571480609604
+            ],
+            [
+              -111.92563949545413,
+              49.895571480609604
+            ],
+            [
+              -111.92563949545413,
+              49.89559891263704
+            ],
+            [
+              -111.92568207969785,
+              49.89559891263704
+            ],
+            [
+              -111.92568207969785,
+              49.895571480609604
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 7,
+        "name": "Buffer_7",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92568218070669,
+              49.89665185852984
+            ],
+            [
+              -111.92563959550954,
+              49.89665185852984
+            ],
+            [
+              -111.92563959550954,
+              49.89667929055728
+            ],
+            [
+              -111.92568218070669,
+              49.89667929055728
+            ],
+            [
+              -111.92568218070669,
+              49.89665185852984
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 8,
+        "name": "Buffer_8",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92568228172163,
+              49.897732236247734
+            ],
+            [
+              -111.925639695571,
+              49.897732236247734
+            ],
+            [
+              -111.925639695571,
+              49.89775966827517
+            ],
+            [
+              -111.92568228172163,
+              49.89775966827517
+            ],
+            [
+              -111.92568228172163,
+              49.897732236247734
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 9,
+        "name": "Buffer_9",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92568238274272,
+              49.898812613763226
+            ],
+            [
+              -111.9256397956385,
+              49.898812613763226
+            ],
+            [
+              -111.9256397956385,
+              49.898840045790664
+            ],
+            [
+              -111.92568238274272,
+              49.898840045790664
+            ],
+            [
+              -111.92568238274272,
+              49.898812613763226
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 10,
+        "name": "Buffer_10",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.9256824837699,
+              49.89989299107636
+            ],
+            [
+              -111.92563989571208,
+              49.89989299107636
+            ],
+            [
+              -111.92563989571208,
+              49.899920423103794
+            ],
+            [
+              -111.9256824837699,
+              49.899920423103794
+            ],
+            [
+              -111.9256824837699,
+              49.89989299107636
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 11,
+        "name": "Buffer_11",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.9256825848032,
+              49.90097336818712
+            ],
+            [
+              -111.92563999579171,
+              49.90097336818712
+            ],
+            [
+              -111.92563999579171,
+              49.901000800214554
+            ],
+            [
+              -111.9256825848032,
+              49.901000800214554
+            ],
+            [
+              -111.9256825848032,
+              49.90097336818712
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 12,
+        "name": "Buffer_12",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92568268584262,
+              49.9020537450955
+            ],
+            [
+              -111.92564009587738,
+              49.9020537450955
+            ],
+            [
+              -111.92564009587738,
+              49.90208117712294
+            ],
+            [
+              -111.92568268584262,
+              49.90208117712294
+            ],
+            [
+              -111.92568268584262,
+              49.9020537450955
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 13,
+        "name": "Buffer_13",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92513794552704,
+              49.90151357653916
+            ],
+            [
+              -111.92509535603867,
+              49.90151357653916
+            ],
+            [
+              -111.92509535603867,
+              49.901541008566596
+            ],
+            [
+              -111.92513794552704,
+              49.901541008566596
+            ],
+            [
+              -111.92513794552704,
+              49.90151357653916
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 14,
+        "name": "Buffer_14",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92513785665388,
+              49.90043319952882
+            ],
+            [
+              -111.9250952681192,
+              49.90043319952882
+            ],
+            [
+              -111.9250952681192,
+              49.90046063155626
+            ],
+            [
+              -111.92513785665388,
+              49.90046063155626
+            ],
+            [
+              -111.92513785665388,
+              49.90043319952882
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 15,
+        "name": "Buffer_15",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92513776778607,
+              49.89935282231612
+            ],
+            [
+              -111.92509518020505,
+              49.89935282231612
+            ],
+            [
+              -111.92509518020505,
+              49.899380254343555
+            ],
+            [
+              -111.92513776778607,
+              49.899380254343555
+            ],
+            [
+              -111.92513776778607,
+              49.89935282231612
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 16,
+        "name": "Buffer_16",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92513767892365,
+              49.89827244490106
+            ],
+            [
+              -111.9250950922962,
+              49.89827244490106
+            ],
+            [
+              -111.9250950922962,
+              49.8982998769285
+            ],
+            [
+              -111.92513767892365,
+              49.8982998769285
+            ],
+            [
+              -111.92513767892365,
+              49.89827244490106
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 17,
+        "name": "Buffer_17",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.9251375900666,
+              49.89719206728361
+            ],
+            [
+              -111.9250950043927,
+              49.89719206728361
+            ],
+            [
+              -111.9250950043927,
+              49.89721949931105
+            ],
+            [
+              -111.9251375900666,
+              49.89721949931105
+            ],
+            [
+              -111.9251375900666,
+              49.89719206728361
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 18,
+        "name": "Buffer_18",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92513750121495,
+              49.89611168946378
+            ],
+            [
+              -111.92509491649452,
+              49.89611168946378
+            ],
+            [
+              -111.92509491649452,
+              49.89613912149122
+            ],
+            [
+              -111.92513750121495,
+              49.89613912149122
+            ],
+            [
+              -111.92513750121495,
+              49.89611168946378
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 19,
+        "name": "Buffer_19",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92459283388386,
+              49.89557151778851
+            ],
+            [
+              -111.92455024964012,
+              49.89557151778851
+            ],
+            [
+              -111.92455024964012,
+              49.89559894981595
+            ],
+            [
+              -111.92459283388386,
+              49.89559894981595
+            ],
+            [
+              -111.92459283388386,
+              49.89557151778851
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 20,
+        "name": "Buffer_20",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92459291057295,
+              49.896651895710164
+            ],
+            [
+              -111.92455032537578,
+              49.896651895710164
+            ],
+            [
+              -111.92455032537578,
+              49.8966793277376
+            ],
+            [
+              -111.92459291057295,
+              49.8966793277376
+            ],
+            [
+              -111.92459291057295,
+              49.896651895710164
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 21,
+        "name": "Buffer_21",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92459298726669,
+              49.89773227342947
+            ],
+            [
+              -111.92455040111602,
+              49.89773227342947
+            ],
+            [
+              -111.92455040111602,
+              49.897759705456906
+            ],
+            [
+              -111.92459298726669,
+              49.897759705456906
+            ],
+            [
+              -111.92459298726669,
+              49.89773227342947
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 22,
+        "name": "Buffer_22",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92459306396509,
+              49.89881265094638
+            ],
+            [
+              -111.92455047686084,
+              49.89881265094638
+            ],
+            [
+              -111.92455047686084,
+              49.89884008297382
+            ],
+            [
+              -111.92459306396509,
+              49.89884008297382
+            ],
+            [
+              -111.92459306396509,
+              49.89881265094638
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 23,
+        "name": "Buffer_23",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92459314066812,
+              49.89989302826091
+            ],
+            [
+              -111.92455055261027,
+              49.89989302826091
+            ],
+            [
+              -111.92455055261027,
+              49.89992046028835
+            ],
+            [
+              -111.92459314066812,
+              49.89992046028835
+            ],
+            [
+              -111.92459314066812,
+              49.89989302826091
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 24,
+        "name": "Buffer_24",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.9245932173758,
+              49.900973405373094
+            ],
+            [
+              -111.92455062836426,
+              49.900973405373094
+            ],
+            [
+              -111.92455062836426,
+              49.90100083740053
+            ],
+            [
+              -111.9245932173758,
+              49.90100083740053
+            ],
+            [
+              -111.9245932173758,
+              49.900973405373094
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 25,
+        "name": "Buffer_25",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92459329408811,
+              49.9020537822829
+            ],
+            [
+              -111.92455070412285,
+              49.9020537822829
+            ],
+            [
+              -111.92455070412285,
+              49.902081214310336
+            ],
+            [
+              -111.92459329408811,
+              49.902081214310336
+            ],
+            [
+              -111.92459329408811,
+              49.9020537822829
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 26,
+        "name": "Buffer_26",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92397075310714,
+              49.90151361050813
+            ],
+            [
+              -111.92392816361874,
+              49.90151361050813
+            ],
+            [
+              -111.92392816361874,
+              49.90154104253557
+            ],
+            [
+              -111.92397075310714,
+              49.90154104253557
+            ],
+            [
+              -111.92397075310714,
+              49.90151361050813
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 27,
+        "name": "Buffer_27",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92397069029793,
+              49.9004332334965
+            ],
+            [
+              -111.92392810176322,
+              49.9004332334965
+            ],
+            [
+              -111.92392810176322,
+              49.90046066552394
+            ],
+            [
+              -111.92397069029793,
+              49.90046066552394
+            ],
+            [
+              -111.92397069029793,
+              49.9004332334965
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 28,
+        "name": "Buffer_28",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92397062749252,
+              49.89935285628251
+            ],
+            [
+              -111.92392803991147,
+              49.89935285628251
+            ],
+            [
+              -111.92392803991147,
+              49.89938028830995
+            ],
+            [
+              -111.92397062749252,
+              49.89938028830995
+            ],
+            [
+              -111.92397062749252,
+              49.89935285628251
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 29,
+        "name": "Buffer_29",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92397056469092,
+              49.898272478866154
+            ],
+            [
+              -111.92392797806345,
+              49.898272478866154
+            ],
+            [
+              -111.92392797806345,
+              49.89829991089359
+            ],
+            [
+              -111.92397056469092,
+              49.89829991089359
+            ],
+            [
+              -111.92397056469092,
+              49.898272478866154
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 30,
+        "name": "Buffer_30",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.9239705018931,
+              49.89719210124742
+            ],
+            [
+              -111.92392791621917,
+              49.89719210124742
+            ],
+            [
+              -111.92392791621917,
+              49.89721953327486
+            ],
+            [
+              -111.9239705018931,
+              49.89721953327486
+            ],
+            [
+              -111.9239705018931,
+              49.89719210124742
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 31,
+        "name": "Buffer_31",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.9239704390991,
+              49.8961117234263
+            ],
+            [
+              -111.92392785437863,
+              49.8961117234263
+            ],
+            [
+              -111.92392785437863,
+              49.89613915545374
+            ],
+            [
+              -111.9239704390991,
+              49.89613915545374
+            ],
+            [
+              -111.9239704390991,
+              49.8961117234263
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 32,
+        "name": "Buffer_32",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92342578500603,
+              49.89557604337737
+            ],
+            [
+              -111.92338320075831,
+              49.89557604337737
+            ],
+            [
+              -111.92338320075831,
+              49.895603475404805
+            ],
+            [
+              -111.92342578500603,
+              49.895603475404805
+            ],
+            [
+              -111.92342578500603,
+              49.89557604337737
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 33,
+        "name": "Buffer_33",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92342583542752,
+              49.89665192419195
+            ],
+            [
+              -111.92338325023032,
+              49.89665192419195
+            ],
+            [
+              -111.92338325023032,
+              49.89667935621939
+            ],
+            [
+              -111.92342583542752,
+              49.89667935621939
+            ],
+            [
+              -111.92342583542752,
+              49.89665192419195
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 34,
+        "name": "Buffer_34",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92342588606282,
+              49.89773230191234
+            ],
+            [
+              -111.92338329991212,
+              49.89773230191234
+            ],
+            [
+              -111.92338329991212,
+              49.89775973393978
+            ],
+            [
+              -111.92342588606282,
+              49.89775973393978
+            ],
+            [
+              -111.92342588606282,
+              49.89773230191234
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 35,
+        "name": "Buffer_35",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92342594365729,
+              49.89896108391465
+            ],
+            [
+              -111.92338335642205,
+              49.89896108391465
+            ],
+            [
+              -111.92338335642205,
+              49.89898851594209
+            ],
+            [
+              -111.92342594365729,
+              49.89898851594209
+            ],
+            [
+              -111.92342594365729,
+              49.89896108391465
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 36,
+        "name": "Buffer_36",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92342598734263,
+              49.89989305674596
+            ],
+            [
+              -111.92338339928475,
+              49.89989305674596
+            ],
+            [
+              -111.92338339928475,
+              49.8999204887734
+            ],
+            [
+              -111.92342598734263,
+              49.8999204887734
+            ],
+            [
+              -111.92342598734263,
+              49.89989305674596
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 37,
+        "name": "Buffer_37",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92342603798711,
+              49.900973433859214
+            ],
+            [
+              -111.92338344897557,
+              49.900973433859214
+            ],
+            [
+              -111.92338344897557,
+              49.90100086588665
+            ],
+            [
+              -111.92342603798711,
+              49.90100086588665
+            ],
+            [
+              -111.92342603798711,
+              49.900973433859214
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 38,
+        "name": "Buffer_38",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92342608863468,
+              49.9020538107701
+            ],
+            [
+              -111.9233834986694,
+              49.9020538107701
+            ],
+            [
+              -111.9233834986694,
+              49.902081242797536
+            ],
+            [
+              -111.92342608863468,
+              49.902081242797536
+            ],
+            [
+              -111.92342608863468,
+              49.9020538107701
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 39,
+        "name": "Buffer_39",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92288137351358,
+              49.90151363161337
+            ],
+            [
+              -111.92283878402515,
+              49.90151363161337
+            ],
+            [
+              -111.92283878402515,
+              49.901541063640806
+            ],
+            [
+              -111.92288137351358,
+              49.901541063640806
+            ],
+            [
+              -111.92288137351358,
+              49.90151363161337
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 40,
+        "name": "Buffer_40",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92288133503072,
+              49.90043325460094
+            ],
+            [
+              -111.92283874649601,
+              49.90043325460094
+            ],
+            [
+              -111.92283874649601,
+              49.90046068662838
+            ],
+            [
+              -111.92288133503072,
+              49.90046068662838
+            ],
+            [
+              -111.92288133503072,
+              49.90043325460094
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 41,
+        "name": "Buffer_41",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.9228812965502,
+              49.89935287738614
+            ],
+            [
+              -111.92283870896912,
+              49.89935287738614
+            ],
+            [
+              -111.92283870896912,
+              49.89938030941358
+            ],
+            [
+              -111.9228812965502,
+              49.89938030941358
+            ],
+            [
+              -111.9228812965502,
+              49.89935287738614
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 42,
+        "name": "Buffer_42",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92288125807201,
+              49.89827249996899
+            ],
+            [
+              -111.92283867144454,
+              49.89827249996899
+            ],
+            [
+              -111.92283867144454,
+              49.898299931996426
+            ],
+            [
+              -111.92288125807201,
+              49.898299931996426
+            ],
+            [
+              -111.92288125807201,
+              49.89827249996899
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 43,
+        "name": "Buffer_43",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92288121959615,
+              49.89719212234945
+            ],
+            [
+              -111.9228386339222,
+              49.89719212234945
+            ],
+            [
+              -111.9228386339222,
+              49.89721955437689
+            ],
+            [
+              -111.92288121959615,
+              49.89721955437689
+            ],
+            [
+              -111.92288121959615,
+              49.89719212234945
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 44,
+        "name": "Buffer_44",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92288118112262,
+              49.89611174452752
+            ],
+            [
+              -111.92283859640213,
+              49.89611174452752
+            ],
+            [
+              -111.92283859640213,
+              49.89613917655496
+            ],
+            [
+              -111.92288118112262,
+              49.89613917655496
+            ],
+            [
+              -111.92288118112262,
+              49.89611174452752
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 45,
+        "name": "Buffer_45",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92233653897793,
+              49.89557156225428
+            ],
+            [
+              -111.92229395473416,
+              49.89557156225428
+            ],
+            [
+              -111.92229395473416,
+              49.89559899428172
+            ],
+            [
+              -111.92233653897793,
+              49.89559899428172
+            ],
+            [
+              -111.92233653897793,
+              49.89557156225428
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 46,
+        "name": "Buffer_46",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92233656529042,
+              49.896651940177634
+            ],
+            [
+              -111.92229398009322,
+              49.896651940177634
+            ],
+            [
+              -111.92229398009322,
+              49.89667937220507
+            ],
+            [
+              -111.92233656529042,
+              49.89667937220507
+            ],
+            [
+              -111.92233656529042,
+              49.896651940177634
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 47,
+        "name": "Buffer_47",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92233659160452,
+              49.89773231789862
+            ],
+            [
+              -111.9222940054538,
+              49.89773231789862
+            ],
+            [
+              -111.9222940054538,
+              49.89775974992606
+            ],
+            [
+              -111.92233659160452,
+              49.89775974992606
+            ],
+            [
+              -111.92233659160452,
+              49.89773231789862
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 48,
+        "name": "Buffer_48",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.9223366179202,
+              49.89881269541723
+            ],
+            [
+              -111.92229403081592,
+              49.89881269541723
+            ],
+            [
+              -111.92229403081592,
+              49.898840127444664
+            ],
+            [
+              -111.9223366179202,
+              49.898840127444664
+            ],
+            [
+              -111.9223366179202,
+              49.89881269541723
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 49,
+        "name": "Buffer_49",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92233664423746,
+              49.899893072733455
+            ],
+            [
+              -111.92229405617958,
+              49.899893072733455
+            ],
+            [
+              -111.92229405617958,
+              49.89992050476089
+            ],
+            [
+              -111.92233664423746,
+              49.89992050476089
+            ],
+            [
+              -111.92233664423746,
+              49.899893072733455
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 50,
+        "name": "Buffer_50",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92233667055635,
+              49.90097344984733
+            ],
+            [
+              -111.92229408154478,
+              49.90097344984733
+            ],
+            [
+              -111.92229408154478,
+              49.901000881874765
+            ],
+            [
+              -111.92233667055635,
+              49.901000881874765
+            ],
+            [
+              -111.92233667055635,
+              49.90097344984733
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 51,
+        "name": "Buffer_51",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.9223366968768,
+              49.90205382675882
+            ],
+            [
+              -111.92229410691151,
+              49.90205382675882
+            ],
+            [
+              -111.92229410691151,
+              49.902081258786254
+            ],
+            [
+              -111.9223366968768,
+              49.902081258786254
+            ],
+            [
+              -111.9223366968768,
+              49.90205382675882
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 52,
+        "name": "Buffer_52",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.9217141810908,
+              49.90151364286991
+            ],
+            [
+              -111.92167159160238,
+              49.90151364286991
+            ],
+            [
+              -111.92167159160238,
+              49.901541074897345
+            ],
+            [
+              -111.9217141810908,
+              49.901541074897345
+            ],
+            [
+              -111.9217141810908,
+              49.90151364286991
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 53,
+        "name": "Buffer_53",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92171416867193,
+              49.900433265857046
+            ],
+            [
+              -111.92167158013719,
+              49.900433265857046
+            ],
+            [
+              -111.92167158013719,
+              49.90046069788448
+            ],
+            [
+              -111.92171416867193,
+              49.90046069788448
+            ],
+            [
+              -111.92171416867193,
+              49.900433265857046
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 54,
+        "name": "Buffer_54",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92171415625378,
+              49.89935288864182
+            ],
+            [
+              -111.9216715686727,
+              49.89935288864182
+            ],
+            [
+              -111.9216715686727,
+              49.89938032066926
+            ],
+            [
+              -111.92171415625378,
+              49.89938032066926
+            ],
+            [
+              -111.92171415625378,
+              49.89935288864182
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 55,
+        "name": "Buffer_55",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92171414383641,
+              49.89827251122424
+            ],
+            [
+              -111.92167155720891,
+              49.89827251122424
+            ],
+            [
+              -111.92167155720891,
+              49.89829994325168
+            ],
+            [
+              -111.92171414383641,
+              49.89829994325168
+            ],
+            [
+              -111.92171414383641,
+              49.89827251122424
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 56,
+        "name": "Buffer_56",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92171413141978,
+              49.89719213360428
+            ],
+            [
+              -111.92167154574582,
+              49.89719213360428
+            ],
+            [
+              -111.92167154574582,
+              49.897219565631715
+            ],
+            [
+              -111.92171413141978,
+              49.897219565631715
+            ],
+            [
+              -111.92171413141978,
+              49.89719213360428
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 57,
+        "name": "Buffer_57",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.9217141190039,
+              49.896111755781924
+            ],
+            [
+              -111.9216715342834,
+              49.896111755781924
+            ],
+            [
+              -111.9216715342834,
+              49.89613918780936
+            ],
+            [
+              -111.9217141190039,
+              49.89613918780936
+            ],
+            [
+              -111.9217141190039,
+              49.896111755781924
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 58,
+        "name": "Buffer_58",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92116948988718,
+              49.89557156802731
+            ],
+            [
+              -111.9211269056434,
+              49.89557156802731
+            ],
+            [
+              -111.9211269056434,
+              49.895599000054744
+            ],
+            [
+              -111.92116948988718,
+              49.895599000054744
+            ],
+            [
+              -111.92116948988718,
+              49.89557156802731
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 59,
+        "name": "Buffer_59",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92116949014282,
+              49.89665194595087
+            ],
+            [
+              -111.92112690494558,
+              49.89665194595087
+            ],
+            [
+              -111.92112690494558,
+              49.89667937797831
+            ],
+            [
+              -111.92116949014282,
+              49.89667937797831
+            ],
+            [
+              -111.92116949014282,
+              49.89665194595087
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 60,
+        "name": "Buffer_60",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92116949039846,
+              49.89773232367209
+            ],
+            [
+              -111.92112690424773,
+              49.89773232367209
+            ],
+            [
+              -111.92112690424773,
+              49.897759755699525
+            ],
+            [
+              -111.92116949039846,
+              49.897759755699525
+            ],
+            [
+              -111.92116949039846,
+              49.89773232367209
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 61,
+        "name": "Buffer_61",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.9211694909098,
+              49.899893078507354
+            ],
+            [
+              -111.9211269028519,
+              49.899893078507354
+            ],
+            [
+              -111.9211269028519,
+              49.89992051053479
+            ],
+            [
+              -111.9211694909098,
+              49.89992051053479
+            ],
+            [
+              -111.9211694909098,
+              49.899893078507354
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 62,
+        "name": "Buffer_62",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.9211694911655,
+              49.90097345562145
+            ],
+            [
+              -111.92112690215393,
+              49.90097345562145
+            ],
+            [
+              -111.92112690215393,
+              49.901000887648884
+            ],
+            [
+              -111.9211694911655,
+              49.901000887648884
+            ],
+            [
+              -111.9211694911655,
+              49.90097345562145
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 63,
+        "name": "Buffer_63",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92116949142121,
+              49.902053832533156
+            ],
+            [
+              -111.92112690145589,
+              49.902053832533156
+            ],
+            [
+              -111.92112690145589,
+              49.90208126456059
+            ],
+            [
+              -111.92116949142121,
+              49.90208126456059
+            ],
+            [
+              -111.92116949142121,
+              49.902053832533156
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 64,
+        "name": "Buffer_64",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92062480149589,
+              49.90151364277688
+            ],
+            [
+              -111.92058221200746,
+              49.90151364277688
+            ],
+            [
+              -111.92058221200746,
+              49.901541074804314
+            ],
+            [
+              -111.92062480149589,
+              49.901541074804314
+            ],
+            [
+              -111.92062480149589,
+              49.90151364277688
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 65,
+        "name": "Buffer_65",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92062481340338,
+              49.900433265764015
+            ],
+            [
+              -111.92058222486864,
+              49.900433265764015
+            ],
+            [
+              -111.92058222486864,
+              49.90046069779145
+            ],
+            [
+              -111.92062481340338,
+              49.90046069779145
+            ],
+            [
+              -111.92062481340338,
+              49.900433265764015
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 66,
+        "name": "Buffer_66",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92062482531013,
+              49.8993528885488
+            ],
+            [
+              -111.92058223772905,
+              49.8993528885488
+            ],
+            [
+              -111.92058223772905,
+              49.899380320576235
+            ],
+            [
+              -111.92062482531013,
+              49.899380320576235
+            ],
+            [
+              -111.92062482531013,
+              49.8993528885488
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 67,
+        "name": "Buffer_67",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92062483721618,
+              49.898272511131225
+            ],
+            [
+              -111.92058225058868,
+              49.898272511131225
+            ],
+            [
+              -111.92058225058868,
+              49.89829994315866
+            ],
+            [
+              -111.92062483721618,
+              49.89829994315866
+            ],
+            [
+              -111.92062483721618,
+              49.898272511131225
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 68,
+        "name": "Buffer_68",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92062484912148,
+              49.89719213351126
+            ],
+            [
+              -111.92058226344753,
+              49.89719213351126
+            ],
+            [
+              -111.92058226344753,
+              49.8972195655387
+            ],
+            [
+              -111.92062484912148,
+              49.8972195655387
+            ],
+            [
+              -111.92062484912148,
+              49.89719213351126
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 69,
+        "name": "Buffer_69",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92062486102608,
+              49.896111755688906
+            ],
+            [
+              -111.9205822763056,
+              49.896111755688906
+            ],
+            [
+              -111.9205822763056,
+              49.896139187716344
+            ],
+            [
+              -111.92062486102608,
+              49.896139187716344
+            ],
+            [
+              -111.92062486102608,
+              49.896111755688906
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 70,
+        "name": "Buffer_70",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92008024406913,
+              49.89557156281854
+            ],
+            [
+              -111.92003765982535,
+              49.89557156281854
+            ],
+            [
+              -111.92003765982535,
+              49.895598994845976
+            ],
+            [
+              -111.92008024406913,
+              49.895598994845976
+            ],
+            [
+              -111.92008024406913,
+              49.89557156281854
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 71,
+        "name": "Buffer_71",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92008022000502,
+              49.896651940741904
+            ],
+            [
+              -111.92003763480781,
+              49.896651940741904
+            ],
+            [
+              -111.92003763480781,
+              49.89667937276934
+            ],
+            [
+              -111.92008022000502,
+              49.89667937276934
+            ],
+            [
+              -111.92008022000502,
+              49.896651940741904
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 72,
+        "name": "Buffer_72",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92008019593946,
+              49.897732318462914
+            ],
+            [
+              -111.92003760978874,
+              49.897732318462914
+            ],
+            [
+              -111.92003760978874,
+              49.89775975049035
+            ],
+            [
+              -111.92008019593946,
+              49.89775975049035
+            ],
+            [
+              -111.92008019593946,
+              49.897732318462914
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 73,
+        "name": "Buffer_73",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92008017187244,
+              49.89881269598154
+            ],
+            [
+              -111.92003758476817,
+              49.89881269598154
+            ],
+            [
+              -111.92003758476817,
+              49.89884012800898
+            ],
+            [
+              -111.92008017187244,
+              49.89884012800898
+            ],
+            [
+              -111.92008017187244,
+              49.89881269598154
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 74,
+        "name": "Buffer_74",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92008014780397,
+              49.89989307329779
+            ],
+            [
+              -111.92003755974606,
+              49.89989307329779
+            ],
+            [
+              -111.92003755974606,
+              49.89992050532523
+            ],
+            [
+              -111.92008014780397,
+              49.89992050532523
+            ],
+            [
+              -111.92008014780397,
+              49.89989307329779
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 75,
+        "name": "Buffer_75",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92008012373404,
+              49.90097345041168
+            ],
+            [
+              -111.92003753472247,
+              49.90097345041168
+            ],
+            [
+              -111.92003753472247,
+              49.90100088243912
+            ],
+            [
+              -111.92008012373404,
+              49.90100088243912
+            ],
+            [
+              -111.92008012373404,
+              49.90097345041168
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 76,
+        "name": "Buffer_76",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.92008009966263,
+              49.9020538273232
+            ],
+            [
+              -111.92003750969734,
+              49.9020538273232
+            ],
+            [
+              -111.92003750969734,
+              49.90208125935064
+            ],
+            [
+              -111.92008009966263,
+              49.90208125935064
+            ],
+            [
+              -111.92008009966263,
+              49.9020538273232
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 77,
+        "name": "Buffer_77",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.91945760907315,
+              49.90151363132098
+            ],
+            [
+              -111.91941501958472,
+              49.90151363132098
+            ],
+            [
+              -111.91941501958472,
+              49.90154106334842
+            ],
+            [
+              -111.91945760907315,
+              49.90154106334842
+            ],
+            [
+              -111.91945760907315,
+              49.90151363132098
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 78,
+        "name": "Buffer_78",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.91945764704458,
+              49.90043325430856
+            ],
+            [
+              -111.91941505850987,
+              49.90043325430856
+            ],
+            [
+              -111.91941505850987,
+              49.900460686336
+            ],
+            [
+              -111.91945764704458,
+              49.900460686336
+            ],
+            [
+              -111.91945764704458,
+              49.90043325430856
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 79,
+        "name": "Buffer_79",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.91945768501373,
+              49.89935287709377
+            ],
+            [
+              -111.91941509743265,
+              49.89935287709377
+            ],
+            [
+              -111.91941509743265,
+              49.899380309121206
+            ],
+            [
+              -111.91945768501373,
+              49.899380309121206
+            ],
+            [
+              -111.91945768501373,
+              49.89935287709377
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 80,
+        "name": "Buffer_80",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.91945772298057,
+              49.89827249967663
+            ],
+            [
+              -111.9194151363531,
+              49.89827249967663
+            ],
+            [
+              -111.9194151363531,
+              49.89829993170407
+            ],
+            [
+              -111.91945772298057,
+              49.89829993170407
+            ],
+            [
+              -111.91945772298057,
+              49.89827249967663
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 81,
+        "name": "Buffer_81",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.91945776094512,
+              49.8971921220571
+            ],
+            [
+              -111.91941517527117,
+              49.8971921220571
+            ],
+            [
+              -111.91941517527117,
+              49.897219554084536
+            ],
+            [
+              -111.91945776094512,
+              49.897219554084536
+            ],
+            [
+              -111.91945776094512,
+              49.8971921220571
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 82,
+        "name": "Buffer_82",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.91945779890737,
+              49.89611174423519
+            ],
+            [
+              -111.91941521418688,
+              49.89611174423519
+            ],
+            [
+              -111.91941521418688,
+              49.89613917626263
+            ],
+            [
+              -111.91945779890737,
+              49.89613917626263
+            ],
+            [
+              -111.91945779890737,
+              49.89611174423519
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 83,
+        "name": "Buffer_83",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.91891319497908,
+              49.89557154588387
+            ],
+            [
+              -111.91887061073531,
+              49.89557154588387
+            ],
+            [
+              -111.91887061073531,
+              49.895598977911305
+            ],
+            [
+              -111.91891319497908,
+              49.895598977911305
+            ],
+            [
+              -111.91891319497908,
+              49.89557154588387
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 84,
+        "name": "Buffer_84",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.91891314485811,
+              49.896651923806594
+            ],
+            [
+              -111.9188705596609,
+              49.896651923806594
+            ],
+            [
+              -111.9188705596609,
+              49.89667935583403
+            ],
+            [
+              -111.91891314485811,
+              49.89667935583403
+            ],
+            [
+              -111.91891314485811,
+              49.896651923806594
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 85,
+        "name": "Buffer_85",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.9189130947341,
+              49.897732301526965
+            ],
+            [
+              -111.9188705085834,
+              49.897732301526965
+            ],
+            [
+              -111.9188705085834,
+              49.8977597335544
+            ],
+            [
+              -111.9189130947341,
+              49.8977597335544
+            ],
+            [
+              -111.9189130947341,
+              49.897732301526965
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 86,
+        "name": "Buffer_86",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.91891304460707,
+              49.898812679044944
+            ],
+            [
+              -111.91887045750279,
+              49.898812679044944
+            ],
+            [
+              -111.91887045750279,
+              49.89884011107238
+            ],
+            [
+              -111.91891304460707,
+              49.89884011107238
+            ],
+            [
+              -111.91891304460707,
+              49.898812679044944
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 87,
+        "name": "Buffer_87",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.918912994477,
+              49.89989305636055
+            ],
+            [
+              -111.91887040641912,
+              49.89989305636055
+            ],
+            [
+              -111.91887040641912,
+              49.899920488387984
+            ],
+            [
+              -111.918912994477,
+              49.899920488387984
+            ],
+            [
+              -111.918912994477,
+              49.89989305636055
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 88,
+        "name": "Buffer_88",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.91891294434387,
+              49.9009734334738
+            ],
+            [
+              -111.91887035533233,
+              49.9009734334738
+            ],
+            [
+              -111.91887035533233,
+              49.90100086550124
+            ],
+            [
+              -111.91891294434387,
+              49.90100086550124
+            ],
+            [
+              -111.91891294434387,
+              49.9009734334738
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 89,
+        "name": "Buffer_89",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.91891289420774,
+              49.90205381038467
+            ],
+            [
+              -111.91887030424245,
+              49.90205381038467
+            ],
+            [
+              -111.91887030424245,
+              49.90208124241211
+            ],
+            [
+              -111.91891289420774,
+              49.90208124241211
+            ],
+            [
+              -111.91891289420774,
+              49.90205381038467
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 90,
+        "name": "Buffer_90",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.91836822947957,
+              49.901513610029674
+            ],
+            [
+              -111.91832563999117,
+              49.901513610029674
+            ],
+            [
+              -111.91832563999117,
+              49.90154104205711
+            ],
+            [
+              -111.91836822947957,
+              49.90154104205711
+            ],
+            [
+              -111.91836822947957,
+              49.901513610029674
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 91,
+        "name": "Buffer_91",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.91836829177738,
+              49.90043323301806
+            ],
+            [
+              -111.91832570324267,
+              49.90043323301806
+            ],
+            [
+              -111.91832570324267,
+              49.9004606650455
+            ],
+            [
+              -111.91836829177738,
+              49.9004606650455
+            ],
+            [
+              -111.91836829177738,
+              49.90043323301806
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 92,
+        "name": "Buffer_92",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.9183683540714,
+              49.89935285580408
+            ],
+            [
+              -111.91832576649036,
+              49.89935285580408
+            ],
+            [
+              -111.91832576649036,
+              49.89938028783152
+            ],
+            [
+              -111.9183683540714,
+              49.89938028783152
+            ],
+            [
+              -111.9183683540714,
+              49.89935285580408
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 93,
+        "name": "Buffer_93",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.91836841636169,
+              49.89827247838775
+            ],
+            [
+              -111.91832582973421,
+              49.89827247838775
+            ],
+            [
+              -111.91832582973421,
+              49.89829991041519
+            ],
+            [
+              -111.91836841636169,
+              49.89829991041519
+            ],
+            [
+              -111.91836841636169,
+              49.89827247838775
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 94,
+        "name": "Buffer_94",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.91836847864816,
+              49.89719210076904
+            ],
+            [
+              -111.91832589297424,
+              49.89719210076904
+            ],
+            [
+              -111.91832589297424,
+              49.89721953279648
+            ],
+            [
+              -111.91836847864816,
+              49.89721953279648
+            ],
+            [
+              -111.91836847864816,
+              49.89719210076904
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 95,
+        "name": "Buffer_95",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.9183685409309,
+              49.89611172294793
+            ],
+            [
+              -111.91832595621044,
+              49.89611172294793
+            ],
+            [
+              -111.91832595621044,
+              49.896139154975366
+            ],
+            [
+              -111.9183685409309,
+              49.896139154975366
+            ],
+            [
+              -111.9183685409309,
+              49.89611172294793
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 96,
+        "name": "Buffer_96",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.91782394823346,
+              49.89558501080574
+            ],
+            [
+              -111.91778136397781,
+              49.89558501080574
+            ],
+            [
+              -111.91778136397781,
+              49.895612442833176
+            ],
+            [
+              -111.91782394823346,
+              49.895612442833176
+            ],
+            [
+              -111.91782394823346,
+              49.89558501080574
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 97,
+        "name": "Buffer_97",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.91782387472232,
+              49.89665189740298
+            ],
+            [
+              -111.91778128952514,
+              49.89665189740298
+            ],
+            [
+              -111.91778128952514,
+              49.89667932943042
+            ],
+            [
+              -111.91782387472232,
+              49.89667932943042
+            ],
+            [
+              -111.91782387472232,
+              49.89665189740298
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 98,
+        "name": "Buffer_98",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.91782380027709,
+              49.89773227512235
+            ],
+            [
+              -111.91778121412642,
+              49.89773227512235
+            ],
+            [
+              -111.91778121412642,
+              49.89775970714979
+            ],
+            [
+              -111.91782380027709,
+              49.89775970714979
+            ],
+            [
+              -111.91782380027709,
+              49.89773227512235
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 99,
+        "name": "Buffer_99",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.91782372582738,
+              49.89881265263933
+            ],
+            [
+              -111.91778113872313,
+              49.89881265263933
+            ],
+            [
+              -111.91778113872313,
+              49.898840084666766
+            ],
+            [
+              -111.91782372582738,
+              49.898840084666766
+            ],
+            [
+              -111.91782372582738,
+              49.89881265263933
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 100,
+        "name": "Buffer_100",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.91782365137314,
+              49.89989302995393
+            ],
+            [
+              -111.91778106331529,
+              49.89989302995393
+            ],
+            [
+              -111.91778106331529,
+              49.89992046198137
+            ],
+            [
+              -111.91782365137314,
+              49.89992046198137
+            ],
+            [
+              -111.91782365137314,
+              49.89989302995393
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 101,
+        "name": "Buffer_101",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.9178235769144,
+              49.900973407066175
+            ],
+            [
+              -111.91778098790286,
+              49.900973407066175
+            ],
+            [
+              -111.91778098790286,
+              49.90100083909361
+            ],
+            [
+              -111.9178235769144,
+              49.90100083909361
+            ],
+            [
+              -111.9178235769144,
+              49.900973407066175
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 102,
+        "name": "Buffer_102",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.91720112542144,
+              49.90043319885103
+            ],
+            [
+              -111.91715853688679,
+              49.90043319885103
+            ],
+            [
+              -111.91715853688679,
+              49.90046063087847
+            ],
+            [
+              -111.91720112542144,
+              49.90046063087847
+            ],
+            [
+              -111.91720112542144,
+              49.90043319885103
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 103,
+        "name": "Buffer_103",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.91720121377787,
+              49.89935282163836
+            ],
+            [
+              -111.91715862619685,
+              49.89935282163836
+            ],
+            [
+              -111.91715862619685,
+              49.8993802536658
+            ],
+            [
+              -111.91720121377787,
+              49.8993802536658
+            ],
+            [
+              -111.91720121377787,
+              49.89935282163836
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 104,
+        "name": "Buffer_104",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.91720814910192,
+              49.89718105569026
+            ],
+            [
+              -111.91716556343775,
+              49.89718105569026
+            ],
+            [
+              -111.91716556343775,
+              49.8972084877177
+            ],
+            [
+              -111.91720814910192,
+              49.8972084877177
+            ],
+            [
+              -111.91720814910192,
+              49.89718105569026
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 105,
+        "name": "Buffer_105",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.91720147881506,
+              49.8961116887861
+            ],
+            [
+              -111.91715889409463,
+              49.8961116887861
+            ],
+            [
+              -111.91715889409463,
+              49.89613912081354
+            ],
+            [
+              -111.91720147881506,
+              49.89613912081354
+            ],
+            [
+              -111.91720147881506,
+              49.8961116887861
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 106,
+        "name": "Buffer_106",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.91665690007655,
+              49.895571479838914
+            ],
+            [
+              -111.91661431583283,
+              49.895571479838914
+            ],
+            [
+              -111.91661431583283,
+              49.89559891186635
+            ],
+            [
+              -111.91665690007655,
+              49.89559891186635
+            ],
+            [
+              -111.91665690007655,
+              49.895571479838914
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 107,
+        "name": "Buffer_107",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.91665679957896,
+              49.89665185775913
+            ],
+            [
+              -111.91661421438181,
+              49.89665185775913
+            ],
+            [
+              -111.91661421438181,
+              49.89667928978657
+            ],
+            [
+              -111.91665679957896,
+              49.89667928978657
+            ],
+            [
+              -111.91665679957896,
+              49.89665185775913
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 108,
+        "name": "Buffer_108",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.9166566990753,
+              49.89773223547699
+            ],
+            [
+              -111.91661411292466,
+              49.89773223547699
+            ],
+            [
+              -111.91661411292466,
+              49.897759667504424
+            ],
+            [
+              -111.9166566990753,
+              49.897759667504424
+            ],
+            [
+              -111.9166566990753,
+              49.89773223547699
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 109,
+        "name": "Buffer_109",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.91665649804973,
+              49.89989299030555
+            ],
+            [
+              -111.91661390999191,
+              49.89989299030555
+            ],
+            [
+              -111.91661390999191,
+              49.89992042233299
+            ],
+            [
+              -111.91665649804973,
+              49.89992042233299
+            ],
+            [
+              -111.91665649804973,
+              49.89989299030555
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 110,
+        "name": "Buffer_110",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.91665639543562,
+              49.900995852935985
+            ],
+            [
+              -111.91661380640427,
+              49.900995852935985
+            ],
+            [
+              -111.91661380640427,
+              49.90102328496342
+            ],
+            [
+              -111.91665639543562,
+              49.90102328496342
+            ],
+            [
+              -111.91665639543562,
+              49.900995852935985
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 111,
+        "name": "Buffer_111",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.91611177015827,
+              49.90043315636308
+            ],
+            [
+              -111.91606918162364,
+              49.90043315636308
+            ],
+            [
+              -111.91606918162364,
+              49.900460588390516
+            ],
+            [
+              -111.91611177015827,
+              49.900460588390516
+            ],
+            [
+              -111.91611177015827,
+              49.90043315636308
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 112,
+        "name": "Buffer_112",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.91611188283959,
+              49.89935277915201
+            ],
+            [
+              -111.9160692952586,
+              49.89935277915201
+            ],
+            [
+              -111.9160692952586,
+              49.89938021117945
+            ],
+            [
+              -111.91611188283959,
+              49.89938021117945
+            ],
+            [
+              -111.91611188283959,
+              49.89935277915201
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 113,
+        "name": "Buffer_113",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.91611210818175,
+              49.89719202412279
+            ],
+            [
+              -111.91606952250788,
+              49.89719202412279
+            ],
+            [
+              -111.91606952250788,
+              49.897219456150225
+            ],
+            [
+              -111.91611210818175,
+              49.897219456150225
+            ],
+            [
+              -111.91611210818175,
+              49.89719202412279
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 114,
+        "name": "Buffer_114",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -111.9161122208426,
+              49.896111646304604
+            ],
+            [
+              -111.9160696361222,
+              49.896111646304604
+            ],
+            [
+              -111.9160696361222,
+              49.89613907833204
+            ],
+            [
+              -111.9161122208426,
+              49.89613907833204
+            ],
+            [
+              -111.9161122208426,
+              49.896111646304604
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": 115,
+        "name": "Buffer_115",
+        "type": "interior",
+        "boundaryType": "interior",
+        "boundary_type": "interior",
+        "interior": true,
+        "exterior": false,
+        "passable": true,
+        "drivable": true
+      }
+    }
+  ]
+}

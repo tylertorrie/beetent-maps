@@ -1952,5 +1952,7 @@
   "PP2_Longitude": "",
   "Radius2": "",
   "two_pivots": false,
-  "tray_overrides": {}
+  "tray_overrides": {},
+  "jd_client": "Riverview Ranch",
+  "jd_farm": "Stolk"
 }

@@ -1561,5 +1561,28 @@
     "role": "flag",
     "generated": "2026-06-19T00:16:34",
     "size": 701808
+  },
+  {
+    "id": "exports/Shelter Maps_BASF_v5",
+    "kind": "export",
+    "name": "Shelter Maps_BASF_v5",
+    "relpath": "exports/Shelter Maps_BASF_v5",
+    "is_dir": true,
+    "companies": [
+      "BASF"
+    ],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "Stolk NE-12-11-15"
+    ],
+    "types": [
+      "GeoJSON",
+      "JD"
+    ],
+    "role": null,
+    "generated": "2026-06-19T11:06:32",
+    "size": 145409
   }
 ]
