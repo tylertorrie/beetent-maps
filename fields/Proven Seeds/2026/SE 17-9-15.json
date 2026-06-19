@@ -935,5 +935,5 @@
   "PP2_Longitude": "",
   "Radius2": "",
   "two_pivots": false,
-  "pass_phase_swap": false
+  "pass_phase_swap": true
 }
