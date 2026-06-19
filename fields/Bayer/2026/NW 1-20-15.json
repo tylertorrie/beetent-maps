@@ -21,7 +21,7 @@
   "bay_gap_in": "0",
   "total_rows": "24",
   "row_layout": "custom",
-  "custom_row_mask": "MMFFFFFFFFFFFFMMMMFFFFF",
+  "custom_row_mask": "MMFFFFFFFFFFFFMMMMFFFFFF",
   "use_bays": true,
   "shelters_in_outside_pass": "Yes",
   "track_exclusion_ft": "10",
