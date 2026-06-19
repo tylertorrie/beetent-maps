@@ -1367,6 +1367,23 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
             radius = float(r_raw) * conv
             boundary_enu = None
 
+        # ── Misplaced-pivot guard (freeze protection) ───────────────────────
+        # The shelter grid is generated in the PIVOT's ENU frame and ranges out
+        # to `radius` (max pivot→boundary distance). If the pivot was never set
+        # for this field — or got copied from another field — it can sit tens of
+        # km away, exploding radius so the row/grid loops run tens of millions of
+        # iterations and the app FREEZES. No real centre-pivot field is anywhere
+        # near that large, so when a boundary is present and the pivot lies
+        # implausibly far outside it, bail with no shelters rather than hang.
+        if boundary_enu:
+            _xs = [e for e, _n in boundary_enu]
+            _ys = [_n for _e, _n in boundary_enu]
+            _diag = math.hypot(max(_xs) - min(_xs), max(_ys) - min(_ys))
+            _min_d = min(math.hypot(e, n) for e, n in boundary_enu)
+            if _min_d > max(2000.0, 3.0 * _diag):
+                # Pivot is several field-widths outside the boundary → misplaced.
+                return ([], []) if return_rows else []
+
         # ── Optional SECOND pivot ("two pivots in one field" — rare) ─────────
         # ONE global shelter grid still spans the whole field, anchored in
         # pivot-1's ENU frame, so rows line up across both circles. Only three

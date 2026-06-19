@@ -8261,6 +8261,22 @@ class BeetentApp(ctk.CTk):
                 text_color=UI_ACCENT)
         self._status(f"Showing ACTUAL placement — {len(self.shelter_positions)} scanned pins.")
 
+    def _pivot_far_from_boundary(self):
+        """True when the pivot sits implausibly far outside the field boundary —
+        mirrors the freeze guard in maketentgrid.get_tent_positions so the UI can
+        explain why no shelters were placed."""
+        try:
+            plat=float(self.fv["PP_Latitude"].get()); plon=float(self.fv["PP_Longitude"].get())
+            bp=self.current_field.get("boundary_polygon")
+            if not bp or len(bp)<3: return False
+            enu=[latlon_to_enu(lat,lon,plat,plon) for lat,lon in bp]
+            xs=[e for e,_ in enu]; ys=[n for _,n in enu]
+            diag=math.hypot(max(xs)-min(xs), max(ys)-min(ys))
+            min_d=min(math.hypot(e,n) for e,n in enu)
+            return min_d > max(2000.0, 3.0*diag)
+        except (ValueError,TypeError,KeyError):
+            return False
+
     def _redraw_shelters(self):
         self._clear_shelters()
         if not self.show_shelters.get(): return
@@ -8272,7 +8288,14 @@ class BeetentApp(ctk.CTk):
         use_m=self.unit_var.get()=="Metric"
         mode_key=self._shelter_mode_labels.get(self.shelter_mode_var.get(),"total")
         positions, row_idxs = maketentgrid.get_tent_positions(f,use_metric=use_m,return_rows=True)
-        # Shelters follow the planter (bay) Shift and the sprayer-pass Shift so
+        # No shelters + a boundary that sits far from the pivot → the pivot was
+        # never set for this field (or was copied from another). get_tent_positions
+        # bails in that case to avoid a freeze; tell the user why so they can fix
+        # the pivot instead of seeing a mysteriously empty field.
+        if not positions and not (self.current_field.get("manual_shelter_pins")):
+            if self._pivot_far_from_boundary():
+                self._status("⚠ Pivot point is far from this field — set the pivot "
+                             "point (🎯 Pivot) on the field to place shelters.")
         # they stay in their female bays / clear of the shifted passes. Applied
         # to the algorithm grid only — manual pins and dragged overrides are
         # absolute placements and stay put.
