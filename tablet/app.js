@@ -559,6 +559,110 @@ async function showAllFields() {
 function show(id) { document.getElementById(id).classList.remove("hidden"); }
 function closeSheet(id) { document.getElementById(id).classList.add("hidden"); }
 
+// ---- Shelter-crew checklist -------------------------------------------------
+// Three phases. {n} fills with the active field's shelter count; {n3} with the
+// nesting blocks needed (3 per shelter). Tick state persists per field in
+// IndexedDB (meta store), so it survives a reload with no signal.
+const CHECKLIST = [
+  { title: "Before Leaving for the Field", items: [
+    "Are the vehicles fueled and do the tires look good?",
+    "Do you have {n} shelters loaded?",
+    "Do you have {n3} nesting blocks ready? (3 per shelter)",
+    "Do you have enough anchors and supplies for {n} shelters?",
+    "Is the scanning app up to date?",
+    "Do you have charged batteries and tools?",
+    "Do you have tow straps to pull out if stuck?",
+  ] },
+  { title: "In the Field", items: [
+    "Confirm flag placement allows shelters to sit two rows away from the male bay.",
+    "Confirm the scanning app is working and you have service.",
+    "Do not drive on the crop if at all possible.",
+    "Make sure shelters line up in nice lines in all directions.",
+  ] },
+  { title: "After the Task", items: [
+    "Is all the garbage picked up from the field and the corner?",
+    "Make sure all batteries are being charged.",
+    "Mark the field as complete in the app.",
+    "Confirm you placed {n} shelters.",
+    "Trailers and trucks are parked nicely out of the way.",
+    "No blocks left with holes pointing up (they fill with rainwater).",
+  ] },
+];
+
+let checklistState = {};    // {sectionIdx.itemIdx: bool} for the active field
+let checklistKey = null;
+
+function fillCounts(text, n) {
+  const nStr = (typeof n === "number") ? String(n) : "—";
+  const n3Str = (typeof n === "number") ? String(n * 3) : "—";
+  return text.replace(/\{n3\}/g, n3Str).replace(/\{n\}/g, nStr);
+}
+
+function updateChecklistProgress() {
+  let done = 0, total = 0;
+  CHECKLIST.forEach((sec, si) => sec.items.forEach((_it, ii) => {
+    total++; if (checklistState[si + "." + ii]) done++;
+  }));
+  const el = document.getElementById("cl-progress");
+  if (el) el.textContent = done + " / " + total;
+}
+
+async function openChecklist() {
+  closeSheet("fieldsheet"); closeSheet("pointsheet");
+  const body = document.getElementById("checklist-body");
+  body.innerHTML = "";
+  if (!activeField) {
+    body.innerHTML = '<div class="cl-empty">Open a field first (Fields button) ' +
+      'to load its shelter count, then re-open the checklist.</div>';
+    const el = document.getElementById("cl-progress"); if (el) el.textContent = "";
+    show("checklistsheet");
+    return;
+  }
+  const n = fieldProgress().total;
+  checklistKey = "checklist:" + (activeFieldFile || "nofield");
+  try { checklistState = (await beeDB.getMeta(checklistKey)) || {}; }
+  catch { checklistState = {}; }
+
+  CHECKLIST.forEach((sec, si) => {
+    const h = document.createElement("div");
+    h.className = "cl-section"; h.textContent = sec.title;
+    body.appendChild(h);
+    sec.items.forEach((it, ii) => {
+      const id = si + "." + ii;
+      const checked = !!checklistState[id];
+      const lbl = document.createElement("label");
+      lbl.className = "cl-item" + (checked ? " done" : "");
+      const cb = document.createElement("input");
+      cb.type = "checkbox"; cb.checked = checked;
+      cb.onchange = () => {
+        checklistState[id] = cb.checked;
+        lbl.classList.toggle("done", cb.checked);
+        if (checklistKey) beeDB.putMeta(checklistKey, { ...checklistState }).catch(() => {});
+        updateChecklistProgress();
+      };
+      const span = document.createElement("span");
+      span.textContent = fillCounts(it, n);
+      lbl.appendChild(cb); lbl.appendChild(span);
+      body.appendChild(lbl);
+    });
+  });
+
+  const foot = document.createElement("div");
+  foot.className = "cl-foot";
+  const reset = document.createElement("button");
+  reset.textContent = "Reset checklist";
+  reset.onclick = () => {
+    checklistState = {};
+    if (checklistKey) beeDB.putMeta(checklistKey, {}).catch(() => {});
+    openChecklist();
+  };
+  foot.appendChild(reset);
+  body.appendChild(foot);
+
+  updateChecklistProgress();
+  show("checklistsheet");
+}
+
 // ---- Online / offline indicator ---------------------------------------------
 function updateNet() {
   document.getElementById("netpill").classList.toggle("hidden", navigator.onLine);
@@ -586,6 +690,8 @@ window.addEventListener("DOMContentLoaded", () => {
   document.getElementById("btn-labelmode").onclick = toggleLabelMode;
   document.getElementById("btn-fields").onclick = () => { loadFieldList(); show("fieldsheet"); };
   document.getElementById("btn-close-fields").onclick = () => closeSheet("fieldsheet");
+  document.getElementById("btn-checklist").onclick = openChecklist;
+  document.getElementById("btn-close-checklist").onclick = () => closeSheet("checklistsheet");
   document.getElementById("btn-sync").onclick = () => syncAll();
   document.getElementById("btn-close-point").onclick = () => { commitPoint(); closeSheet("pointsheet"); };
   document.getElementById("pt-visited").onchange = commitPoint;

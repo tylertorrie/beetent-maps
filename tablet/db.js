@@ -96,6 +96,8 @@ window.beeDB = (function () {
   return {
     getIndex: () => run("meta", "readonly", s => s.get("fields_index")),
     putIndex: (list) => run("meta", "readwrite", s => s.put(list, "fields_index")),
+    getMeta: (key) => run("meta", "readonly", s => s.get(key)),
+    putMeta: (key, val) => run("meta", "readwrite", s => s.put(val, key)),
     getField: (file) => run("fields", "readonly", s => s.get(file)),
     putField: (file, fc) => run("fields", "readwrite", s => s.put(fc, file)),
     getState: (file) => run("state", "readonly", s => s.get(file)),

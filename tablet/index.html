@@ -35,6 +35,7 @@
   <div id="controls">
     <button id="btn-work" class="active">Work</button>
     <button id="btn-map">Map</button>
+    <button id="btn-checklist">Checklist</button>
     <button id="btn-fields">Fields</button>
     <div id="stats"><span id="sats">0</span> sats &middot; HDOP <span id="hdop">--</span></div>
   </div>
@@ -50,6 +51,16 @@
       <button id="btn-crew">Change</button></div>
     <ul id="fieldlist"></ul>
     <div id="syncnote"></div>
+  </div>
+
+  <!-- Shelter-crew checklist drawer (counts fill from the active field) -->
+  <div id="checklistsheet" class="hidden">
+    <div class="sheet-head">
+      <span>Shelter Crew Checklist</span>
+      <span id="cl-progress" class="cl-progress"></span>
+      <button id="btn-close-checklist">&times;</button>
+    </div>
+    <div id="checklist-body"></div>
   </div>
 
   <!-- Point detail popup -->
