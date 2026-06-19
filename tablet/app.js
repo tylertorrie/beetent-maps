@@ -417,10 +417,17 @@ function checkProximity(p) {
 function arrive(feature) {
   const label = feature.properties.label;
   const trays = feature.properties.trays;
-  const sub = (labelMode === "trays" && trays != null)
-    ? `<div class="arrive-sub">${trays} tray${trays === 1 ? "" : "s"}</div>` : "";
   const el = document.getElementById("arrival");
-  el.innerHTML = `&#10003; You're at ${label}${sub}`;
+  if (labelMode === "trays") {
+    // Bee crew: lead with how many trays to place at this shelter.
+    el.innerHTML = (trays != null)
+      ? `&#128029; Put ${trays} tray${trays === 1 ? "" : "s"} here` +
+        `<div class="arrive-sub">${label}</div>`
+      : `&#10003; You're at ${label}<div class="arrive-sub">tray count not set</div>`;
+  } else {
+    // Shelter / flagging crew: just the shelter number.
+    el.innerHTML = `&#10003; You're at ${label}`;
+  }
   el.classList.remove("hidden");
   el.style.animation = "none"; void el.offsetWidth; el.style.animation = "";   // restart pop
   if (navigator.vibrate) navigator.vibrate([200, 80, 200]);
