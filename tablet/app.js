@@ -850,19 +850,22 @@ async function openScan() {
 }
 
 // ---- Camera QR (secure context only; hardware scanner is the field path) ----
-let camStream = null, camRAF = null, camDetector = null;
+let camStream = null, camRAF = null, camDetector = null, camCanvas = null, _lastJsqrTs = 0;
 async function openCamera() {
   if (!window.isSecureContext) {
     setScanStatus("Camera needs https — use a hardware scanner on the field network.", "warn"); return;
   }
-  if (!("BarcodeDetector" in window)) {
-    setScanStatus("This browser can't decode QR by camera — use a hardware scanner.", "warn"); return;
+  const hasBD = ("BarcodeDetector" in window);          // fast native path (Android Chrome)
+  if (!hasBD && typeof jsQR !== "function") {            // jsQR = cross-platform fallback (iOS)
+    setScanStatus("Can't decode QR by camera here — use a hardware scanner.", "warn"); return;
   }
   try {
-    camDetector = new window.BarcodeDetector({ formats: ["qr_code"] });
+    camDetector = hasBD ? new window.BarcodeDetector({ formats: ["qr_code"] }) : null;
     camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
     const v = document.getElementById("cam-video");
-    v.srcObject = camStream; await v.play();
+    v.srcObject = camStream;
+    v.muted = true; v.setAttribute("playsinline", ""); v.setAttribute("autoplay", "");  // iOS: inline, no fullscreen
+    await v.play();
     document.getElementById("camoverlay").classList.remove("hidden");
     scanCameraLoop();
   } catch (e) {
@@ -872,15 +875,33 @@ async function openCamera() {
 async function scanCameraLoop() {
   if (!camStream) return;
   try {
-    const codes = await camDetector.detect(document.getElementById("cam-video"));
-    if (codes && codes.length) {
-      const val = codes[0].rawValue, now = Date.now();
-      if (val && (val !== _lastCamVal || now - _lastCamTs > 1500)) {
+    const v = document.getElementById("cam-video");
+    let val = null;
+    if (camDetector) {
+      const codes = await camDetector.detect(v);
+      if (codes && codes.length) val = codes[0].rawValue;
+    } else if (typeof jsQR === "function" && v.videoWidth) {
+      const t = Date.now();
+      if (t - _lastJsqrTs >= 120) {                     // throttle the software decode
+        _lastJsqrTs = t;
+        if (!camCanvas) camCanvas = document.createElement("canvas");
+        const s = Math.min(1, 800 / Math.max(v.videoWidth, v.videoHeight));  // downscale for speed
+        const w = Math.round(v.videoWidth * s), h = Math.round(v.videoHeight * s);
+        camCanvas.width = w; camCanvas.height = h;
+        const ctx = camCanvas.getContext("2d", { willReadFrequently: true });
+        ctx.drawImage(v, 0, 0, w, h);
+        const code = jsQR(ctx.getImageData(0, 0, w, h).data, w, h, { inversionAttempts: "dontInvert" });
+        if (code) val = code.data;
+      }
+    }
+    if (val) {
+      const now = Date.now();
+      if (val !== _lastCamVal || now - _lastCamTs > 1500) {
         _lastCamVal = val; _lastCamTs = now;
         await handleScan(val);
       }
     }
-  } catch (e) { /* transient detect error — keep looping */ }
+  } catch (e) { /* transient — keep looping */ }
   camRAF = requestAnimationFrame(scanCameraLoop);
 }
 function closeCamera() {

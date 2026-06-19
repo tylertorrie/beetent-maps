@@ -3,11 +3,12 @@
  * tiles are handled separately by the app's IndexedDB cache (db.js / tiles.js),
  * so this SW deliberately does NOT shadow /fields/ or cross-origin tile requests.
  */
-const CACHE = "beetent-shell-v5";   // bump to push shell changes (QR scan feature)
+const CACHE = "beetent-shell-v6";   // bump to push shell changes (iOS camera QR via jsQR)
 const ASSETS = [
   "./", "index.html", "app.js", "db.js", "tiles.js", "publish.js", "style.css",
   "manifest.webmanifest",
   "vendor/maplibre-gl.js", "vendor/maplibre-gl.css",
+  "vendor/jsQR.js",
   "vendor/fonts/OpenSans/0-255.pbf",
   "fields/sample_field.geojson",
   "icon-180.png", "icon-192.png", "icon-512.png",
