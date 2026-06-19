@@ -1213,6 +1213,79 @@ class _ExportTypePicker(ctk.CTkToplevel):
         self.destroy()          # self.result stays None
 
 
+class _JDClientFarmDialog(ctk.CTkToplevel):
+    """Per-field John Deere Client / Farm entry for the boundary metadata.
+
+    One row per selected field (pre-filled), so different fields in the same
+    export can go to different Clients/Farms. An "Apply to all" shortcut fills
+    every row for the common single-grower case. Returns
+    {(co, yr, name): (client, farm)} or None if cancelled."""
+
+    def __init__(self, parent, rows):
+        # rows: [(co, yr, name, display_name, prefill_client, prefill_farm), ...]
+        super().__init__(parent)
+        self.title("John Deere — Client / Farm per field")
+        self.resizable(True, True)
+        self.grab_set()
+        self.result = None
+        self._rows = []          # (co, yr, name, client_var, farm_var)
+
+        ctk.CTkLabel(self, anchor="w",
+                     text="Client and Farm for each field's John Deere boundary upload:"
+                     ).pack(fill="x", padx=12, pady=(12, 2))
+
+        # Apply-to-all convenience (single-grower exports).
+        bulk = ctk.CTkFrame(self, fg_color="transparent")
+        bulk.pack(fill="x", padx=12, pady=(0, 6))
+        ctk.CTkLabel(bulk, text="Set all →").pack(side="left")
+        self._bulk_client = ctk.StringVar(); self._bulk_farm = ctk.StringVar()
+        ctk.CTkEntry(bulk, textvariable=self._bulk_client,
+                     placeholder_text="Client", width=160).pack(side="left", padx=(6, 4))
+        ctk.CTkEntry(bulk, textvariable=self._bulk_farm,
+                     placeholder_text="Farm", width=130).pack(side="left", padx=(0, 6))
+        ctk.CTkButton(bulk, text="Apply to all", width=100,
+                      command=self._apply_all).pack(side="left")
+
+        hdr = ctk.CTkFrame(self, fg_color="transparent")
+        hdr.pack(fill="x", padx=12)
+        ctk.CTkLabel(hdr, text="Field",  width=210, anchor="w").pack(side="left")
+        ctk.CTkLabel(hdr, text="Client", width=160, anchor="w").pack(side="left", padx=(6, 0))
+        ctk.CTkLabel(hdr, text="Farm",   width=130, anchor="w").pack(side="left", padx=(6, 0))
+
+        scroll = ctk.CTkScrollableFrame(self, width=560,
+                                        height=min(360, 50 + 34 * len(rows)))
+        scroll.pack(fill="both", expand=True, padx=12, pady=6)
+        for (co, yr, name, disp, pc, pf) in rows:
+            r = ctk.CTkFrame(scroll, fg_color="transparent")
+            r.pack(fill="x", pady=2)
+            ctk.CTkLabel(r, text=disp, width=210, anchor="w").pack(side="left")
+            cv = ctk.StringVar(value=pc); fv = ctk.StringVar(value=pf)
+            ctk.CTkEntry(r, textvariable=cv, width=160).pack(side="left", padx=(6, 0))
+            ctk.CTkEntry(r, textvariable=fv, width=130).pack(side="left", padx=(6, 0))
+            self._rows.append((co, yr, name, cv, fv))
+
+        bot = ctk.CTkFrame(self, fg_color="transparent")
+        bot.pack(fill="x", padx=12, pady=(0, 12))
+        ctk.CTkButton(bot, text="Cancel", width=80, fg_color="grey40",
+                      command=self._cancel).pack(side="right", padx=(6, 0))
+        ctk.CTkButton(bot, text="OK", width=80, command=self._ok).pack(side="right")
+        _center_on_parent(self, parent)
+
+    def _apply_all(self):
+        c = self._bulk_client.get(); f = self._bulk_farm.get()
+        for (_co, _yr, _name, cv, fv) in self._rows:
+            if c: cv.set(c)
+            if f: fv.set(f)
+
+    def _ok(self):
+        self.result = {(co, yr, name): (cv.get().strip(), fv.get().strip())
+                       for (co, yr, name, cv, fv) in self._rows}
+        self.destroy()
+
+    def _cancel(self):
+        self.destroy()          # self.result stays None
+
+
 # ── Application ───────────────────────────────────────────────────────────────
 class BeetentApp(ctk.CTk):
     def __init__(self):
@@ -10023,37 +10096,6 @@ class BeetentApp(ctk.CTk):
                         self.current_field["shelter_buffer_m"] = str(buf_m)
         return result
 
-    def _prompt_jd_client_farm(self, selected_fields):
-        """Ask once for the John Deere Client + Farm written into the boundary
-        metadata. Pre-fills from the first selected field's remembered
-        jd_client/jd_farm, falling back to the first word of the field name for
-        the Farm (field names often start with it, e.g. 'Stolk NE-12-11-15').
-        Returns (client, farm) or None if cancelled."""
-        pre_client = pre_farm = ""
-        if selected_fields:
-            c, y, name = selected_fields[0]
-            f0 = load_field(c, y, name) or {}
-            pre_client = f0.get("jd_client") or ""
-            pre_farm = f0.get("jd_farm") or ""
-            if not pre_farm:
-                nm = (f0.get("Name") or name or "").strip()
-                pre_farm = nm.split()[0] if nm else ""
-        n = len(selected_fields)
-        note = ("\n\n(Applies to all %d selected fields.)" % n) if n != 1 else ""
-        client = tkinter.simpledialog.askstring(
-            "John Deere — Client",
-            "Client (grower / organization) for the boundary upload:" + note,
-            initialvalue=pre_client, parent=self)
-        if client is None:
-            return None
-        farm = tkinter.simpledialog.askstring(
-            "John Deere — Farm",
-            "Farm for the boundary upload:" + note,
-            initialvalue=pre_farm, parent=self)
-        if farm is None:
-            return None
-        return client.strip(), farm.strip()
-
     def _generate(self):
         # ── Window 1: field picker ─────────────────────────────────────────
         dlg1 = _ExportFieldPicker(self)
@@ -10069,16 +10111,28 @@ class BeetentApp(ctk.CTk):
             return
         opts = dlg2.result
 
-        # ── John Deere Client / Farm (for boundary recognition) ────────────
-        # JD Operations Center needs Client + Farm in the boundary metadata to
-        # accept the upload and file it correctly. Ask once (applies to every
-        # field in this export); pre-fill from the field's remembered values.
-        jd_client = jd_farm = ""
+        # ── John Deere Client / Farm per field (for boundary recognition) ──
+        # JD Operations Center needs Client + Farm in each boundary's metadata.
+        # Ask PER FIELD (one row each) so different fields can have different
+        # Client/Farm in a single export; pre-fill from each field's remembered
+        # values, falling back to the first word of the field name for the Farm.
+        jd_cf = {}          # (co, yr, name) -> (client, farm)
         if opts.get("jd") or opts.get("boundary"):
-            res = self._prompt_jd_client_farm(selected_fields)
-            if res is None:
+            rows = []
+            for c, y, name in selected_fields:
+                f0 = load_field(c, y, name) or {}
+                disp = str(f0.get("Name") or name)
+                pc = f0.get("jd_client") or ""
+                pf = f0.get("jd_farm") or ""
+                if not pf:
+                    parts = disp.split()
+                    pf = parts[0] if parts else ""
+                rows.append((c, y, name, disp, pc, pf))
+            dlg3 = _JDClientFarmDialog(self, rows)
+            self.wait_window(dlg3)
+            if dlg3.result is None:
                 self._status("Export cancelled."); return
-            jd_client, jd_farm = res
+            jd_cf = dlg3.result
 
         # ── Zero-buffer handling (JD Buffer Zones requested) ───────────────
         # Any selected field with a 0 buffer is offered an editable size right
@@ -10145,6 +10199,7 @@ class BeetentApp(ctk.CTk):
                 for c,y,name in selected_fields:
                     f=load_field(c,y,name)
                     if not f: continue
+                    jd_client, jd_farm = jd_cf.get((c,y,name), ("",""))
                     try:
                         pivotpoint=(float(f["PP_Longitude"]),float(f["PP_Latitude"]))
                     except (KeyError,ValueError,TypeError):
