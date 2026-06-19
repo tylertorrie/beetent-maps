@@ -927,41 +927,13 @@
   "bays_through_inner": false,
   "shelter_at_pivot": false,
   "manual_shelter_pins": [],
-  "shelter_overrides": {
-    "78": [
-      49.73070782427072,
-      -111.99181358127446
-    ],
-    "77": [
-      49.7322508183446,
-      -111.9918028524384
-    ],
-    "18": [
-      49.72850940641309,
-      -111.99955443649144
-    ],
-    "76": [
-      49.73297375487207,
-      -111.99247876911015
-    ],
-    "0": [
-      49.73393245265071,
-      -112.00197378902287
-    ],
-    "7": [
-      49.73394978878341,
-      -112.0010779312119
-    ],
-    "31": [
-      49.734601622879225,
-      -111.99852983264775
-    ]
-  },
+  "shelter_overrides": {},
   "tray_overrides": {},
   "actual_shelter_pins": null,
   "shelter_rows": "",
   "PP2_Latitude": "",
   "PP2_Longitude": "",
   "Radius2": "",
-  "two_pivots": false
+  "two_pivots": false,
+  "pass_phase_swap": false
 }
