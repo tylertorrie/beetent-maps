@@ -3634,10 +3634,10 @@ class BeetentApp(ctk.CTk):
         self.row_layout_var=tk.StringVar(value="Centered male")
         self._row_layout_labels={"Outer male":"outer","Centered male":"centered","Custom":"custom"}
         self._row_layout_inverse={v:k for k,v in self._row_layout_labels.items()}
-        ctk.CTkComboBox(self._bay_only_frame,variable=self.row_layout_var,
+        self.row_layout_cb=ctk.CTkComboBox(self._bay_only_frame,variable=self.row_layout_var,
                         values=list(self._row_layout_labels.keys()),
-                        command=lambda v: self._on_row_layout_change()
-                        ).pack(fill="x",pady=(2,4))
+                        command=lambda v: self._on_row_layout_change())
+        self.row_layout_cb.pack(fill="x",pady=(2,4))
         self.custom_mask_var=tk.StringVar(value="")
         self.custom_mask_entry=ctk.CTkEntry(self._bay_only_frame,textvariable=self.custom_mask_var,
                                              placeholder_text="e.g. MMFFFFFFFFFFFFFFFFMM")
@@ -3706,8 +3706,9 @@ class BeetentApp(ctk.CTk):
         # Shelter count drives the bee math, so the mode + value live here at
         # the top of Bee Allocation (was previously under Field Details).
         ctk.CTkLabel(ba,text="Shelters",anchor="w",font=ctk.CTkFont(family=FONT_LABEL,size=11)).pack(fill="x")
-        ctk.CTkComboBox(ba,variable=self.shelter_mode_var,values=list(self._shelter_mode_labels.keys()),
-                        command=self._on_shelter_mode_change).pack(fill="x",pady=(0,2))
+        self.shelter_mode_cb=ctk.CTkComboBox(ba,variable=self.shelter_mode_var,values=list(self._shelter_mode_labels.keys()),
+                        command=self._on_shelter_mode_change)
+        self.shelter_mode_cb.pack(fill="x",pady=(0,2))
         self._shelter_entry=ctk.CTkEntry(ba,textvariable=self.shelter_value_var)
         self._shelter_entry.pack(fill="x",pady=(0,2))
         # For the auto/manual modes (1- or 2-trays-per-shelter, manual pins) the
@@ -3748,9 +3749,10 @@ class BeetentApp(ctk.CTk):
             "Alternating bays":   "alternating",
         }
         self._tray_dist_inverse = {v: k for k, v in self._tray_dist_labels.items()}
-        ctk.CTkComboBox(ba, variable=self.tray_dist_var,
+        self.tray_dist_cb=ctk.CTkComboBox(ba, variable=self.tray_dist_var,
                         values=list(self._tray_dist_labels.keys()),
-                        command=self._on_tray_dist_change).pack(fill="x",pady=(0,4))
+                        command=self._on_tray_dist_change)
+        self.tray_dist_cb.pack(fill="x",pady=(0,4))
 
         ctk.CTkFrame(ba, height=1, fg_color=UI_BORDER).pack(fill="x", pady=(4,4))
         ctk.CTkLabel(ba, text="Shelters in Outside Pass", anchor="w",
@@ -3921,9 +3923,9 @@ class BeetentApp(ctk.CTk):
             # Blank all bay calculator fields and clear the name entry
             for k in ("row_spacing_in","total_rows","num_female_rows","num_male_rows","bay_gap_in"):
                 if k in self.fv: self.fv[k].set("")
-            self.row_layout_var.set("Centered male")
+            self.row_layout_cb.set("Centered male"); self.row_layout_var.set("Centered male")
             self.custom_mask_var.set("")
-            self.shelter_mode_var.set("Total shelters")
+            self.shelter_mode_cb.set("Total shelters"); self.shelter_mode_var.set("Total shelters")
             self.shelter_value_var.set("")
             self.preset_name_var.set("")
             self._loaded_preset_name = None
@@ -3938,12 +3940,14 @@ class BeetentApp(ctk.CTk):
                 # Row layout & custom mask are new — older presets that lack
                 # them default to "centered" (the historical implicit shape).
                 rl = p.get("row_layout","centered")
-                self.row_layout_var.set(self._row_layout_inverse.get(rl,"Centered male"))
+                rl_label = self._row_layout_inverse.get(rl,"Centered male")
+                self.row_layout_cb.set(rl_label); self.row_layout_var.set(rl_label)
                 self.custom_mask_var.set(str(p.get("custom_row_mask","")))
                 # Restore shelter mode + value if saved in preset
                 s_mode = p.get("shelter_mode","")
                 if s_mode and s_mode in self._shelter_mode_inverse:
-                    self.shelter_mode_var.set(self._shelter_mode_inverse[s_mode])
+                    _sm_label = self._shelter_mode_inverse[s_mode]
+                    self.shelter_mode_cb.set(_sm_label); self.shelter_mode_var.set(_sm_label)
                     s_key = self._shelter_mode_key.get(s_mode,"num_structures")
                     if s_key in p and s_key in self.fv:
                         self.fv[s_key].set(str(p[s_key]))
@@ -5059,8 +5063,14 @@ class BeetentApp(ctk.CTk):
         self.shelter_at_pivot_var.set("Yes" if f.get("shelter_at_pivot") else "No")
         self.two_pivots_var.set(bool(f.get("two_pivots")))
         # Row layout: dropdown + custom mask + use-imported-passes toggle.
-        rl = f.get("row_layout","centered")
-        self.row_layout_var.set(self._row_layout_inverse.get(rl,"Centered male"))
+        # Use the widget's .set() (not just the variable) — a CTkComboBox does
+        # not reliably refresh its DISPLAY from a programmatic variable.set(), so
+        # relying on the var alone left the dropdown showing the PREVIOUS field's
+        # layout. The autosaver then baked that stale layout into the new field
+        # (e.g. NW 1-10-15 ended up "centered" while keeping its custom mask).
+        rl_label = self._row_layout_inverse.get(f.get("row_layout","centered"), "Centered male")
+        self.row_layout_cb.set(rl_label)
+        self.row_layout_var.set(rl_label)
         self.custom_mask_var.set(str(f.get("custom_row_mask","")))
         self.pass_phase_swap_var.set(bool(f.get("pass_phase_swap", False)))
         # Default OFF when no planter data has been uploaded; respect the
@@ -5075,12 +5085,14 @@ class BeetentApp(ctk.CTk):
         self.use_bays_var.set(bool(f.get("use_bays",True)))
         self._on_use_bays_toggle()
         self._on_row_layout_change()
-        # Sync the tray-distribution dropdown
+        # Sync the tray-distribution dropdown (widget .set() — see row_layout note)
         dist_key = f.get("tray_distribution") or "even"
-        self.tray_dist_var.set(self._tray_dist_inverse.get(dist_key, "Spread evenly"))
+        dist_label = self._tray_dist_inverse.get(dist_key, "Spread evenly")
+        self.tray_dist_cb.set(dist_label); self.tray_dist_var.set(dist_label)
         # Sync the shelter-count mode dropdown + its single value entry
         s_mode = f.get("shelter_mode") or "total"
-        self.shelter_mode_var.set(self._shelter_mode_inverse.get(s_mode,"Total shelters"))
+        s_mode_label = self._shelter_mode_inverse.get(s_mode,"Total shelters")
+        self.shelter_mode_cb.set(s_mode_label); self.shelter_mode_var.set(s_mode_label)
         if s_mode not in ("trays_1","trays_2","manual"):
             try: self._shelter_entry.configure(state="normal")
             except Exception: pass
