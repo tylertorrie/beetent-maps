@@ -570,8 +570,10 @@ window.addEventListener("DOMContentLoaded", () => {
   connectPosition();          // globe over ws:// (http hosting only)
   startGeo();                 // tablet GPS — the source on https, fallback on http
   statusWatchdog();           // source pill + brings GPS up if the globe drops
-  // Offline app shell (https/secure context only — e.g. GitHub Pages).
-  if ("serviceWorker" in navigator && window.isSecureContext) {
+  // Offline app shell on real https hosting (e.g. GitHub Pages). Skipped on
+  // localhost so it can't serve stale code during local sim development.
+  const lh = location.hostname === "localhost" || location.hostname === "127.0.0.1";
+  if ("serviceWorker" in navigator && window.isSecureContext && !lh) {
     navigator.serviceWorker.register("sw.js").catch((e) => console.warn("SW reg failed", e));
   }
   if (window.beeTiles) beeTiles.evictIfNeeded();   // trim cache if it grew past the cap
