@@ -7601,6 +7601,16 @@ class BeetentApp(ctk.CTk):
             except Exception: pass
         self.planter_number_markers = []
 
+    def _custom_mask_len(self):
+        """Length of the sanitized custom mask when custom row-layout is active,
+        else None. In custom mode this length IS the planter's row count, so it
+        overrides the total_rows entry (which can be left stale) everywhere the
+        bay geometry is computed — keeping the overlay aligned with placement."""
+        if self._row_layout_labels.get(self.row_layout_var.get(), "centered") != "custom":
+            return None
+        m = "".join(c for c in self.custom_mask_var.get().upper() if c in "MF")
+        return len(m) if m else None
+
     def _planter_pass_geometry(self):
         """Shared tiling used by BOTH the bay overlay and the numbered planter
         passes so they can never drift apart. A planter pass is the full
@@ -7617,6 +7627,8 @@ class BeetentApp(ctk.CTk):
             nf = int(self.fv["num_female_rows"].get() or 8)
             nm = int(self.fv["num_male_rows"].get() or 2)
             total_rows = int(self.fv["total_rows"].get() or (nf + nm))
+            _ml = self._custom_mask_len()
+            if _ml: total_rows = _ml          # custom mask length wins
             bp = self.current_field.get("boundary_polygon")
         except (ValueError, TypeError):
             return None
@@ -8587,9 +8599,9 @@ class BeetentApp(ctk.CTk):
         target = int(total_rows) if total_rows and int(total_rows) > 0 else unit
         if layout == "custom":
             s = "".join(c for c in (custom or "").upper() if c in "MF")
-            if len(s) == target:
-                return s
-            layout = "centered"   # safety net
+            if s:
+                return s          # honour the mask verbatim — its length is the
+                                  # planter row count (mirrors resolve_row_mask)
         if layout == "outer":
             left = nm // 2
             right = nm - left
@@ -8648,6 +8660,12 @@ class BeetentApp(ctk.CTk):
             total_rows=int(self.fv["total_rows"].get() or 20)
         except (ValueError,TypeError):
             self._status("Enter numeric values for row spacing and total rows."); return
+        # In custom mode the mask length is the real row count; it overrides the
+        # entry everywhere (placement uses len(mask)). Keep the typed value so we
+        # can warn the user their total_rows entry is being ignored.
+        _form_total_rows = total_rows
+        _mask_len = self._custom_mask_len()
+        if _mask_len: total_rows = _mask_len
         # Planter pass width — always shown, even in blanket-planted mode.
         planter_in = total_rows * rs
         planter_ft = planter_in / 12
@@ -8707,7 +8725,14 @@ class BeetentApp(ctk.CTk):
                          f'bay repeat {period_in:.1f}" = {period_ft:.3f} ft')
             else:
                 self.bay_gap_lbl.configure(text="Gap: none")
-        self.row_mask_lbl.configure(text=f"Mask: {mask or '—'}")
+        # Custom mask whose length ≠ the typed total_rows: the mask wins (its
+        # length is used). Flag it so the user knows the entry is being ignored.
+        if _mask_len and _mask_len != _form_total_rows:
+            self.row_mask_lbl.configure(
+                text=f"Mask: {mask}   ⚠ {_mask_len} rows (overrides total_rows={_form_total_rows})",
+                text_color="#E0A030")
+        else:
+            self.row_mask_lbl.configure(text=f"Mask: {mask or '—'}", text_color=UI_ACCENT)
         # The first-pass-swap option only does anything for an ASYMMETRIC mask
         # (a symmetric one reads the same reversed). Show the checkbox only then.
         asymmetric = bool(mask) and mask != mask[::-1]
@@ -9089,6 +9114,8 @@ class BeetentApp(ctk.CTk):
             nf=int(self.fv["num_female_rows"].get() or 8)
             nm=int(self.fv["num_male_rows"].get() or 2)
             total_rows=int(self.fv["total_rows"].get() or (nf + nm))
+            _ml=self._custom_mask_len()
+            if _ml: total_rows=_ml          # custom mask length wins
             gap_in=float(self.fv["bay_gap_in"].get() or 0)
             bp=self.current_field.get("boundary_polygon")
         except (ValueError,TypeError): return

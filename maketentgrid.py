@@ -1059,7 +1059,11 @@ def resolve_row_mask(nf, nm, layout, custom, total_rows=None):
     if target <= 0: target = unit
     if layout == 'custom':
         s = "".join(c for c in (custom or "").upper() if c in "MF")
-        if len(s) == target:
+        if s:
+            # The custom mask defines its OWN row count — honour it verbatim
+            # regardless of total_rows. (Previously a length mismatch silently
+            # reverted to 'centered', throwing the user's pattern away.) Callers
+            # that need the row count in custom mode use len(mask), not total_rows.
             return s
         layout = 'centered'
     if layout == 'outer':
@@ -1486,6 +1490,14 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
             total_rows_i = int(str(field_dict.get('total_rows') or (nf_i + nm_i)) or (nf_i + nm_i))
             layout = str(field_dict.get('row_layout') or 'centered')
             custom = str(field_dict.get('custom_row_mask') or '')
+            # In custom mode the mask itself is the planter row pattern, so its
+            # length is the true row count — even if the saved total_rows is
+            # stale. Using len(mask) keeps pass_w / half / the male-bay laterals
+            # consistent with the honoured mask (see resolve_row_mask).
+            if layout == 'custom':
+                _cm = "".join(c for c in custom.upper() if c in "MF")
+                if _cm:
+                    total_rows_i = len(_cm)
             offset_m = MALE_BAY_OFFSET_FT * 0.3048
             phase = 1 if field_dict.get('pass_phase_swap') else 0
             bay_laterals = male_bay_shelter_laterals(
@@ -2282,6 +2294,25 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
             # the pattern repeats identically every pass. The enumerated index also
             # drives the stagger. (Fallback for non-bay fields: the old per-pass
             # snap to k*tent_row_width + lat_offset.)
+            def _nudge_out_of_killzone(x):
+                # A shelter COLUMN sits at lateral x. The middle of every sprayer
+                # pass (within pass_dead_half of a pass centre) is a kill zone the
+                # machine drives through. When the nearest male bay lands just
+                # inside that zone, the whole column would otherwise be deleted —
+                # leaving a gap. Instead slide the column laterally the minimum
+                # distance to the edge band (just clear of the kill zone). The move
+                # is tiny (the bay was already near a pass edge), so the shelter
+                # barely leaves its male-bay line but the row survives.
+                if not (buffer_enabled and pass_dead_half > 0 and sprayer_width > 0):
+                    return x
+                c = (math.floor(x / sprayer_width) + 0.5) * sprayer_width  # pass centre
+                d = x - c
+                if abs(d) >= pass_dead_half:
+                    return x   # already in an edge band — leave on the male bay
+                # Move to the nearer band boundary, 2 cm clear of the kill zone.
+                margin = pass_dead_half + 0.02
+                return c + (margin if d >= 0 else -margin)
+
             row_list = []   # (pre_e, row_index) — row_index also drives the stagger
             _seen_rows = set()
             if bay_laterals:
@@ -2291,6 +2322,7 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                 for r in range(-r_max, r_max + 1):
                     edge = r * sprayer_width
                     pre_e = min(bay_laterals, key=lambda v: abs(v - edge))
+                    pre_e = _nudge_out_of_killzone(pre_e)
                     key = round(pre_e, 3)
                     if key in _seen_rows:   # adjacent passes snapping to one bay
                         continue
@@ -2301,6 +2333,7 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                     edge = r * sprayer_width
                     k = round((edge - lat_offset) / tent_row_width)
                     pre_e = k * tent_row_width + lat_offset
+                    pre_e = _nudge_out_of_killzone(pre_e)
                     key = round(pre_e, 3)
                     if key in _seen_rows:   # only skip a true duplicate column
                         continue            # (happens when one bay spans >1 pass)
