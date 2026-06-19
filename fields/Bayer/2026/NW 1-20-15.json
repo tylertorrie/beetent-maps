@@ -344,7 +344,11 @@
   "shelter_at_pivot": true,
   "manual_shelter_pins": [],
   "shelter_overrides": {
-    "52": null
+    "52": null,
+    "31": [
+      50.670546576568846,
+      -111.96145863121338
+    ]
   },
   "tray_overrides": {},
   "actual_shelter_pins": null,
