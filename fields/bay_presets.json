@@ -35,5 +35,17 @@
     "custom_row_mask": "FFFFMMFFFFFFFFMMFFFF",
     "shelter_mode": "trays_2",
     "num_structures": "33"
+  },
+  {
+    "name": "12:4 24 Row Planter Asymmetrical",
+    "row_spacing_in": "22",
+    "total_rows": "24",
+    "num_female_rows": "12",
+    "num_male_rows": "4",
+    "bay_gap_in": "0",
+    "row_layout": "custom",
+    "custom_row_mask": "MMFFFFFFFFFFFFMMMMFFFFFF",
+    "shelter_mode": "trays_2",
+    "num_structures": ""
   }
 ]
