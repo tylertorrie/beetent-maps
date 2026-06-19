@@ -10816,8 +10816,8 @@ class BeetentApp(ctk.CTk):
           - "bee" (Bee Delivery): tray-count pins; drop the planting/spray/row
             geometry rows and the outside-pass row.
         Every non-agronomist role gets a second page: a prep / at-field /
-        end-of-job checklist with a notes box (Flagger and Shelter Crew fully
-        populated; Bee Delivery carries the structure with items added later).
+        end-of-job checklist with a notes box, populated per role (Flagger,
+        Shelter Crew, and Bee Delivery each have their own items).
         The bottom data tables auto-size their rows to fill the page."""
         import fpdf as _fpdf
         import tempfile, math as _math
@@ -11185,9 +11185,9 @@ class BeetentApp(ctk.CTk):
                  f"Generated: {date_str}", 'Helvetica', 'I', 7, MGRAY, 'R')
 
         # ── PAGE 2: ROLE CHECKLIST (every non-agronomist role) ─────────────
-        # Flagger and Shelter Crew are fully specified (Shelter Crew mirrors the
-        # field-tablet checklist). Bee Delivery gets the same page structure with
-        # the section bars + notes box; its items are added later (empty lists).
+        # Flagger, Shelter Crew, and Bee Delivery each get their own items
+        # (Shelter Crew mirrors the field-tablet checklist). Same page layout:
+        # section bars + checkboxes + a notes box that fills the remaining space.
         if role != "agronomist":
             if role == "flag":
                 checklist = [
@@ -11208,7 +11208,7 @@ class BeetentApp(ctk.CTk):
                         "Reviewed the shelter layout on the map before starting",
                     ]),
                     ("END OF JOB", [
-                        "Reported task complete to the manager / logged it in the app",
+                        "Reported task complete on the app (and to the manager)",
                         "Marked any shelter flags that were missed",
                         "Marked any flags that had to be moved, and noted why",
                         "Confirmed flags placed = shelters requested (%s)"
@@ -11247,11 +11247,40 @@ class BeetentApp(ctk.CTk):
                         "No blocks left with holes pointing up (they fill with rainwater)",
                     ]),
                 ]
-            else:   # bee delivery — structure now, items later
+            else:   # bee delivery
+                # Total trays for the field — same formula the bee summary uses:
+                # ceil(gals_per_acre x acres / gals_per_tray), at least one per
+                # shelter. acres_f / n_shelters are already gathered above.
+                try:
+                    _gpa = float(f.get("gals_per_acre") or 0)
+                    _gpt = float(f.get("gals_per_tray") or 0)
+                except (ValueError, TypeError):
+                    _gpa = _gpt = 0.0
+                _tgals = _gpa * acres_f if (_gpa > 0 and acres_f > 0) else 0.0
+                if _tgals > 0 and _gpt > 0:
+                    total_trays = max(int(_math.ceil(_tgals / _gpt)), n_shelters)
+                else:
+                    total_trays = n_shelters
+                trays_disp = str(total_trays) if total_trays else "____"
                 checklist = [
-                    ("BEFORE LEAVING THE SHOP YARD", []),
-                    ("AT THE FIELD - BEFORE STARTING", []),
-                    ("END OF JOB", []),
+                    ("BEFORE LEAVING FOR THE FIELD", [
+                        "%s trays loaded" % trays_disp,
+                        "Double-checked the flowering stage on the field",
+                        "Vehicles fuelled / charged and tires checked - look good",
+                        "Tow straps or pulley on hand in case you get stuck",
+                        "App is updated and working",
+                        "Have the map of how many trays go in each shelter",
+                    ]),
+                    ("IN THE FIELD", [
+                        "Avoid driving on the crop",
+                        "Scan each tray",
+                    ]),
+                    ("AFTER THE TASK", [
+                        "Confirmed all tray scans were recorded",
+                        "All garbage cleaned up",
+                        "Reported any damage",
+                        "Reported task complete on the app",
+                    ]),
                 ]
 
             pdf.add_page()
