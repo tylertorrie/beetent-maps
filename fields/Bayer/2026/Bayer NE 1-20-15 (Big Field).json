@@ -496,7 +496,12 @@
       -111.94669764517435
     ]
   ],
-  "shelter_overrides": {},
+  "shelter_overrides": {
+    "0": [
+      50.66480338831569,
+      -111.95138078211436
+    ]
+  },
   "tray_overrides": {},
   "actual_shelter_pins": null,
   "shelter_rows": "",
