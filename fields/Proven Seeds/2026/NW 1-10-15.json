@@ -18,7 +18,7 @@
   "num_female_rows": "12",
   "num_male_rows": "4",
   "total_rows": "18",
-  "row_layout": "custom",
+  "row_layout": "centered",
   "custom_row_mask": "MMFFFFFFFFFFFFMMMMFFFFFF",
   "use_bays": true,
   "outside_sprayer_pass": "Yes",
