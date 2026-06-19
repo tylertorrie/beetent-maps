@@ -8,6 +8,7 @@ import tkinter.ttk as ttk
 import tkinter.font as tkfont
 import customtkinter as ctk
 import tkintermapview
+import map_rotation
 import math, os, sys, threading, json, re, csv, datetime, zipfile, struct, glob, time
 import subprocess, shutil
 import xml.etree.ElementTree as ET
@@ -3861,6 +3862,15 @@ class BeetentApp(ctk.CTk):
         self.map_widget.set_tile_server(SATELLITE_URL,max_zoom=21)
         self.map_widget.set_position(DEFAULT_LAT,DEFAULT_LON)
         self.map_widget.set_zoom(DEFAULT_ZOOM)
+        # Map rotation engine (no-op at bearing 0). Compass added below.
+        # Defensive: a rotation/compass failure must never stop the app from
+        # launching — the map still works north-up without it.
+        try:
+            map_rotation.enable(self.map_widget)
+            self._build_compass()
+        except Exception as ex:
+            try: self._log(f"Compass/map-rotation disabled: {ex}")
+            except Exception: pass
 
         # Always-visible field name, overlaid top-right of the satellite
         # imagery (the map widget itself, BELOW the toolbar) so it never covers
@@ -9359,6 +9369,88 @@ class BeetentApp(ctk.CTk):
         except Exception:
             pass
         return "break"
+
+    # ── Compass / map rotation ─────────────────────────────────────────────────
+    COMPASS_SIZE = 78
+
+    def _build_compass(self):
+        """Draggable compass in the top-left of the map. Turn it to choose which
+        cardinal direction is 'up'; pins stay screen-upright while the imagery
+        and overlays rotate underneath (handled by map_rotation). Double-click
+        resets to north. The heavy map re-render fires on RELEASE so dragging
+        the rose stays smooth."""
+        self.map_bearing = 0.0
+        s = self.COMPASS_SIZE
+        self.compass = tk.Canvas(self.map_widget, width=s, height=s,
+                                 highlightthickness=0, bd=0, bg="#1a1a1a")
+        self.compass.place(x=12, y=12)
+        self.compass.bind("<Button-1>", self._compass_press)
+        self.compass.bind("<B1-Motion>", self._compass_drag)
+        self.compass.bind("<ButtonRelease-1>", self._compass_release)
+        self.compass.bind("<Double-Button-1>", lambda e: self._set_map_bearing(0.0, commit=True))
+        self._draw_compass()
+
+    def _compass_angle(self, e):
+        """Screen angle (deg, clockwise from up) of the cursor from the rose
+        centre."""
+        c = self.COMPASS_SIZE / 2.0
+        return math.degrees(math.atan2(e.x - c, -(e.y - c)))
+
+    def _draw_compass(self):
+        c = self.compass
+        c.delete("all")
+        s = self.COMPASS_SIZE
+        cx = cy = s / 2.0
+        r = s / 2.0 - 6
+        c.create_oval(cx - r, cy - r, cx + r, cy + r, fill="#222222",
+                      outline="#8a8a8a", width=2)
+        b = self.map_bearing
+        # A geographic heading h sits at screen angle (h - bearing) clockwise
+        # from up (up shows the chosen bearing).
+        for label, h in (("N", 0), ("E", 90), ("S", 180), ("W", 270)):
+            ang = math.radians(h - b)
+            x = cx + (r - 12) * math.sin(ang)
+            y = cy - (r - 12) * math.cos(ang)
+            col = "#FF4040" if label == "N" else "#dddddd"
+            c.create_text(x, y, text=label, fill=col, font=("Arial", 11, "bold"))
+        # North needle.
+        ang = math.radians(0 - b)
+        c.create_line(cx, cy, cx + (r - 3) * math.sin(ang),
+                      cy - (r - 3) * math.cos(ang),
+                      fill="#FF4040", width=3, arrow="last")
+        c.create_oval(cx - 2, cy - 2, cx + 2, cy + 2, fill="#8a8a8a", outline="")
+
+    def _compass_press(self, e):
+        self._compass_a0 = self._compass_angle(e)
+        self._compass_b0 = self.map_bearing
+
+    def _compass_drag(self, e):
+        # Turn the rose with the finger; only the cheap visual updates live.
+        da = self._compass_angle(e) - getattr(self, "_compass_a0", 0.0)
+        self._set_map_bearing(self._compass_b0 + da, commit=False)
+
+    def _compass_release(self, e):
+        self._apply_map_bearing()
+
+    def _set_map_bearing(self, deg, commit=True):
+        """Update the bearing (with a gentle snap to N/E/S/W) and the rose. When
+        commit is True, re-render the map at the new bearing."""
+        deg = deg % 360.0
+        for card in (0.0, 90.0, 180.0, 270.0, 360.0):
+            if abs(deg - card) <= 6.0:
+                deg = card % 360.0
+                break
+        self.map_bearing = deg
+        self._draw_compass()
+        if commit:
+            self._apply_map_bearing()
+
+    def _apply_map_bearing(self):
+        try:
+            map_rotation.set_bearing(self.map_widget, self.map_bearing,
+                                     on_redraw=self._redraw_all)
+        except Exception as ex:
+            self._log(f"Map rotation failed: {ex}")
 
     def _zoom_button(self, direction):
         """On-screen +/- zoom. Moves one whole integer level per click (a tile
