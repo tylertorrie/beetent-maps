@@ -609,7 +609,8 @@ def export_field_outputs(positions_latlon, pivotpoint, out_dir, field_name,
                          write_agps=True, write_jd=True, write_kml=True,
                          write_geojson=True, write_boundary=True, angle=0,
                          entrance_pin=None, parking_pin=None,
-                         wet_zones=None, write_wet_kml=False):
+                         wet_zones=None, write_wet_kml=False,
+                         jd_client="", jd_farm=""):
     """Write the per-field export files from already-computed shelter positions
     (so the output matches exactly what get_tent_positions drew on the map).
 
@@ -637,6 +638,27 @@ def export_field_outputs(positions_latlon, pivotpoint, out_dir, field_name,
     WGS84_PRJ = ('GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",'
                  'SPHEROID["WGS_1984",6378137,298.257223563]],'
                  'PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]]')
+
+    # John Deere Operations Center recognises a shapefile as a boundary when the
+    # zip carries a "<base>-Deere-Metadata.json" AND the .dbf has the columns
+    # CLIENT_NAME / FARM_NAME / FIELD_NAME / POLYGONTYP. Without these, OC rejects
+    # it as "Boundary not currently supported". Schema mirrors the established
+    # frlandry/jd_boundary_uploader QGIS plugin.
+    import json as _json
+    def _jd_metadata_json():
+        return _json.dumps({
+            "Version": "1.0",
+            "ClientName": jd_client or "",
+            "FarmName": jd_farm or "",
+            "ShapeDataType": "Boundary",
+        }, indent=4)
+
+    def _jd_boundary_record(w):
+        """Declare JD's recognised boundary attribute columns on a shapefile.Writer."""
+        w.field("CLIENT_NAME", "C", size=64)
+        w.field("FARM_NAME",   "C", size=64)
+        w.field("FIELD_NAME",  "C", size=64)
+        w.field("POLYGONTYP",  "N", size=4, decimal=0)
 
     # ── Google Earth KML (points) ───────────────────────────────────────────
     if write_kml:
@@ -689,13 +711,11 @@ def export_field_outputs(positions_latlon, pivotpoint, out_dir, field_name,
     if write_jd and buffer_radius_m and buffer_radius_m > 0:
         shp = BytesIO(); shx = BytesIO(); dbf = BytesIO()
         w = shapefile.Writer(shp=shp, shx=shx, dbf=dbf, shapeType=shapefile.POLYGON)
-        w.field('id',   'N', size=8,  decimal=0)
-        w.field('name', 'C', size=32)
-        w.field('type', 'C', size=16)
-        for i, (lat, lon) in enumerate(positions_latlon):
+        _jd_boundary_record(w)
+        for (lat, lon) in positions_latlon:
             ring = _square_lonlat(lat, lon, buffer_radius_m)
             w.poly([ring])
-            w.record(i + 1, "Buffer_%d" % (i + 1), "interior")
+            w.record(jd_client or "", jd_farm or "", field_name, 1)
         w.close()
         bz_zip_buf = BytesIO()
         with zipfile.ZipFile(bz_zip_buf, 'w', zipfile.ZIP_DEFLATED) as zf:
@@ -704,19 +724,23 @@ def export_field_outputs(positions_latlon, pivotpoint, out_dir, field_name,
             zf.writestr("%s.shx" % base, shx.getvalue())
             zf.writestr("%s.dbf" % base, dbf.getvalue())
             zf.writestr("%s.prj" % base, WGS84_PRJ)
+            zf.writestr("%s-Deere-Metadata.json" % base, _jd_metadata_json())
             zf.writestr("README.txt",
                 "Beetent Maps — Shelter Buffer Zones for John Deere Operations Center\n"
                 "\n"
                 "This .zip is the shelter-buffer layer for the field \"%s\".\n"
+                "Client: %s   Farm: %s\n"
                 "Contains a polygon shapefile (one circle per shelter) marking\n"
                 "the passable interior zones the sprayer / planter should\n"
                 "drive around.\n"
                 "\n"
                 "To upload in John Deere Operations Center:\n"
-                "  Files → Upload Files → Internal Boundaries → drop this .zip.\n"
+                "  Files → Upload Files → drop this .zip.\n"
                 "\n"
-                "The buffer zones import as interior (passable) boundaries.\n"
-                % field_name)
+                "The included <name>-Deere-Metadata.json + CLIENT_NAME/FARM_NAME/\n"
+                "FIELD_NAME/POLYGONTYP attributes let Operations Center recognise\n"
+                "it as a boundary automatically.\n"
+                % (field_name, jd_client or "—", jd_farm or "—"))
         writer.writestr(os.path.join(jd_dir, "%s_Shelter_Buffer_Zones_shp.zip" % field_name),
                         bz_zip_buf.getvalue())
 
@@ -751,13 +775,12 @@ def export_field_outputs(positions_latlon, pivotpoint, out_dir, field_name,
         bshp = BytesIO(); bshx = BytesIO(); bdbf = BytesIO()
         bw = shapefile.Writer(shp=bshp, shx=bshx, dbf=bdbf,
                               shapeType=shapefile.POLYGON)
-        bw.field('id',   'N', size=8,  decimal=0)
-        bw.field('name', 'C', size=64)
+        _jd_boundary_record(bw)
         ring = [(lon, lat) for lat, lon in outer_boundary]
         if ring[0] != ring[-1]:
             ring.append(ring[0])   # ensure closed ring
         bw.poly([ring])
-        bw.record(1, "%s Boundary" % field_name)
+        bw.record(jd_client or "", jd_farm or "", field_name, 1)
         bw.close()
         bnd_zip_buf = BytesIO()
         with zipfile.ZipFile(bnd_zip_buf, 'w', zipfile.ZIP_DEFLATED) as zf:
@@ -766,6 +789,7 @@ def export_field_outputs(positions_latlon, pivotpoint, out_dir, field_name,
             zf.writestr("%s.shx" % base, bshx.getvalue())
             zf.writestr("%s.dbf" % base, bdbf.getvalue())
             zf.writestr("%s.prj" % base, WGS84_PRJ)
+            zf.writestr("%s-Deere-Metadata.json" % base, _jd_metadata_json())
         writer.writestr(os.path.join(bnd_shp_dir, "%s_Boundary_shp.zip" % field_name),
                         bnd_zip_buf.getvalue())
 

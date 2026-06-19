@@ -10023,6 +10023,37 @@ class BeetentApp(ctk.CTk):
                         self.current_field["shelter_buffer_m"] = str(buf_m)
         return result
 
+    def _prompt_jd_client_farm(self, selected_fields):
+        """Ask once for the John Deere Client + Farm written into the boundary
+        metadata. Pre-fills from the first selected field's remembered
+        jd_client/jd_farm, falling back to the first word of the field name for
+        the Farm (field names often start with it, e.g. 'Stolk NE-12-11-15').
+        Returns (client, farm) or None if cancelled."""
+        pre_client = pre_farm = ""
+        if selected_fields:
+            c, y, name = selected_fields[0]
+            f0 = load_field(c, y, name) or {}
+            pre_client = f0.get("jd_client") or ""
+            pre_farm = f0.get("jd_farm") or ""
+            if not pre_farm:
+                nm = (f0.get("Name") or name or "").strip()
+                pre_farm = nm.split()[0] if nm else ""
+        n = len(selected_fields)
+        note = ("\n\n(Applies to all %d selected fields.)" % n) if n != 1 else ""
+        client = tkinter.simpledialog.askstring(
+            "John Deere — Client",
+            "Client (grower / organization) for the boundary upload:" + note,
+            initialvalue=pre_client, parent=self)
+        if client is None:
+            return None
+        farm = tkinter.simpledialog.askstring(
+            "John Deere — Farm",
+            "Farm for the boundary upload:" + note,
+            initialvalue=pre_farm, parent=self)
+        if farm is None:
+            return None
+        return client.strip(), farm.strip()
+
     def _generate(self):
         # ── Window 1: field picker ─────────────────────────────────────────
         dlg1 = _ExportFieldPicker(self)
@@ -10037,6 +10068,17 @@ class BeetentApp(ctk.CTk):
         if not dlg2.result:
             return
         opts = dlg2.result
+
+        # ── John Deere Client / Farm (for boundary recognition) ────────────
+        # JD Operations Center needs Client + Farm in the boundary metadata to
+        # accept the upload and file it correctly. Ask once (applies to every
+        # field in this export); pre-fill from the field's remembered values.
+        jd_client = jd_farm = ""
+        if opts.get("jd") or opts.get("boundary"):
+            res = self._prompt_jd_client_farm(selected_fields)
+            if res is None:
+                self._status("Export cancelled."); return
+            jd_client, jd_farm = res
 
         # ── Zero-buffer handling (JD Buffer Zones requested) ───────────────
         # Any selected field with a 0 buffer is offered an editable size right
@@ -10134,7 +10176,15 @@ class BeetentApp(ctk.CTk):
                         parking_pin=f.get("parking_pin"),
                         wet_zones=f.get("wet_zones"),
                         write_wet_kml=include_wet_kml,
+                        jd_client=jd_client, jd_farm=jd_farm,
                     )
+                    # Remember the JD Client/Farm on the field so the next export
+                    # pre-fills them (only when something was entered).
+                    if (jd_client or jd_farm) and (
+                            f.get("jd_client") != jd_client or f.get("jd_farm") != jd_farm):
+                        f["jd_client"] = jd_client; f["jd_farm"] = jd_farm
+                        try: save_field(f)
+                        except Exception: pass
                     ok+=1
                     self.after(0,lambda n=fname,k=len(positions):self._log("  ✓ %s (%d shelters)"%(n,k)))
                 self.after(0,lambda:self._log("Done. %d/%d fields exported."%(ok,len(selected_fields))))
