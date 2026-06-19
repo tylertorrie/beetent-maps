@@ -1,5 +1,8 @@
 {
   "_comment": "Copy this file to firebase_config.json (gitignored) and fill in your values. See tablet/FIREBASE_SETUP.md.",
   "databaseURL": "https://YOUR-PROJECT-default-rtdb.firebaseio.com",
-  "token": ""
+  "token": "",
+  "_sheets_comment": "Optional Google Sheet mirror (Phase D). Paste google_apps_script.gs into your Sheet's Apps Script editor, deploy as a Web app, and put the /exec URL below. sheets_secret is optional and must match SECRET in the script.",
+  "sheets_url": "",
+  "sheets_secret": ""
 }

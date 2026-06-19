@@ -1743,6 +1743,7 @@ class BeetentApp(ctk.CTk):
         self._scan_feed = None          # live scan ingest for the open field
         self._scan_feed_key = None      # firebase field key the scan feed is bound to
         self._scan_last = None          # last ingested snapshot (skip redundant redraws)
+        self._sheet_posted = {}         # key -> content hash already sent to Google Sheets
         self._mon_prune_job = None
         self._mon_selected = None
         self._mon_mirror = {"polys": []}     # overlay polygons for the mirrored field
@@ -1921,6 +1922,7 @@ class BeetentApp(ctk.CTk):
         if pins and getattr(self, "shelter_view", "planned") == "actual":
             try: self._redraw_shelters()
             except Exception: pass
+        self._sheets_sync(key, shelters, trays)
         self._update_scan_progress()
 
     def _update_scan_progress(self):
@@ -1934,6 +1936,70 @@ class BeetentApp(ctk.CTk):
                          f"({round(n / planned * 100)}%).")
         else:
             self._status(f"Live scans: {n} shelters placed.")
+
+    # ── Google Sheets mirror (Phase D) ──────────────────────────────────────
+    def _sheets_url(self):
+        """Apps Script web-app URL from firebase_config.json (sheets_url), cached.
+        Returns None when not configured — the Sheet mirror is then a no-op."""
+        if not getattr(self, "_sheet_cfg_loaded", False):
+            self._sheet_cfg_loaded = True
+            self._sheet_url_val = None
+            self._sheet_secret_val = None
+            try:
+                cfg = Path(__file__).resolve().parent / "firebase_config.json"
+                if cfg.exists():
+                    d = json.loads(cfg.read_text(encoding="utf-8"))
+                    self._sheet_url_val = (d.get("sheets_url") or "").strip() or None
+                    self._sheet_secret_val = (d.get("sheets_secret") or "").strip() or None
+            except Exception:
+                pass
+        return self._sheet_url_val
+
+    def _sheets_sync(self, field_key, shelters, trays):
+        """POST new/changed scan rows to the Google Sheet. Each row carries a
+        stable `key` (kind|field|qr); the Apps Script upserts on it so repeats
+        and re-scans never duplicate. We skip a record whose content hash hasn't
+        changed since we last sent it (so the 2 s poll doesn't spam writes)."""
+        if not self._sheets_url():
+            return
+        rows = []
+        for rec in (shelters or {}).values():
+            if not isinstance(rec, dict): continue
+            qr = str(rec.get("shelter_qr", ""))
+            key = f"shelter|{field_key}|{qr}"
+            h = json.dumps(rec, sort_keys=True, default=str)
+            if self._sheet_posted.get(key) == h: continue
+            self._sheet_posted[key] = h
+            rows.append({"kind": "shelter", "key": key, "field": field_key,
+                         "shelter_qr": qr, "lat": rec.get("lat"), "lon": rec.get("lon"),
+                         "placed_at": rec.get("placed_at", ""), "placed_by": rec.get("placed_by", ""),
+                         "gps_source": rec.get("gps_source", ""), "fix": rec.get("fix"),
+                         "hdop": rec.get("hdop"), "acc": rec.get("acc")})
+        for rec in (trays or {}).values():
+            if not isinstance(rec, dict): continue
+            qr = str(rec.get("tray_qr", ""))
+            key = f"tray|{field_key}|{qr}"
+            h = json.dumps(rec, sort_keys=True, default=str)
+            if self._sheet_posted.get(key) == h: continue
+            self._sheet_posted[key] = h
+            rows.append({"kind": "tray", "key": key, "field": field_key,
+                         "shelter_qr": str(rec.get("shelter_qr", "")), "tray_qr": qr,
+                         "scanned_at": rec.get("scanned_at", ""), "scanned_by": rec.get("scanned_by", "")})
+        if rows:
+            self._sheets_post(rows)
+
+    def _sheets_post(self, rows):
+        url = self._sheet_url_val
+        if not url:
+            return
+        secret = getattr(self, "_sheet_secret_val", None)
+        def _do():
+            try:
+                import requests
+                requests.post(url, json={"secret": secret, "rows": rows}, timeout=20)
+            except Exception as e:
+                self.after(0, lambda: self._log(f"Google Sheet sync failed: {e}"))
+        threading.Thread(target=_do, daemon=True).start()
 
     def _monitor_remove(self, cid):
         if cid == self._mon_mirror_crew:
