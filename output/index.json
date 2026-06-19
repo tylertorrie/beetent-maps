@@ -1427,5 +1427,27 @@
     "role": "agronomist",
     "generated": "2026-06-18T23:02:19",
     "size": 483686
+  },
+  {
+    "id": "pdfs/Bayer NE 1-20-15 Big Field 2026 Shelter Map 2.pdf",
+    "kind": "pdf",
+    "name": "Bayer NE 1-20-15 Big Field 2026 Shelter Map 2.pdf",
+    "relpath": "pdfs/Bayer NE 1-20-15 Big Field 2026 Shelter Map 2.pdf",
+    "is_dir": false,
+    "companies": [
+      "Bayer"
+    ],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "Bayer NE 1-20-15 (Big Field)"
+    ],
+    "types": [
+      "PDF"
+    ],
+    "role": "agronomist",
+    "generated": "2026-06-18T23:09:26",
+    "size": 519784
   }
 ]
