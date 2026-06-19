@@ -3,13 +3,14 @@
  * tiles are handled separately by the app's IndexedDB cache (db.js / tiles.js),
  * so this SW deliberately does NOT shadow /fields/ or cross-origin tile requests.
  */
-const CACHE = "beetent-shell-v2";   // bump to push the shelter-crew checklist
+const CACHE = "beetent-shell-v3";   // bump to push shell changes (icons + iOS tags)
 const ASSETS = [
   "./", "index.html", "app.js", "db.js", "tiles.js", "publish.js", "style.css",
   "manifest.webmanifest",
   "vendor/maplibre-gl.js", "vendor/maplibre-gl.css",
   "vendor/fonts/OpenSans/0-255.pbf",
   "fields/sample_field.geojson",
+  "icon-180.png", "icon-192.png", "icon-512.png",
 ];
 
 self.addEventListener("install", (e) => {
