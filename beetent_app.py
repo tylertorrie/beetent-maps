@@ -10122,7 +10122,9 @@ class BeetentApp(ctk.CTk):
             for c, y, name in selected_fields:
                 f0 = load_field(c, y, name) or {}
                 disp = str(f0.get("Name") or name)
-                pc = f0.get("jd_client") or ""
+                # Client defaults to Riverview Ranch (the usual grower) but stays
+                # editable; a field's remembered jd_client overrides the default.
+                pc = f0.get("jd_client") or "Riverview Ranch"
                 pf = f0.get("jd_farm") or ""
                 if not pf:
                     parts = disp.split()
