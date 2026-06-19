@@ -1,6 +1,12 @@
 {
-  "updated": "2026-06-18T22:29:50",
+  "updated": "2026-06-18T22:54:07",
   "fields": [
+    {
+      "name": "Bayer NE 1-20-15 (Big Field)",
+      "company": "Bayer",
+      "year": "2026",
+      "file": "Bayer__2026__Bayer_NE_1-20-15_Big_Field.geojson"
+    },
     {
       "name": "Stolk SE 9-11-14",
       "company": "Corteva",

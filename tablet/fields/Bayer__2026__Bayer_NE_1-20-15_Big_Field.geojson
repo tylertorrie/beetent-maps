@@ -1,0 +1,13 @@
+{
+  "type": "FeatureCollection",
+  "name": "Bayer NE 1-20-15 (Big Field)",
+  "field": {
+    "company": "Bayer",
+    "year": "2026",
+    "pivot": [
+      -111.9508205,
+      50.6693959
+    ]
+  },
+  "features": []
+}
