@@ -7,7 +7,7 @@
   "lld": "NW-1-20-15-W4",
   "Planting_angle": "0",
   "Spray_angle": "0",
-  "Sprayer_width": "133",
+  "Sprayer_width": "120",
   "shelter_mode": "trays_2",
   "num_structures": "",
   "shelters_per_acre": "",
@@ -346,5 +346,10 @@
   "shelter_overrides": {},
   "tray_overrides": {},
   "actual_shelter_pins": null,
-  "shelter_rows": ""
+  "shelter_rows": "",
+  "PP2_Latitude": "",
+  "PP2_Longitude": "",
+  "Radius2": "",
+  "two_pivots": false,
+  "pass_phase_swap": false
 }
