@@ -702,20 +702,21 @@ function fcBoundaryContains(fc, lat, lon) {
   return false;
 }
 // Which field's boundary contains (lat,lon): active field first, then any cached.
+// field_id is the geojson FILENAME (a stable string key, e.g.
+// "Proven_Seeds__2026__NW_1-10-15.geojson"); the geojson's own `field` property
+// is an object (company/year/pivot), not an id.
 async function detectField(lat, lon) {
   if (activeField && fcBoundaryContains(activeField, lat, lon))
-    return { id: activeField.field || activeFieldFile, name: activeField.name || "field" };
+    return { id: activeFieldFile, name: activeField.name || "field" };
   const idx = (await beeDB.getIndex().catch(() => null)) || [];
   for (const it of idx) {
     const fc = await beeDB.getField(it.file).catch(() => null);
     if (fc && fcBoundaryContains(fc, lat, lon))
-      return { id: fc.field || it.file, name: fc.name || it.name };
+      return { id: it.file, name: fc.name || it.name };
   }
   return null;
 }
-function scanFieldId() {
-  return (activeField && (activeField.field || activeFieldFile)) || null;
-}
+function scanFieldId() { return activeFieldFile || null; }
 function crewWho() { return window.beePublish ? window.beePublish.getCrew().name : "—"; }
 function nowIso() { return new Date().toISOString(); }
 
