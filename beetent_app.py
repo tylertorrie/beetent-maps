@@ -10816,8 +10816,8 @@ class BeetentApp(ctk.CTk):
           - "bee" (Bee Delivery): tray-count pins; drop the planting/spray/row
             geometry rows and the outside-pass row.
         Every non-agronomist role gets a second page: a prep / at-field /
-        end-of-job checklist with a notes box (Flagger fully populated; the
-        others carry the structure with items to be filled in later).
+        end-of-job checklist with a notes box (Flagger and Shelter Crew fully
+        populated; Bee Delivery carries the structure with items added later).
         The bottom data tables auto-size their rows to fill the page."""
         import fpdf as _fpdf
         import tempfile, math as _math
@@ -11185,9 +11185,9 @@ class BeetentApp(ctk.CTk):
                  f"Generated: {date_str}", 'Helvetica', 'I', 7, MGRAY, 'R')
 
         # ── PAGE 2: ROLE CHECKLIST (every non-agronomist role) ─────────────
-        # Flagger is fully specified. Shelter Crew and Bee Delivery get the
-        # same page structure with the section bars + notes box; their items
-        # are added later (see the empty lists below).
+        # Flagger and Shelter Crew are fully specified (Shelter Crew mirrors the
+        # field-tablet checklist). Bee Delivery gets the same page structure with
+        # the section bars + notes box; its items are added later (empty lists).
         if role != "agronomist":
             if role == "flag":
                 checklist = [
@@ -11216,7 +11216,38 @@ class BeetentApp(ctk.CTk):
                         "No trash or trace left on or near the field",
                     ]),
                 ]
-            else:   # shelter crew / bee delivery — structure now, items later
+            elif role == "shelter":
+                # Mirrors the field-tablet Shelter Crew checklist so the crew
+                # sees the same items on paper and on the tablet. {n} = shelter
+                # count, nesting blocks = 3 per shelter.
+                cnt = shelters_disp if n_shelters else "____"
+                blocks_disp = str(n_shelters * 3) if n_shelters else "____"
+                checklist = [
+                    ("BEFORE LEAVING FOR THE FIELD", [
+                        "Vehicles fuelled and tires checked - look good",
+                        "%s shelters loaded" % cnt,
+                        "%s nesting blocks ready (3 per shelter)" % blocks_disp,
+                        "Enough anchors and supplies for %s shelters" % cnt,
+                        "Scanning app is up to date",
+                        "Charged batteries and tools packed",
+                        "Tow straps on hand to pull out if stuck",
+                    ]),
+                    ("IN THE FIELD", [
+                        "Flag placement allows shelters to sit two rows from the male bay",
+                        "Scanning app is working and you have service",
+                        "Avoid driving on the crop wherever possible",
+                        "Shelters line up in nice lines in all directions",
+                    ]),
+                    ("AFTER THE TASK", [
+                        "All garbage picked up from the field and the corner",
+                        "All batteries on charge",
+                        "Field marked complete in the app",
+                        "Confirmed you placed %s shelters" % cnt,
+                        "Trailers and trucks parked neatly out of the way",
+                        "No blocks left with holes pointing up (they fill with rainwater)",
+                    ]),
+                ]
+            else:   # bee delivery — structure now, items later
                 checklist = [
                     ("BEFORE LEAVING THE SHOP YARD", []),
                     ("AT THE FIELD - BEFORE STARTING", []),
