@@ -8,7 +8,7 @@
   "Planting_angle": "0",
   "Spray_angle": "0",
   "Sprayer_width": "120",
-  "shelter_mode": "trays_2",
+  "shelter_mode": "trays_1",
   "num_structures": "",
   "shelters_per_acre": "",
   "acres_per_shelter": "",
@@ -483,16 +483,7 @@
   "bays_through_inner": false,
   "shelter_at_pivot": false,
   "manual_shelter_pins": [],
-  "shelter_overrides": {
-    "0": [
-      50.669403727170014,
-      -111.9560344147552
-    ],
-    "1": [
-      50.669385877502414,
-      -111.95387925981173
-    ]
-  },
+  "shelter_overrides": {},
   "tray_overrides": {},
   "actual_shelter_pins": null,
   "shelter_rows": "",
