@@ -3,7 +3,7 @@
  * tiles are handled separately by the app's IndexedDB cache (db.js / tiles.js),
  * so this SW deliberately does NOT shadow /fields/ or cross-origin tile requests.
  */
-const CACHE = "beetent-shell-v3";   // bump to push shell changes (icons + iOS tags)
+const CACHE = "beetent-shell-v4";   // bump to push shell changes (brand bee icon)
 const ASSETS = [
   "./", "index.html", "app.js", "db.js", "tiles.js", "publish.js", "style.css",
   "manifest.webmanifest",
