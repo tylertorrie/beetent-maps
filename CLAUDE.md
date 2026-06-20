@@ -59,6 +59,7 @@ simplekml/            — Vendored for KML export
 fpdf/                 — Vendored PDF generation
 fields/               — Saved field JSON files (git-tracked, auto-synced)
   bay_presets.json    — Saved bay calculator presets
+  cost_prefs.json     — Global Cost Estimator inputs (not per-field)
   Corteva/2026/       — Field files per company/year
 .gitignore            — Excludes CSV, ODS, build output, Claude worktrees
 ```
@@ -144,6 +145,31 @@ event to prevent tkintermapview from panning the map.
 | Male bay bands | Green `#003300` fill |
 | Outer sprayer limit | Bright red `#FF2200` outline, 2px, always visible |
 | Sprayer pass lines | Red `#FF3333`, 1px, toggle-able |
+| Crew travel line | Purple `#A855F7`, 3px, toggle-able (🚜 Crews menu) |
+
+## Crews menu + crew travel line
+
+The 🚜 **Crews** toolbar menu (next to Shelters) toggles an estimated crew travel
+line: a snake driven down the CENTRE of the male bays nearest the shelters, with a
+total-km readout on the status line. The geometry comes from
+`maketentgrid.crew_route(field_dict, use_metric, shelters=None) -> (route_latlon,
+total_m)` — a pure function that mirrors the male-bay overlay (`resolve_row_mask`/
+`mask_runs`, pass tiling, planting-angle rotation, bay shift), groups shelters by
+nearest male-bay centre and snakes column to column. Route length is computed in the
+rotated metric frame (shift-invariant). `_redraw_crews` uses the cached off-thread
+tents (`_ensure_tents`); the Cost Estimator calls `crew_route` per field for driving time.
+
+## Cost Estimator view
+
+Nav-drawer view (💰) with two `CTkSegmentedButton` tabs:
+- **General Information** — global cost inputs (items + depreciation life, chemical,
+  labour) in `self._cost_vars`, persisted to `fields/cost_prefs.json`
+  (`_load_cost_prefs`/`_save_cost_prefs`, git-synced like `overview_prefs.json`).
+- **Cost Estimator** — company/year scope picker + per-field checkboxes; `_field_cost(f, c)`
+  computes AMORTIZED items (unit cost ÷ life-years × qty; bees = 1-yr full cost) +
+  chemical (per acre) + labour per task (employees × (shelters × per-shelter-min/60 +
+  `crew_route` km ÷ drive speed) × pay). Exports CSV + landscape PDF to `~/Downloads`,
+  archived to the output library (`_archive_cost_to_library`).
 
 ## Architecture — maketentgrid.py
 
