@@ -1378,6 +1378,11 @@ class BeetentApp(ctk.CTk):
         self.shelter_circle_polys = []
         self.shelter_positions  = []
         self.show_shelters      = tk.BooleanVar(value=False)
+        # Alignment-line overlay: the column / row / diagonal sightlines through
+        # the ideal shelter lattice. Helps the flagging crew set flags so the
+        # grid reads straight from any viewing angle (and feeds the Monitor view).
+        self.show_shelter_lines = tk.BooleanVar(value=False)
+        self.shelter_line_overlays = []
         # Boundary visibility (was always drawn; now togglable via toolbar checkbox)
         self.show_boundary      = tk.BooleanVar(value=True)
         # Master checkbox BooleanVars for each toolbar menu button
@@ -1394,6 +1399,7 @@ class BeetentApp(ctk.CTk):
         self.shelter_view = "planned"    # "planned" | "actual" — which placement is shown
         self.moving_shelter_idx = None
         self._shelter_refresh_id= None
+        self._shelter_lines_refresh_id = None
         self._all_popups        = []
         self._menu_checkboxes   = []   # list of (CTkCheckBox, label_widget) per menu btn
         self.shelter_circle_var = tk.BooleanVar(value=False)
@@ -3595,6 +3601,7 @@ class BeetentApp(ctk.CTk):
             ("Set Shelter Buffer Size",      self._edit_shelter_buffer),
             ("Import Actual Shelter Pins (CSV)", self._import_actual_shelters),
             ("Show Planned / Actual",        self._toggle_shelter_view),
+            ("Toggle Alignment Lines",       self._toggle_shelter_lines),
         ], color="#5a3000",
            toggle_var=self.shelters_visible_var, toggle_fn=self._set_shelters_visible)
         self._shelter_btn.pack(side="left", padx=(0,4))
@@ -4073,6 +4080,15 @@ class BeetentApp(ctk.CTk):
         except Exception: pass
         if self.show_planter_numbers.get():
             self._redraw_planter_pass_numbers()
+        # Alignment lines follow the same grid params as the pins, and can be on
+        # while the pins are off — refresh them here (debounced) before the
+        # shelter-pin early-out below.
+        if self.show_shelter_lines.get():
+            rid = getattr(self, "_shelter_lines_refresh_id", None)
+            if rid:
+                try: self.after_cancel(rid)
+                except Exception: pass
+            self._shelter_lines_refresh_id = self.after(600, self._redraw_shelter_lines)
         if not self.show_shelters.get(): return
         if self._shelter_refresh_id:
             self.after_cancel(self._shelter_refresh_id)
@@ -5069,6 +5085,7 @@ class BeetentApp(ctk.CTk):
         self.show_passes.set(False)
         self.show_bays.set(False)
         self.show_shelters.set(False)
+        self.show_shelter_lines.set(False)
         self.shelter_circle_var.set(False)
         self.show_corner_arms.set(False)
         self.show_planter_passes.set(False)
@@ -8177,6 +8194,117 @@ class BeetentApp(ctk.CTk):
                       "shelters":"Pins show shelter numbers.",
                       "off":"Pin numbers off."}.get(mode,""))
 
+    def _toggle_shelter_lines(self):
+        """Show/hide the alignment-line overlay — the column, row and diagonal
+        sightlines through the ideal shelter lattice so the grid reads straight
+        from any viewing angle (independent of whether the pins are shown)."""
+        self._close_all_popups()
+        self.show_shelter_lines.set(not self.show_shelter_lines.get())
+        self._redraw_shelter_lines()
+        self._status("Alignment lines " +
+                     ("shown." if self.show_shelter_lines.get() else "hidden."))
+
+    def _clear_shelter_lines(self):
+        for o in self.shelter_line_overlays:
+            try: o.delete()
+            except Exception: pass
+        self.shelter_line_overlays = []
+
+    def _redraw_shelter_lines(self):
+        """Draw the column / row / both-diagonal sightlines through the ideal
+        (planned) shelter grid. The grid is a regular lattice, so each family of
+        collinear shelters forms one straight guide line; a crew can sight down
+        any of them to keep flags aligned. Uses the planned lattice (not dragged
+        overrides) so the guides show where flags SHOULD sit."""
+        self._clear_shelter_lines()
+        if not self.show_shelter_lines.get():
+            return
+        try:
+            import math
+            from collections import defaultdict
+            f = self._field_from_form()
+            plat = float(f.get("PP_Latitude") or 0)
+            plon = float(f.get("PP_Longitude") or 0)
+            if not (plat and plon):
+                return
+            use_m = self.unit_var.get() == "Metric"
+            positions = maketentgrid.get_tent_positions(f, use_metric=use_m)
+            # Honour the same combined shift applied to the pins so the guides
+            # sit exactly under the shelters.
+            sse, ssn = self._field_combined_shift(self.current_field)
+            if (sse or ssn) and positions:
+                positions = [self._shift_pt(la, lo, sse, ssn) for la, lo in positions]
+            if len(positions) < 2:
+                return
+
+            ang = float(f.get("Planting_angle") or f.get("Spray_angle") or 0)
+            cos_r = math.cos(math.radians(ang)); sin_r = math.sin(math.radians(ang))
+            # Project every shelter into the planting-grid frame: u = lateral
+            # (across columns), v = transverse (along a column).
+            pts = []
+            for la, lo in positions:
+                e, n = latlon_to_enu(la, lo, plat, plon)
+                u = e * cos_r + n * sin_r
+                v = -e * sin_r + n * cos_r
+                pts.append((u, v, la, lo))
+
+            # Column width from the bay layout (matches _redraw_shelters).
+            try:
+                _rs = float(f.get("row_spacing_in") or 22)
+                _nf = int(float(f.get("num_female_rows") or 0))
+                _nm = int(float(f.get("num_male_rows") or 0))
+                _gap = float(f.get("bay_gap_in") or 0) * 0.0254
+                col_w = (_nf + 1) * _rs * 0.0254 + (_nm + 1) * _rs * 0.0254 + 2.0 * _gap
+            except (ValueError, TypeError):
+                col_w = 0.0
+            if col_w <= 0:
+                try: col_w = float(f.get("Sprayer_width") or 0) * 0.3048
+                except (ValueError, TypeError): col_w = 0.0
+            if col_w <= 0:
+                col_w = 10.0
+
+            u0 = min(p[0] for p in pts); v0 = min(p[1] for p in pts)
+            # Row height (transverse shelter spacing): the smallest real gap
+            # between shelters down a column — the lattice base unit.
+            col_vs = defaultdict(list)
+            for u, v, la, lo in pts:
+                col_vs[round((u - u0) / col_w)].append(v)
+            deltas = []
+            for vlist in col_vs.values():
+                vlist.sort()
+                for a, b in zip(vlist, vlist[1:]):
+                    if b - a > 0.3:
+                        deltas.append(b - a)
+            row_h = min(deltas) if deltas else col_w
+
+            # Integer lattice index per shelter.
+            indexed = [(round((u - u0) / col_w), round((v - v0) / row_h), la, lo)
+                       for u, v, la, lo in pts]
+
+            COL = "#00E5FF"   # cyan — distinct from the gold pins / red sprayer limit
+            def _draw_family(key_fn, sort_fn):
+                groups = defaultdict(list)
+                for it in indexed:
+                    groups[key_fn(it)].append(it)
+                for members in groups.values():
+                    if len(members) < 2:
+                        continue
+                    members.sort(key=sort_fn)
+                    a = members[0]; b = members[-1]
+                    try:
+                        p = self.map_widget.set_path(
+                            [(a[2], a[3]), (b[2], b[3])], color=COL, width=1)
+                        self.shelter_line_overlays.append(p)
+                    except Exception:
+                        pass
+
+            _draw_family(lambda it: ("col", it[0]),          lambda it: it[1])  # columns
+            _draw_family(lambda it: ("row", it[1]),          lambda it: it[0])  # rows
+            _draw_family(lambda it: ("dgA", it[0] + it[1]),  lambda it: it[0])  # diagonal /
+            _draw_family(lambda it: ("dgB", it[0] - it[1]),  lambda it: it[0])  # diagonal \
+        except Exception as e:
+            self._log(f"alignment lines failed: {e}")
+
     def _clear_shelters(self):
         self._unregister_drag_prefix("shelter_")
         self._unregister_drag_prefix("manualpin_")
@@ -9610,7 +9738,8 @@ class BeetentApp(ctk.CTk):
                       "_redraw_field_info", "_redraw_tracks", "_redraw_passes",
                       "_redraw_bays", "_redraw_corner_arms", "_redraw_planter_passes",
                       "_redraw_planter_pass_numbers", "_redraw_sprayer_passes",
-                      "_redraw_pass_buffer_overlay", "_redraw_shelters"):
+                      "_redraw_pass_buffer_overlay", "_redraw_shelters",
+                      "_redraw_shelter_lines"):
             try:
                 getattr(self, _name)()
             except Exception as _e:
@@ -9653,6 +9782,7 @@ class BeetentApp(ctk.CTk):
         self._unregister_drag_prefix("fieldinfo_")
         self._clear_pass_buffer_overlay()
         self._clear_shelters()
+        self._clear_shelter_lines()
 
     # ── Pivot drag handler ─────────────────────────────────────────────────────
     def _on_pivot_drag(self,lat,lon):
