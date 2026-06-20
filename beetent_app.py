@@ -10483,13 +10483,16 @@ class BeetentApp(ctk.CTk):
             return
         opts = dlg2.result
 
-        # ── John Deere Client / Farm per field (for boundary recognition) ──
-        # JD Operations Center needs Client + Farm in each boundary's metadata.
-        # Ask PER FIELD (one row each) so different fields can have different
-        # Client/Farm in a single export; pre-fill from each field's remembered
-        # values, falling back to the first word of the field name for the Farm.
+        # ── John Deere Client / Farm per field (JD Buffer Zone file only) ──
+        # ONLY the John Deere Shelter Buffer Zones file carries Client/Farm in its
+        # metadata — that's the file uploaded to Operations Center. The shelter-pin
+        # KML and the standalone boundary file don't need it, so we only prompt
+        # when the JD Buffer Zone file is actually being exported. Ask PER FIELD
+        # (one row each) so different fields can have different Client/Farm in a
+        # single export; pre-fill from each field's remembered values, falling
+        # back to the first word of the field name for the Farm.
         jd_cf = {}          # (co, yr, name) -> (client, farm)
-        if opts.get("jd") or opts.get("boundary"):
+        if opts.get("jd"):
             rows = []
             for c, y, name in selected_fields:
                 f0 = load_field(c, y, name) or {}

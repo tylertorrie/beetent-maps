@@ -645,11 +645,14 @@ def export_field_outputs(positions_latlon, pivotpoint, out_dir, field_name,
     # it as "Boundary not currently supported". Schema mirrors the established
     # frlandry/jd_boundary_uploader QGIS plugin.
     import json as _json
-    def _jd_metadata_json():
+    def _jd_metadata_json(client="", farm=""):
+        # Only the JD Shelter Buffer Zones file passes a real client/farm here;
+        # the standalone boundary file calls this with the empty defaults so it
+        # carries no client/farm info.
         return _json.dumps({
             "Version": "1.0",
-            "ClientName": jd_client or "",
-            "FarmName": jd_farm or "",
+            "ClientName": client or "",
+            "FarmName": farm or "",
             "ShapeDataType": "Boundary",
         }, indent=4)
 
@@ -760,7 +763,7 @@ def export_field_outputs(positions_latlon, pivotpoint, out_dir, field_name,
             zf.writestr("%s.shx" % base, shx.getvalue())
             zf.writestr("%s.dbf" % base, dbf.getvalue())
             zf.writestr("%s.prj" % base, WGS84_PRJ)
-            zf.writestr("%s-Deere-Metadata.json" % base, _jd_metadata_json())
+            zf.writestr("%s-Deere-Metadata.json" % base, _jd_metadata_json(jd_client, jd_farm))
             zf.writestr("README.txt",
                 "Beetent Maps — Field boundary + shelter buffer zones for John Deere\n"
                 "Operations Center.\n"
@@ -815,7 +818,9 @@ def export_field_outputs(positions_latlon, pivotpoint, out_dir, field_name,
         _jd_boundary_record(bw)
         ring = _wind([(lon, lat) for lat, lon in outer_boundary], clockwise=True)
         bw.poly([ring])
-        bw.record(jd_client or "", jd_farm or "", field_name, 1, "Exterior")
+        # Standalone boundary file carries no client/farm — only the JD Shelter
+        # Buffer Zones file (uploaded to Operations Center) needs that metadata.
+        bw.record("", "", field_name, 1, "Exterior")
         bw.close()
         bnd_zip_buf = BytesIO()
         with zipfile.ZipFile(bnd_zip_buf, 'w', zipfile.ZIP_DEFLATED) as zf:
