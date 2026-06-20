@@ -19,7 +19,7 @@
   "num_female_rows": "14",
   "num_male_rows": "4",
   "bay_gap_in": "0",
-  "total_rows": "18",
+  "total_rows": "24",
   "row_layout": "custom",
   "custom_row_mask": "mmffff",
   "use_bays": true,
