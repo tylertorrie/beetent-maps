@@ -518,6 +518,29 @@ def _point_in_polygon(px, py, polygon):
     return inside
 
 
+def _bbox_of(polygon):
+    """(min_x, max_x, min_y, max_y) of a polygon — precompute once for fast reject."""
+    xs = [p[0] for p in polygon]; ys = [p[1] for p in polygon]
+    return (min(xs), max(xs), min(ys), max(ys))
+
+
+def _point_in_polygon_bb(px, py, polygon, bbox):
+    """Ray-cast PIP with an O(1) bounding-box reject. bbox is _bbox_of(polygon).
+    Boundary polygons here can carry hundreds of vertices and the placement
+    binary search hits this millions of times, so rejecting the many candidates
+    that fall outside the field's bounding box first is a big win."""
+    if px < bbox[0] or px > bbox[1] or py < bbox[2] or py > bbox[3]:
+        return False
+    inside = False
+    j = len(polygon) - 1
+    for i, (xi, yi) in enumerate(polygon):
+        xj, yj = polygon[j]
+        if ((yi > py) != (yj > py)) and (px < (xj - xi) * (py - yi) / (yj - yi) + xi):
+            inside = not inside
+        j = i
+    return inside
+
+
 def _make_geojson(lonlat_list, field_name):
     """Return a GeoJSON FeatureCollection string for John Deere Operations Center."""
     features = [
@@ -1423,6 +1446,7 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
 
         if boundary_polygon:
             boundary_enu = latlon_list_to_enu(boundary_polygon, pivotpoint[0], pivotpoint[1])
+            boundary_enu_bbox = _bbox_of(boundary_enu)
             radius = max(math.sqrt(e*e + n*n) for e, n in boundary_enu) * 1.05
         else:
             r_raw = str(field_dict.get('Radius') or '').strip()
@@ -1430,6 +1454,7 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                 return []
             radius = float(r_raw) * conv
             boundary_enu = None
+            boundary_enu_bbox = None
 
         # ── Misplaced-pivot guard (freeze protection) ───────────────────────
         # The shelter grid is generated in the PIVOT's ENU frame and ranges out
@@ -1540,6 +1565,7 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                     boundary_inner_enu.append(ring_enu)
             except Exception:
                 pass
+        boundary_inner_bbox = [_bbox_of(r) for r in boundary_inner_enu]
 
         seed_angle = float(field_dict.get('Planting_angle') or field_dict.get('Spray_angle') or field_dict.get('Seed_angle') or 0)
 
@@ -2306,14 +2332,14 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                 still does it, so any sub-mm drift past the boundary is
                 still caught before the result is returned."""
                 if boundary_enu:
-                    if not _point_in_polygon(east, north, boundary_enu):
+                    if not _point_in_polygon_bb(east, north, boundary_enu, boundary_enu_bbox):
                         return False
                 else:
                     if _outside_field_circles(east, north):
                         return False
                 # Inner exclusions — must NOT be inside any of them.
-                for ring in boundary_inner_enu:
-                    if _point_in_polygon(east, north, ring):
+                for ring, rbb in zip(boundary_inner_enu, boundary_inner_bbox):
+                    if _point_in_polygon_bb(east, north, ring, rbb):
                         return False
                 return True
 

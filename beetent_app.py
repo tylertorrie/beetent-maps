@@ -1400,6 +1400,12 @@ class BeetentApp(ctk.CTk):
         self.moving_shelter_idx = None
         self._shelter_refresh_id= None
         self._shelter_lines_refresh_id = None
+        # get_tent_positions is expensive (point-in-polygon over a many-vertex
+        # boundary, several seconds on big fields). Memoise its result per field
+        # state and compute it off the main thread so toggling shelters / lines
+        # doesn't refreeze the UI or recompute.
+        self._tent_cache = None         # (key, positions, rows)
+        self._tent_inflight = None      # key currently computing in the background
         self._all_popups        = []
         self._menu_checkboxes   = []   # list of (CTkCheckBox, label_widget) per menu btn
         self.shelter_circle_var = tk.BooleanVar(value=False)
@@ -8237,7 +8243,10 @@ class BeetentApp(ctk.CTk):
             if not (plat and plon):
                 return
             use_m = self.unit_var.get() == "Metric"
-            positions = maketentgrid.get_tent_positions(f, use_metric=use_m)
+            _res = self._ensure_tents(f, use_m)
+            if _res is None:
+                return                       # background compute → redrawn when ready
+            positions = list(_res[0])
             # Honour the same combined shift applied to the pins so the guide
             # grid sits under the shelters.
             sse, ssn = self._field_combined_shift(self.current_field)
@@ -8829,6 +8838,53 @@ class BeetentApp(ctk.CTk):
         except (ValueError,TypeError,KeyError):
             return False
 
+    def _tent_cache_key(self, f, use_m):
+        """Stable key for the get_tent_positions memo. Excludes app-layer-only
+        fields (shelter/tray overrides are applied to the RESULT, never read by
+        get_tent_positions) so dragging a pin doesn't force a recompute."""
+        fk = {k: v for k, v in f.items()
+              if k not in ("shelter_overrides", "tray_overrides")}
+        return (json.dumps(fk, sort_keys=True, default=str), bool(use_m))
+
+    def _ensure_tents(self, f, use_m):
+        """Return cached (positions, rows) for this field state, or None while a
+        background compute runs. Computing get_tent_positions off the main thread
+        keeps the UI responsive on big fields; the per-state cache means toggling
+        shelters / alignment lines (or re-toggling) never recomputes. When the
+        compute finishes, the visible overlays are redrawn (cache now hits)."""
+        try:
+            key = self._tent_cache_key(f, use_m)
+        except Exception:
+            return maketentgrid.get_tent_positions(f, use_metric=use_m, return_rows=True)
+        c = self._tent_cache
+        if c is not None and c[0] == key:
+            return c[1], c[2]
+        if self._tent_inflight == key:
+            return None                      # already computing; redraw on done
+        self._tent_inflight = key
+        fsnap = json.loads(key[0])           # independent snapshot for the worker
+        def _work():
+            try:
+                pos, rows = maketentgrid.get_tent_positions(
+                    fsnap, use_metric=use_m, return_rows=True)
+            except Exception:
+                pos, rows = [], []
+            def _done():
+                self._tent_cache = (key, pos, rows)
+                if self._tent_inflight == key:
+                    self._tent_inflight = None
+                self._after_tents_ready()
+            self.after(0, _done)
+        threading.Thread(target=_work, daemon=True).start()
+        return None
+
+    def _after_tents_ready(self):
+        """A background tent compute finished — redraw whatever overlays use it."""
+        if self.show_shelters.get():
+            self._redraw_shelters()
+        if self.show_shelter_lines.get():
+            self._redraw_shelter_lines()
+
     def _redraw_shelters(self):
         self._clear_shelters()
         if not self.show_shelters.get(): return
@@ -8839,7 +8895,11 @@ class BeetentApp(ctk.CTk):
         f=self._field_from_form()
         use_m=self.unit_var.get()=="Metric"
         mode_key=self._shelter_mode_labels.get(self.shelter_mode_var.get(),"total")
-        positions, row_idxs = maketentgrid.get_tent_positions(f,use_metric=use_m,return_rows=True)
+        _res = self._ensure_tents(f, use_m)
+        if _res is None:
+            self._status("Calculating shelter positions…")
+            return                           # background compute → redrawn when ready
+        positions, row_idxs = _res
         # No shelters + a boundary that sits far from the pivot → the pivot was
         # never set for this field (or was copied from another). get_tent_positions
         # bails in that case to avoid a freeze; tell the user why so they can fix
