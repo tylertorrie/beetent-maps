@@ -8195,10 +8195,10 @@ class BeetentApp(ctk.CTk):
                       "off":"Pin numbers off."}.get(mode,""))
 
     def _toggle_shelter_lines(self):
-        """Show/hide the alignment-line overlay — one line per row of shelters
-        perpendicular to the planter, plus a separate line per diagonal set, so
-        the crew can sight down each to keep flags aligned (independent of
-        whether the pins are shown)."""
+        """Show/hide the ideal alignment-grid overlay — a regular triangular
+        reference mesh (rows + both diagonals) spanning the whole field, showing
+        what the grid would look like with no adjustments, so the crew can keep
+        flags as straight as possible (independent of whether pins are shown)."""
         self._close_all_popups()
         self.show_shelter_lines.set(not self.show_shelter_lines.get())
         self._redraw_shelter_lines()
@@ -8212,20 +8212,25 @@ class BeetentApp(ctk.CTk):
         self.shelter_line_overlays = []
 
     def _redraw_shelter_lines(self):
-        """Draw alignment guide lines through the ideal (planned) shelter grid:
-        one SEPARATE line for each row perpendicular to the planter, plus one
-        SEPARATE line for each diagonal set of shelters (both diagonal
-        directions). The grid is a regular lattice, so each is a straight line
-        threading just that group's shelters — they are never joined into one
-        continuous path. The along-planter lines are intentionally omitted.
-        Uses the planned lattice (not dragged overrides) so the guides show
-        where flags SHOULD sit."""
+        """Draw the IDEAL alignment grid: a regular triangular mesh (rows
+        perpendicular to the planter + both diagonals) of straight full-span
+        lines showing what the grid WOULD look like with no pivot-track /
+        boundary adjustments. It is a guide, so it does NOT thread every pin —
+        it spans the whole field (crossing boundaries) so a crew can keep flags
+        as close to straight as possible even where a shelter can't sit exactly
+        on a line.
+
+        Method: derive the lattice basis (within-row vector a, next-row vector b)
+        from the nearest-neighbour displacement histogram of the planned pins —
+        robust because most pins still sit on the ideal lattice — then regenerate
+        a clean lattice over the field's bounding box and draw the three line
+        families as straight lines."""
         self._clear_shelter_lines()
         if not self.show_shelter_lines.get():
             return
         try:
             import math
-            from collections import defaultdict
+            from collections import Counter, defaultdict
             f = self._field_from_form()
             plat = float(f.get("PP_Latitude") or 0)
             plon = float(f.get("PP_Longitude") or 0)
@@ -8233,84 +8238,109 @@ class BeetentApp(ctk.CTk):
                 return
             use_m = self.unit_var.get() == "Metric"
             positions = maketentgrid.get_tent_positions(f, use_metric=use_m)
-            # Honour the same combined shift applied to the pins so the guides
-            # sit exactly under the shelters.
+            # Honour the same combined shift applied to the pins so the guide
+            # grid sits under the shelters.
             sse, ssn = self._field_combined_shift(self.current_field)
             if (sse or ssn) and positions:
                 positions = [self._shift_pt(la, lo, sse, ssn) for la, lo in positions]
-            if len(positions) < 2:
+            if len(positions) < 8:
                 return
 
             ang = float(f.get("Planting_angle") or f.get("Spray_angle") or 0)
-            cos_r = math.cos(math.radians(ang)); sin_r = math.sin(math.radians(ang))
-            # Project every shelter into the planting-grid frame: u = lateral
-            # (across columns), v = transverse (along a column).
-            pts = []
-            for la, lo in positions:
+            cr = math.cos(math.radians(ang)); sr = math.sin(math.radians(ang))
+            def to_uv(la, lo):
                 e, n = latlon_to_enu(la, lo, plat, plon)
-                u = e * cos_r + n * sin_r
-                v = -e * sin_r + n * cos_r
-                pts.append((u, v, la, lo))
+                return (e * cr + n * sr, -e * sr + n * cr)
+            def to_ll(u, v):                       # inverse: grid frame → lat/lon
+                e = u * cr - v * sr; n = u * sr + v * cr
+                return enu_to_latlon(e, n, plat, plon)
+            P = [to_uv(la, lo) for la, lo in positions]
 
-            # Column width from the bay layout (matches _redraw_shelters).
-            try:
-                _rs = float(f.get("row_spacing_in") or 22)
-                _nf = int(float(f.get("num_female_rows") or 0))
-                _nm = int(float(f.get("num_male_rows") or 0))
-                _gap = float(f.get("bay_gap_in") or 0) * 0.0254
-                col_w = (_nf + 1) * _rs * 0.0254 + (_nm + 1) * _rs * 0.0254 + 2.0 * _gap
-            except (ValueError, TypeError):
-                col_w = 0.0
-            if col_w <= 0:
-                try: col_w = float(f.get("Sprayer_width") or 0) * 0.3048
-                except (ValueError, TypeError): col_w = 0.0
-            if col_w <= 0:
-                col_w = 10.0
-
-            u0 = min(p[0] for p in pts); v0 = min(p[1] for p in pts)
-            # Row height (transverse shelter spacing): the smallest real gap
-            # between shelters down a column — the lattice base unit.
-            col_vs = defaultdict(list)
-            for u, v, la, lo in pts:
-                col_vs[round((u - u0) / col_w)].append(v)
-            deltas = []
-            for vlist in col_vs.values():
-                vlist.sort()
-                for a, b in zip(vlist, vlist[1:]):
-                    if b - a > 0.3:
-                        deltas.append(b - a)
-            row_h = min(deltas) if deltas else col_w
-
-            # Integer lattice index per shelter.
-            indexed = [(round((u - u0) / col_w), round((v - v0) / row_h), la, lo)
-                       for u, v, la, lo in pts]
-
-            ROW_COL  = "#00E5FF"   # cyan  — rows perpendicular to the planter
-            DIAG_COL = "#FF9D00"   # orange — diagonal sightlines
-            def _draw_family(key_fn, sort_fn, color, width):
-                # One SEPARATE polyline per group, threaded through that group's
-                # own shelters (sorted) — never joined to the next group, so each
-                # row / diagonal is its own line rather than one continuous path.
-                groups = defaultdict(list)
-                for it in indexed:
-                    groups[key_fn(it)].append(it)
-                for members in groups.values():
-                    if len(members) < 2:
+            # ── Lattice basis from the nearest-neighbour displacement histogram.
+            #    a = within-row step (~horizontal); b = step to the next row
+            #    (carries the half-column stagger for a triangular lattice).
+            disp = Counter()
+            for i in range(len(P)):
+                ui, vi = P[i]
+                for j in range(len(P)):
+                    if i == j:
                         continue
-                    members.sort(key=sort_fn)
-                    path = [(m[2], m[3]) for m in members]
+                    du = P[j][0] - ui; dv = P[j][1] - vi
+                    if dv < -0.1 or (abs(dv) < 0.1 and du <= 0):
+                        continue
+                    if du * du + dv * dv > 200 * 200:
+                        continue
+                    disp[(round(du / 2) * 2, round(dv / 2) * 2)] += 1
+            if not disp:
+                return
+            common = [v for v, _c in disp.most_common(16)]
+            horiz = [v for v in common if abs(v[1]) <= 20 and v[0] > 5]
+            nextr = [v for v in common if v[1] > 20 and v[0] >= 0]
+            if not horiz or not nextr:
+                return
+            ax, ay = min(horiz, key=lambda v: v[0])    # smallest positive du
+            bx, by = min(nextr, key=lambda v: v[1])    # nearest next-row vector
+            det = ax * by - ay * bx
+            if abs(det) < 1e-6:
+                return
+
+            # ── Lattice origin: median implied origin over all pins, so a few
+            #    boundary-adjusted pins don't shift the whole grid.
+            ref = min(P, key=lambda p: (p[1], p[0]))
+            ous = []; ovs = []
+            for u, v in P:
+                du = u - ref[0]; dv = v - ref[1]
+                ii = round((du * by - dv * bx) / det); jj = round((ax * dv - ay * du) / det)
+                ous.append(u - (ii * ax + jj * bx)); ovs.append(v - (ii * ay + jj * by))
+            ous.sort(); ovs.sort()
+            ox = ous[len(ous) // 2]; oy = ovs[len(ovs) // 2]
+
+            # ── Bounding box: the field boundary (so the grid crosses
+            #    boundaries) else the shelter extent, padded ~1.5 lattice steps.
+            bp = self.current_field.get("boundary_polygon") or []
+            UV = [to_uv(p[0], p[1]) for p in bp] if len(bp) >= 3 else P
+            umin = min(p[0] for p in UV); umax = max(p[0] for p in UV)
+            vmin = min(p[1] for p in UV); vmax = max(p[1] for p in UV)
+            marg = max(abs(ax), abs(bx), abs(by)) * 1.5
+            umin -= marg; umax += marg; vmin -= marg; vmax += marg
+
+            ijs = []
+            for U, V in ((umin, vmin), (umax, vmin), (umin, vmax), (umax, vmax)):
+                du = U - ox; dv = V - oy
+                ijs.append(((du * by - dv * bx) / det, (ax * dv - ay * du) / det))
+            imin = math.floor(min(p[0] for p in ijs)); imax = math.ceil(max(p[0] for p in ijs))
+            jmin = math.floor(min(p[1] for p in ijs)); jmax = math.ceil(max(p[1] for p in ijs))
+            if (imax - imin) > 300 or (jmax - jmin) > 300:
+                return                              # pathological spacing — bail
+
+            nodes = {}
+            for jj in range(jmin, jmax + 1):
+                for ii in range(imin, imax + 1):
+                    u = ox + ii * ax + jj * bx; v = oy + ii * ay + jj * by
+                    if umin <= u <= umax and vmin <= v <= vmax:
+                        nodes[(ii, jj)] = (u, v)
+
+            COL = "#101010"   # near-black reference grid
+            def _family(key_fn):
+                # Each family member set is perfectly collinear (ideal lattice),
+                # so one straight line from the two extreme nodes spans it.
+                groups = defaultdict(list)
+                for (ii, jj), uv in nodes.items():
+                    groups[key_fn(ii, jj)].append(uv)
+                for mem in groups.values():
+                    if len(mem) < 2:
+                        continue
+                    mem.sort(key=lambda uv: (uv[1], uv[0]))
                     try:
-                        p = self.map_widget.set_path(path, color=color, width=width)
+                        p = self.map_widget.set_path(
+                            [to_ll(*mem[0]), to_ll(*mem[-1])], color=COL, width=2)
                         self.shelter_line_overlays.append(p)
                     except Exception:
                         pass
 
-            # Rows perpendicular to the planter direction (shelters sharing a
-            # transverse position, stepping across the bays).
-            _draw_family(lambda it: ("row", it[1]),         lambda it: it[0], ROW_COL, 2)
-            # Each diagonal set gets its own line (the two diagonal directions).
-            _draw_family(lambda it: ("dgA", it[0] + it[1]), lambda it: it[0], DIAG_COL, 1)
-            _draw_family(lambda it: ("dgB", it[0] - it[1]), lambda it: it[0], DIAG_COL, 1)
+            _family(lambda i, j: ("row", j))       # rows perpendicular to planter
+            _family(lambda i, j: ("d1", i))        # diagonal (next-row direction)
+            _family(lambda i, j: ("d2", i + j))    # diagonal (other direction)
         except Exception as e:
             self._log(f"alignment lines failed: {e}")
 
