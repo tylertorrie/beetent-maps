@@ -1919,21 +1919,12 @@
       ]
     }
   ],
-  "shelter_overrides": {
-    "62": [
-      49.89735437119887,
-      -111.92118183512127
-    ],
-    "99": [
-      49.902060584265485,
-      -111.91834405798352
-    ]
-  },
+  "shelter_overrides": {},
   "gals_per_acre": "3",
   "acres": "152.64",
   "gals_per_tray": "2",
   "tray_distribution": "even",
-  "shelter_mode": "trays_2",
+  "shelter_mode": "trays_1",
   "shelters_per_acre": "1",
   "boundary_edge_shelters": true,
   "lld": "NE-12-11-15-W4",
