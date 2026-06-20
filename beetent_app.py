@@ -1442,6 +1442,9 @@ class BeetentApp(ctk.CTk):
         self.nav_drawer  = None
         self.files_view  = None
         self.overview_view = None
+        self.cost_estimator_view = None
+        self._cost_vars = {}            # cost-input key -> tk.StringVar (global, persisted)
+        self._cost_tab = "general"      # "general" | "estimate"
         self._files_cwd  = None     # None = top level; else (record_id, (sub,paths))
         self._files_checks = {}      # path-str → BooleanVar for current listing
         self._ov_sort_col = None     # Overview spreadsheet sort state
@@ -1688,6 +1691,7 @@ class BeetentApp(ctk.CTk):
                           ("📊  Overview", self._open_overview_view),
                           ("📡  Monitor",  self._open_monitor_view),
                           ("📁  Files",    self._open_files_view),
+                          ("💰  Cost Estimator", self._open_cost_estimator_view),
                           ("📤  Export all to tablet", self._export_all_tablet_geojson)]:
             ctk.CTkButton(self.nav_drawer, text=text, anchor="w", height=40,
                           fg_color="transparent", hover_color=UI_HOVER,
@@ -1713,7 +1717,8 @@ class BeetentApp(ctk.CTk):
         for v in (self.body_frame,
                   getattr(self, "files_view", None),
                   getattr(self, "overview_view", None),
-                  getattr(self, "monitor_view", None)):
+                  getattr(self, "monitor_view", None),
+                  getattr(self, "cost_estimator_view", None)):
             if v is not None and v.winfo_ismapped():
                 v.pack_forget()
 
@@ -1746,6 +1751,133 @@ class BeetentApp(ctk.CTk):
         self._apply_toolbar_for_view("overview")
         self._overview_refresh_filter_options()
         self._overview_refresh()
+
+    # ── Cost Estimator view ──────────────────────────────────────────────────
+    # Global cost inputs (one set, persisted to fields/cost_prefs.json) entered on
+    # the "General Information" tab; the "Cost Estimator" tab computes per-field +
+    # aggregate cost and exports CSV / PDF.
+    COST_FIELD_SPEC = [
+        ("Items — unit cost & depreciation life", [
+            ("cost_per_shelter",   "Cost per shelter ($)",            ""),
+            ("shelter_life_yr",    "Shelter life (yrs)",              "5"),
+            ("cost_per_gal_bee",   "Cost per gallon of bees ($)",     ""),
+            ("cost_per_tray",      "Cost per incubation tray ($)",    ""),
+            ("tray_life_yr",       "Incubation tray life (yrs)",      "5"),
+            ("cost_per_block",     "Cost per nesting block ($)",      ""),
+            ("block_life_yr",      "Nesting block life (yrs)",        "5"),
+            ("blocks_per_shelter", "Nesting blocks per shelter",      "1"),
+            ("cost_per_flag",      "Cost per flag ($, 1 per shelter)",""),
+            ("flag_life_yr",       "Flag life (yrs)",                 "3"),
+        ]),
+        ("Chemical", [
+            ("chem_cost_per_acre", "Chemical cost per acre ($)",      ""),
+        ]),
+        ("Labour", [
+            ("pay_per_hour",       "Average pay per hour ($)",        ""),
+            ("drive_speed_kmh",    "Driving speed between shelters (km/h)", "15"),
+            ("emp_setup",          "Employees — shelter setup",       "1"),
+            ("time_setup_min",     "Setup time per shelter (min)",    "10"),
+            ("emp_bees",           "Employees — bee distribution",    "1"),
+            ("time_bees_min",      "Bee distribution time per shelter (min)", "5"),
+            ("emp_removal",        "Employees — shelter removal",     "1"),
+            ("time_removal_min",   "Removal time per shelter (min)",  "5"),
+        ]),
+    ]
+
+    def _open_cost_estimator_view(self):
+        self._close_nav_drawer()
+        self._hide_all_views()
+        if self.cost_estimator_view is None:
+            self._build_cost_estimator_view()
+        self.cost_estimator_view.pack(fill="both", expand=True)
+        self._apply_toolbar_for_view("cost_estimator")
+
+    def _build_cost_estimator_view(self):
+        self.cost_estimator_view = ctk.CTkFrame(self, corner_radius=0)
+        hdr = ctk.CTkFrame(self.cost_estimator_view, fg_color="transparent")
+        hdr.pack(fill="x", padx=12, pady=(10, 4))
+        ctk.CTkLabel(hdr, text="Cost Estimator", text_color=UI_TEXT,
+                     font=ctk.CTkFont(family=FONT_HEADING, size=18)).pack(side="left")
+        self._cost_tab_seg = ctk.CTkSegmentedButton(
+            hdr, values=["General Information", "Cost Estimator"],
+            command=self._cost_on_tab_select)
+        self._cost_tab_seg.set("General Information")
+        self._cost_tab_seg.pack(side="right")
+        ctk.CTkFrame(self.cost_estimator_view, height=1, fg_color=UI_BORDER).pack(
+            fill="x", padx=12, pady=(0, 4))
+
+        # Two content frames toggled by the segmented button.
+        self._cost_general_frame = ctk.CTkScrollableFrame(
+            self.cost_estimator_view, fg_color="transparent")
+        self._cost_estimate_frame = ctk.CTkFrame(
+            self.cost_estimator_view, fg_color="transparent")
+        self._build_cost_general_tab(self._cost_general_frame)
+        self._build_cost_estimate_tab(self._cost_estimate_frame)
+        self._load_cost_prefs()                      # fill the StringVars from disk
+        self._cost_switch_tab("general")
+
+    def _build_cost_general_tab(self, parent):
+        self._cost_vars = {}
+        for section, rows in self.COST_FIELD_SPEC:
+            ctk.CTkLabel(parent, text=section, anchor="w",
+                         font=ctk.CTkFont(family=FONT_HEADING, size=13),
+                         text_color=UI_ACCENT).pack(fill="x", pady=(10, 2))
+            for key, label, default in rows:
+                r = ctk.CTkFrame(parent, fg_color="transparent")
+                r.pack(fill="x", pady=1)
+                ctk.CTkLabel(r, text=label, anchor="w", width=320,
+                             font=ctk.CTkFont(family=FONT_LABEL, size=12)
+                             ).pack(side="left")
+                v = tk.StringVar(value=default)
+                ctk.CTkEntry(r, textvariable=v, width=120).pack(side="left", padx=(8, 0))
+                self._cost_vars[key] = v
+        btn = ctk.CTkFrame(parent, fg_color="transparent")
+        btn.pack(fill="x", pady=(14, 8))
+        ctk.CTkButton(btn, text="💾 Save settings", width=140,
+                      command=self._save_cost_prefs).pack(side="left")
+        ctk.CTkLabel(btn, text="Costs apply to every field; bees depreciate over 1 yr.",
+                     text_color=UI_MUTED, font=ctk.CTkFont(size=10)).pack(side="left", padx=10)
+
+    def _build_cost_estimate_tab(self, parent):
+        # Scope picker + results + export — filled in Phase 3.
+        ctk.CTkLabel(parent, text="(Cost estimate / export — coming next)",
+                     text_color=UI_MUTED).pack(padx=12, pady=12, anchor="w")
+
+    def _cost_on_tab_select(self, value):
+        self._cost_switch_tab("general" if value.startswith("General") else "estimate")
+
+    def _cost_switch_tab(self, tab):
+        self._cost_tab = tab
+        self._cost_general_frame.pack_forget()
+        self._cost_estimate_frame.pack_forget()
+        if tab == "general":
+            self._cost_general_frame.pack(fill="both", expand=True, padx=12, pady=(0, 8))
+        else:
+            self._cost_estimate_frame.pack(fill="both", expand=True, padx=12, pady=(0, 8))
+
+    def _load_cost_prefs(self):
+        """Load global cost inputs from fields/cost_prefs.json into the StringVars."""
+        try:
+            p = DATA_DIR / "cost_prefs.json"
+            if p.exists():
+                d = json.loads(p.read_text(encoding="utf-8"))
+                if isinstance(d, dict):
+                    for k, v in self._cost_vars.items():
+                        if k in d:
+                            v.set(str(d[k]))
+        except Exception:
+            pass
+
+    def _save_cost_prefs(self):
+        try:
+            DATA_DIR.mkdir(parents=True, exist_ok=True)
+            d = {k: v.get().strip() for k, v in self._cost_vars.items()}
+            (DATA_DIR / "cost_prefs.json").write_text(
+                json.dumps(d, indent=2), encoding="utf-8")
+            self._status("Cost settings saved.")
+            self._git_push("sync cost estimator settings")
+        except Exception as ex:
+            tkinter.messagebox.showerror("Cost settings", str(ex))
 
     # ── Monitor view ────────────────────────────────────────────────────────
     # Live map of field crews (flaggers / shelter crews). Fed by monitor_feed:
