@@ -5082,10 +5082,20 @@ class BeetentApp(ctk.CTk):
         self.planter_visible_var.set(False)
         self.shelters_visible_var.set(False)
         self._form_from_field()
-        self._redraw_all()
-        self._zoom_to_field()
-        self._scans_start()             # live scan ingest for this field
+        # The field is active the moment its form is loaded. Reveal the toolbar
+        # menu master-toggle checkboxes NOW — before the redraw/zoom/scan steps
+        # below — so that an exception in any of those (a single overlay redraw,
+        # the live scan feed, etc.) can't leave the menus without their toggles
+        # and the field half-activated. Each fragile step is also isolated so
+        # one failure doesn't abort the rest, and the error is surfaced.
         self._set_menu_checkboxes_visible(True)
+        for _label, _step in (("redraw", self._redraw_all),
+                              ("zoom", self._zoom_to_field),
+                              ("scan feed", self._scans_start)):
+            try:
+                _step()
+            except Exception as _e:
+                self._log(f"Field activate: {_label} failed: {_e}")
         # Remove this field's dim overlay (it now has the bright active boundary)
         # and restore the previously-active field's dim overlay — handled by a
         # full redraw of overview boundaries in the background.
@@ -9592,8 +9602,19 @@ class BeetentApp(ctk.CTk):
 
     # ── Full overlay refresh ───────────────────────────────────────────────────
     def _redraw_all(self):
-        self._redraw_pivot()
-        self._redraw_boundary(); self._redraw_wet_zones(); self._redraw_field_info(); self._redraw_tracks(); self._redraw_passes(); self._redraw_bays(); self._redraw_corner_arms(); self._redraw_planter_passes(); self._redraw_planter_pass_numbers(); self._redraw_sprayer_passes(); self._redraw_pass_buffer_overlay(); self._redraw_shelters()
+        # Each overlay is isolated: a single failing redraw must not stop the
+        # others from drawing (and must not bubble up to abort field activation,
+        # which would leave the toolbar menu toggles hidden). The first failure
+        # is surfaced on the status line so the cause isn't silent.
+        for _name in ("_redraw_pivot", "_redraw_boundary", "_redraw_wet_zones",
+                      "_redraw_field_info", "_redraw_tracks", "_redraw_passes",
+                      "_redraw_bays", "_redraw_corner_arms", "_redraw_planter_passes",
+                      "_redraw_planter_pass_numbers", "_redraw_sprayer_passes",
+                      "_redraw_pass_buffer_overlay", "_redraw_shelters"):
+            try:
+                getattr(self, _name)()
+            except Exception as _e:
+                self._log(f"{_name} failed: {_e}")
 
     def _clear_all_overlays(self):
         if self.pivot_marker: self.pivot_marker.delete(); self.pivot_marker=None
