@@ -8279,29 +8279,70 @@ class BeetentApp(ctk.CTk):
             if not horiz or not nextr:
                 return
             ax, ay = min(horiz, key=lambda v: v[0])    # smallest positive du
-            bx, by = min(nextr, key=lambda v: v[1])    # nearest next-row vector
+            # b must be the PRIMITIVE step to the ADJACENT row: restrict to the
+            # nearest row band (smallest dv) first, then take the smallest du in
+            # it — otherwise a 2-rows-up vector (du≈0) or a 3-columns-over vector
+            # can masquerade as the next-row step and skew the diagonal slope.
+            dv0 = min(v[1] for v in nextr)
+            band = [v for v in nextr if v[1] <= dv0 * 1.4]
+            bx, by = min(band, key=lambda v: v[0])
             det = ax * by - ay * bx
             if abs(det) < 1e-6:
                 return
 
-            # ── Lattice origin: median implied origin over all pins, so a few
-            #    boundary-adjusted pins don't shift the whole grid.
+            # ── Refine basis + origin by least squares against the on-lattice
+            #    pins. The histogram basis is rounded to 2 m — enough to LABEL
+            #    each pin's (i, j) but it leaves the diagonal slope slightly off,
+            #    so a line drifts east→west from top to bottom. Fitting
+            #    u, v = origin + i·a + j·b to the pins recovers the exact basis
+            #    (and self-corrects any small angle error). Pins sitting well off
+            #    a node (track/boundary-adjusted) are excluded from the fit.
             ref = min(P, key=lambda p: (p[1], p[0]))
-            ous = []; ovs = []
+            fit = []                                   # (i, j, u, v)
             for u, v in P:
                 du = u - ref[0]; dv = v - ref[1]
-                ii = round((du * by - dv * bx) / det); jj = round((ax * dv - ay * du) / det)
-                ous.append(u - (ii * ax + jj * bx)); ovs.append(v - (ii * ay + jj * by))
-            ous.sort(); ovs.sort()
-            ox = ous[len(ous) // 2]; oy = ovs[len(ovs) // 2]
+                fi = (du * by - dv * bx) / det; fj = (ax * dv - ay * du) / det
+                ri = round(fi); rj = round(fj)
+                if abs(fi - ri) < 0.3 and abs(fj - rj) < 0.3:
+                    fit.append((ri, rj, u, v))
+
+            def _solve3(M, y):
+                A = [M[r][:] + [y[r]] for r in range(3)]
+                for c in range(3):
+                    piv = max(range(c, 3), key=lambda r: abs(A[r][c]))
+                    if abs(A[piv][c]) < 1e-12:
+                        return None
+                    A[c], A[piv] = A[piv], A[c]
+                    pv = A[c][c]; A[c] = [x / pv for x in A[c]]
+                    for r in range(3):
+                        if r != c:
+                            fac = A[r][c]; A[r] = [A[r][k] - fac * A[c][k] for k in range(4)]
+                return [A[r][3] for r in range(3)]
+
+            ox = ref[0]; oy = ref[1]                   # fallback origin
+            if len(fit) >= 6:
+                n = len(fit)
+                Si = sum(p[0] for p in fit); Sj = sum(p[1] for p in fit)
+                Sii = sum(p[0] * p[0] for p in fit); Sjj = sum(p[1] * p[1] for p in fit)
+                Sij = sum(p[0] * p[1] for p in fit)
+                M = [[n, Si, Sj], [Si, Sii, Sij], [Sj, Sij, Sjj]]
+                su = _solve3(M, [sum(p[2] for p in fit),
+                                 sum(p[0] * p[2] for p in fit), sum(p[1] * p[2] for p in fit)])
+                sv = _solve3(M, [sum(p[3] for p in fit),
+                                 sum(p[0] * p[3] for p in fit), sum(p[1] * p[3] for p in fit)])
+                if su and sv:
+                    ox, ax, bx = su; oy, ay, by = sv
+                    det = ax * by - ay * bx
+                    if abs(det) < 1e-6:
+                        return
 
             # ── Bounding box: the field boundary (so the grid crosses
-            #    boundaries) else the shelter extent, padded ~1.5 lattice steps.
+            #    boundaries) else the shelter extent, padded ~½ a lattice step.
             bp = self.current_field.get("boundary_polygon") or []
             UV = [to_uv(p[0], p[1]) for p in bp] if len(bp) >= 3 else P
             umin = min(p[0] for p in UV); umax = max(p[0] for p in UV)
             vmin = min(p[1] for p in UV); vmax = max(p[1] for p in UV)
-            marg = max(abs(ax), abs(bx), abs(by)) * 1.5
+            marg = max(abs(ax), abs(bx), abs(by)) * 0.5   # only ~½ a lattice step past the edge
             umin -= marg; umax += marg; vmin -= marg; vmax += marg
 
             ijs = []
@@ -8321,26 +8362,28 @@ class BeetentApp(ctk.CTk):
                         nodes[(ii, jj)] = (u, v)
 
             COL = "#101010"   # near-black reference grid
-            def _family(key_fn):
+            def _family(key_fn, order_fn):
                 # Each family member set is perfectly collinear (ideal lattice),
-                # so one straight line from the two extreme nodes spans it.
+                # so one straight line from the two extreme nodes spans it. Order
+                # by the integer index ALONG the family so the endpoints are
+                # exact regardless of the line's angle.
                 groups = defaultdict(list)
                 for (ii, jj), uv in nodes.items():
-                    groups[key_fn(ii, jj)].append(uv)
+                    groups[key_fn(ii, jj)].append((order_fn(ii, jj), uv))
                 for mem in groups.values():
                     if len(mem) < 2:
                         continue
-                    mem.sort(key=lambda uv: (uv[1], uv[0]))
+                    mem.sort(key=lambda t: t[0])
                     try:
                         p = self.map_widget.set_path(
-                            [to_ll(*mem[0]), to_ll(*mem[-1])], color=COL, width=2)
+                            [to_ll(*mem[0][1]), to_ll(*mem[-1][1])], color=COL, width=2)
                         self.shelter_line_overlays.append(p)
                     except Exception:
                         pass
 
-            _family(lambda i, j: ("row", j))       # rows perpendicular to planter
-            _family(lambda i, j: ("d1", i))        # diagonal (next-row direction)
-            _family(lambda i, j: ("d2", i + j))    # diagonal (other direction)
+            _family(lambda i, j: ("row", j), lambda i, j: i)        # rows ⟂ planter, order by column
+            _family(lambda i, j: ("d1", i),  lambda i, j: j)        # diagonal (next-row dir), order by row
+            _family(lambda i, j: ("d2", i + j), lambda i, j: j)     # other diagonal, order by row
         except Exception as e:
             self._log(f"alignment lines failed: {e}")
 
