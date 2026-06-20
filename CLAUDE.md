@@ -89,7 +89,10 @@ fields/               — Saved field JSON files (git-tracked, auto-synced)
   "pivot_tracks2": [radius_m, ...],         # second pivot's tracks (independent)
   "Radius2": "",                            # second pivot circle radius (no-boundary fields)
   "corner_arms": [[], []],                  # corner arm paths
-  "shelter_overrides": {idx: [lat,lon]}     # manually dragged shelter positions
+  "shelter_overrides": {idx: [lat,lon]}     # manually dragged shelter positions (LIVE set for the current combo)
+  "tray_overrides": {idx: count}            # manual per-shelter tray counts (LIVE set for the current combo)
+  "spray_both_ways": False,                 # square grid sprayable at 0° AND 90° (rare opt-in)
+  "adjust_by_combo": {combo_key: {shelter_overrides, tray_overrides}}  # moves/deletes kept PER settings combo
 }
 ```
 
@@ -245,6 +248,14 @@ OWN independent tracks (`pivot_tracks` / `pivot_tracks2`) and radius (`Radius` /
   get correct acres/shelter-count there); the span-length bulk editor edits pivot 1.
 
 ## Known issues / recent fixes
+
+- **Manual moves are scoped per settings combo**: `shelter_overrides` / `tray_overrides`
+  hold only the LIVE combo's moves; `adjust_by_combo` stores every combo's set.
+  `_combo_key()` = shelter mode+count + `shelters_in_outside_pass` + `spray_both_ways`;
+  `_sync_combo_adjustments()` swaps the live set in/out (called on each shelter redraw,
+  in each setting handler, and on field load). If you add a NEW setting that changes the
+  base grid (and thus which override indices are valid), add it to `_combo_key()` too, or
+  moves made under it will mis-apply when it's toggled.
 
 - **get_tent_positions is the perf hot spot**: it runs point-in-polygon over the
   (often hundreds-of-vertex) boundary inside a placement binary search, so it costs
