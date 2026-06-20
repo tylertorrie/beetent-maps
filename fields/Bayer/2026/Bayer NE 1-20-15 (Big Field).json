@@ -23,7 +23,7 @@
   "row_layout": "custom",
   "custom_row_mask": "mmffffffffffffmmmmffffff",
   "use_bays": true,
-  "shelters_in_outside_pass": "No",
+  "shelters_in_outside_pass": "Yes",
   "track_exclusion_ft": "10",
   "pass_edge_buffer_ft": "15",
   "tire_width_ft": "14",
