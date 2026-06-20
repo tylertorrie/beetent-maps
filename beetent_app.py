@@ -855,6 +855,7 @@ def blank_field(company="",year=""):
                 manual_shelter_pins=[],       # remembered when shelter_mode="manual"; restored if user switches back
                 shelter_overrides={},
                 tray_overrides={},            # {shelter ident: tray count} — manual per-shelter tray counts
+                adjust_by_combo={},           # {combo_key: {shelter_overrides, tray_overrides}} — moves/deletes kept per settings combo
                 actual_shelter_pins=None,     # scanned placements: [{qr,lat,lon,placed,user}, ...]
                 tray_records=[])              # scanned trays: [{tray_qr,shelter_qr,scanned_at,scanned_by}, ...]
 
@@ -1407,6 +1408,11 @@ class BeetentApp(ctk.CTk):
         # doesn't refreeze the UI or recompute.
         self._tent_cache = None         # (key, positions, rows)
         self._tent_inflight = None      # key currently computing in the background
+        # Manual moves/deletes are kept PER settings combo (spacing plan +
+        # shelters-in-outside-pass + spray-both-ways). _current_combo tracks
+        # which combo's adjustments are currently live in shelter_overrides /
+        # tray_overrides; changing a setting swaps the live set for that combo's.
+        self._current_combo = None
         self._all_popups        = []
         self._menu_checkboxes   = []   # list of (CTkCheckBox, label_widget) per menu btn
         self.shelter_circle_var = tk.BooleanVar(value=False)
@@ -4120,6 +4126,7 @@ class BeetentApp(ctk.CTk):
         and persist immediately so the choice survives an app restart (the
         toggle var alone is only written to the field on an explicit Save)."""
         self.current_field["shelters_in_outside_pass"] = self.shelters_in_outside_var.get()
+        self._sync_combo_adjustments()   # switch to this combo's saved moves
         self._on_form_change()
         # Save now (only for an already-named field) so reopening keeps it.
         try:
@@ -4136,6 +4143,7 @@ class BeetentApp(ctk.CTk):
         """Dual-direction (0°/90°) spray layout toggled — record it on the field,
         recompute, and persist so the choice survives a restart."""
         self.current_field["spray_both_ways"] = bool(self.spray_both_ways_var.get())
+        self._sync_combo_adjustments()   # switch to this combo's saved moves
         self._on_form_change()
         try:
             if self.fv.get("Name") and self.fv["Name"].get().strip():
@@ -4813,13 +4821,52 @@ class BeetentApp(ctk.CTk):
             self.current_field["tray_overrides"] = {}
         self._shelter_undo.clear()
 
+    def _combo_key(self):
+        """Identity of the current shelter-placement combo: the spacing plan
+        (mode + its typed count), the shelters-in-outside-pass choice, and the
+        spray-both-directions choice. Manual moves/deletes are stored per combo,
+        so a move made under one combo only shows under that same combo."""
+        f = self.current_field
+        mode = str(f.get("shelter_mode") or "total")
+        sk = self._shelter_mode_key.get(mode)
+        cnt = str(f.get(sk) or "").strip() if sk else ""
+        outside = str(f.get("shelters_in_outside_pass") or "Yes")
+        both = "1" if f.get("spray_both_ways") else "0"
+        return f"{mode}|{sk}={cnt}|out={outside}|both={both}"
+
+    def _sync_combo_adjustments(self):
+        """Make the live shelter_overrides / tray_overrides match the current
+        settings combo. Stashes the live set under the combo it was made for and
+        swaps in the new combo's saved set (empty if none) — so changing a
+        setting hides the moves cleanly and switching back restores them."""
+        new_combo = self._combo_key()
+        store = self.current_field.setdefault("adjust_by_combo", {})
+        snap = {
+            "shelter_overrides": dict(self.current_field.get("shelter_overrides") or {}),
+            "tray_overrides": dict(self.current_field.get("tray_overrides") or {}),
+        }
+        cur = self._current_combo
+        if cur is None or new_combo == cur:
+            # First sync for this field, or same combo — keep the live set and
+            # register it under the current combo.
+            store[new_combo] = snap
+            self._current_combo = new_combo
+            return
+        # Combo changed: stash the live set under the OLD combo, swap in the
+        # NEW combo's set (or empty), and reset the in-session undo history.
+        store[cur] = snap
+        slot = store.get(new_combo) or {}
+        self.current_field["shelter_overrides"] = dict(slot.get("shelter_overrides") or {})
+        self.current_field["tray_overrides"] = dict(slot.get("tray_overrides") or {})
+        self._shelter_undo.clear()
+        self._current_combo = new_combo
+
     def _on_shelter_mode_change(self, _=None):
         mode=self._shelter_mode_labels.get(self.shelter_mode_var.get(),"total")
-        # Changing the shelter pattern invalidates any manually-moved pins —
-        # clear them so the new grid starts clean.
-        if mode != self.current_field.get("shelter_mode", ""):
-            self._clear_shelter_overrides()
         self.current_field["shelter_mode"]=mode
+        # Changing the spacing plan switches to that combo's saved moves (hides
+        # the old plan's, restores this plan's) rather than wiping them.
+        self._sync_combo_adjustments()
         self._loading_shelter_value=True
         if mode not in ("trays_1","trays_2","manual"):
             # Editable modes: load the typed value into the entry.
@@ -4836,10 +4883,13 @@ class BeetentApp(ctk.CTk):
         if getattr(self,"_loading_shelter_value",False): return
         mode=self._shelter_mode_labels.get(self.shelter_mode_var.get(),"total")
         if mode in ("trays_1","trays_2"): return  # entry is read-only
-        # New shelter count means a different grid — old pin positions are stale.
-        self._clear_shelter_overrides()
         key=self._shelter_mode_key[mode]
-        self.fv[key].set(self.shelter_value_var.get())   # fv trace → _on_form_change → redraw
+        val=self.shelter_value_var.get()
+        self.fv[key].set(val)                            # fv trace → _on_form_change → redraw
+        # A different count is a different combo — switch to that combo's saved
+        # moves (current_field[key] updated here so the combo key reflects it).
+        self.current_field[key]=val.strip()
+        self._sync_combo_adjustments()
 
     def _update_tray_alloc_readout(self, needed):
         """Live readout under Bee Allocation: trays PLACED (auto distribution
@@ -5452,6 +5502,11 @@ class BeetentApp(ctk.CTk):
         else:
             self.current_field.setdefault("corner_arms", [])
         self.current_field.setdefault("shelter_overrides",{})
+        # Bind the freshly-loaded moves/deletes to the field's current settings
+        # combo (the saved live set IS the set for the loaded combo). Reset the
+        # tracker first so this registers as the initial combo.
+        self._current_combo = None
+        self._sync_combo_adjustments()
         # Baseline the auto-saver to the freshly loaded state so it only writes
         # once the user actually changes something (and never re-saves on load).
         self._autosave_last = self._field_snapshot()
@@ -8879,7 +8934,7 @@ class BeetentApp(ctk.CTk):
         fields (shelter/tray overrides are applied to the RESULT, never read by
         get_tent_positions) so dragging a pin doesn't force a recompute."""
         fk = {k: v for k, v in f.items()
-              if k not in ("shelter_overrides", "tray_overrides")}
+              if k not in ("shelter_overrides", "tray_overrides", "adjust_by_combo")}
         return (json.dumps(fk, sort_keys=True, default=str), bool(use_m))
 
     def _ensure_tents(self, f, use_m):
@@ -8930,6 +8985,9 @@ class BeetentApp(ctk.CTk):
             self._redraw_actual_shelters()
             return
         f=self._field_from_form()
+        # Swap the live moves/deletes to the set for the current settings combo
+        # before they're applied below (form is synced into current_field now).
+        self._sync_combo_adjustments()
         use_m=self.unit_var.get()=="Metric"
         mode_key=self._shelter_mode_labels.get(self.shelter_mode_var.get(),"total")
         _res = self._ensure_tents(f, use_m)
