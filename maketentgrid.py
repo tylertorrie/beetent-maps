@@ -2631,17 +2631,25 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                 # within pass_edge_buffer of the edge in BOTH axes to be valid).
                 inset = min(pass_edge_buffer_m, MALE_BAY_OFFSET_FT * 0.3048) if buffer_enabled else 0.0
 
-                def _square_grid(K):
-                    step = K * sprayer_width
+                def _rect_grid(kl, ka):
+                    # Shelters every kl-th pass edge across the rows and ka-th
+                    # along them. Both are whole multiples of sprayer_width, so
+                    # every shelter still sits at a pass-edge intersection
+                    # (sprayable BOTH ways) — kl / ka only set the per-axis
+                    # density. Allowing kl ≠ ka lets the count land near the
+                    # target even when a square grid can't (the count can only
+                    # step by whole passes).
+                    step_l = kl * sprayer_width
+                    step_a = ka * sprayer_width
                     out = []
-                    i0 = int(math.floor(lo_lat / step)) - 1
-                    i1 = int(math.ceil(hi_lat / step)) + 1
-                    j0 = int(math.floor((lo_prn - directional_offset) / step)) - 1
-                    j1 = int(math.ceil((hi_prn - directional_offset) / step)) + 1
+                    i0 = int(math.floor(lo_lat / step_l)) - 1
+                    i1 = int(math.ceil(hi_lat / step_l)) + 1
+                    j0 = int(math.floor((lo_prn - directional_offset) / step_a)) - 1
+                    j1 = int(math.ceil((hi_prn - directional_offset) / step_a)) + 1
                     for i in range(i0, i1 + 1):
-                        pre_e = i * step + inset
+                        pre_e = i * step_l + inset
                         for j in range(j0, j1 + 1):
-                            pre_n = j * step + inset + directional_offset
+                            pre_n = j * step_a + inset + directional_offset
                             east  = pre_e * cos_r - pre_n * sin_r
                             north = pre_n * cos_r + pre_e * sin_r
                             if not _inside(east, north): continue
@@ -2651,19 +2659,27 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
                     return out
 
                 if num_tents and num_tents > 0:
-                    # Auto-pick the pass-multiple K whose count is closest to the
-                    # target (count falls monotonically as K grows).
-                    best = None
-                    for K in range(1, 41):
-                        g = _square_grid(K)
-                        if best is None or abs(len(g) - num_tents) < abs(len(best) - num_tents):
-                            best = g
-                        if len(g) <= num_tents:
-                            break
-                    raw = best or []
+                    # Pick the SMALLEST grid that still covers the target (so the
+                    # post-trim keeps an even fill instead of a clustered core);
+                    # tie-break toward a square cell. If even the densest grid
+                    # can't reach the target (field too small for that many on
+                    # the pass-edge lattice), use the densest available.
+                    cand = []
+                    for kl in range(1, 13):
+                        for ka in range(1, 13):
+                            g = _rect_grid(kl, ka)
+                            cand.append((len(g), kl, ka, g))
+                            if len(g) <= num_tents:
+                                break   # sparser (larger ka) only yields fewer
+                    over = [c for c in cand if c[0] >= num_tents]
+                    if over:
+                        best = min(over, key=lambda c: (c[0], abs(c[1] - c[2])))
+                    else:
+                        best = max(cand, key=lambda c: c[0])
+                    raw = best[3]
                 else:
-                    _auto_sp = calculate_spacing(radius, sprayer_width)
-                    raw = _square_grid(max(1, int(round(_auto_sp / sprayer_width))))
+                    _auto = max(1, int(round(calculate_spacing(radius, sprayer_width) / sprayer_width)))
+                    raw = _rect_grid(_auto, _auto)
             else:
                 c_max = int(pn_half / ns_spacing) + 2
                 for idx, (pre_e, _k) in enumerate(row_list):
