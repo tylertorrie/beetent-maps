@@ -543,5 +543,7 @@
   "tray_overrides": {},
   "actual_shelter_pins": null,
   "shelter_rows": "",
-  "pass_phase_swap": false
+  "pass_phase_swap": false,
+  "jd_client": "TNT Pollination",
+  "jd_farm": "Bayer"
 }

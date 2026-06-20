@@ -1783,5 +1783,29 @@
     "role": null,
     "generated": "2026-06-20T08:11:10",
     "size": 59766
+  },
+  {
+    "id": "exports/Shelter Maps_Bayer_v2",
+    "kind": "export",
+    "name": "Shelter Maps_Bayer_v2",
+    "relpath": "exports/Shelter Maps_Bayer_v2",
+    "is_dir": true,
+    "companies": [
+      "Bayer"
+    ],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "Bayer NE 1-20-15 (Big Field)",
+      "NW 1-20-15"
+    ],
+    "types": [
+      "KML",
+      "Boundary"
+    ],
+    "role": null,
+    "generated": "2026-06-20T08:13:30",
+    "size": 40372
   }
 ]
