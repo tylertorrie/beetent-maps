@@ -246,6 +246,16 @@ OWN independent tracks (`pivot_tracks` / `pivot_tracks2`) and radius (`Radius` /
 
 ## Known issues / recent fixes
 
+- **get_tent_positions is the perf hot spot**: it runs point-in-polygon over the
+  (often hundreds-of-vertex) boundary inside a placement binary search, so it costs
+  ~2–12 s on big fields. It must NOT be called on the main thread per redraw. The app
+  memoises it per field state and computes it off-thread via `_ensure_tents()` /
+  `_tent_cache` (`_after_tents_ready()` redraws when done); the cache key omits
+  `shelter_overrides`/`tray_overrides` (applied to the result, not read by the engine).
+  New code that needs planned shelter positions should call `_ensure_tents`, not
+  `maketentgrid.get_tent_positions` directly. `_point_in_polygon_bb` adds a bbox
+  fast-reject in the engine hot loop.
+
 - **Cross-field pivot/LLD leak when switching fields**: the 2.5s `_autosave_tick`
   timer could fire while `_form_from_field` was still repopulating the form widgets
   one-by-one (each `v.set()` pumps trace callbacks). A mid-load snapshot captured a
