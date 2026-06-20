@@ -2159,7 +2159,7 @@
         "label": "S-13",
         "visited": false,
         "note": "",
-        "trays": 3
+        "trays": 2
       },
       "geometry": {
         "type": "Point",
@@ -2516,7 +2516,7 @@
         "label": "S-34",
         "visited": false,
         "note": "",
-        "trays": 2
+        "trays": 3
       },
       "geometry": {
         "type": "Point",
@@ -2533,7 +2533,7 @@
         "label": "S-35",
         "visited": false,
         "note": "",
-        "trays": 3
+        "trays": 2
       },
       "geometry": {
         "type": "Point",
@@ -2827,8 +2827,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.95858127453891,
-          50.66834208431734
+          -111.95931979705733,
+          50.67053806485957
         ]
       }
     },
@@ -2975,13 +2975,13 @@
         "label": "S-61",
         "visited": false,
         "note": "",
-        "trays": 2
+        "trays": 3
       },
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.96428096869556,
-          50.66752267404871
+          -111.9578014552368,
+          50.671275356214025
         ]
       }
     }
