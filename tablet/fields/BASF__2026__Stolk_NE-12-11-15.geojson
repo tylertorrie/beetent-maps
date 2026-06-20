@@ -2733,7 +2733,7 @@
         "label": "S-03",
         "visited": false,
         "note": "",
-        "trays": 2
+        "trays": 1
       },
       "geometry": {
         "type": "Point",
@@ -2784,7 +2784,7 @@
         "label": "S-06",
         "visited": false,
         "note": "",
-        "trays": 1
+        "trays": 2
       },
       "geometry": {
         "type": "Point",
@@ -4472,8 +4472,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.91718685626984,
-          49.89719477170398
+          -111.91780256056194,
+          49.89697654194941
         ]
       }
     },
