@@ -246,6 +246,17 @@ OWN independent tracks (`pivot_tracks` / `pivot_tracks2`) and radius (`Radius` /
 
 ## Known issues / recent fixes
 
+- **Cross-field pivot/LLD leak when switching fields**: the 2.5s `_autosave_tick`
+  timer could fire while `_form_from_field` was still repopulating the form widgets
+  one-by-one (each `v.set()` pumps trace callbacks). A mid-load snapshot captured a
+  half-old/half-new field — e.g. the new field's `PP_Latitude` but the previous
+  field's `PP_Longitude` + `lld` — and `save_field` wrote that mix to disk under the
+  new field's name. Confirmed in git history (e.g. SE 14-9-15 took NW 1-10-15's
+  longitude+lld; Big Field took NW 1-20-15's pivot). Fixed by a `_loading_field`
+  guard set for the whole duration of `_form_from_field`; `_autosave_tick` skips when
+  it (or `_activating_field`) is set. If you add new timer/`after`-driven writers of
+  field data, gate them on these flags too.
+
 - **Duplicate pins on drag**: was caused by `tkintermapview.marker.delete()` calling
   `canvas.update()` which re-entered the event loop mid-delete. Fixed by replacing
   the tkintermapview temp marker with a plain `canvas.create_oval()` item.
