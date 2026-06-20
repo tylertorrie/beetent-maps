@@ -8195,9 +8195,10 @@ class BeetentApp(ctk.CTk):
                       "off":"Pin numbers off."}.get(mode,""))
 
     def _toggle_shelter_lines(self):
-        """Show/hide the alignment-line overlay — the column, row and diagonal
-        sightlines through the ideal shelter lattice so the grid reads straight
-        from any viewing angle (independent of whether the pins are shown)."""
+        """Show/hide the alignment-line overlay — one line per row of shelters
+        perpendicular to the planter, plus a separate line per diagonal set, so
+        the crew can sight down each to keep flags aligned (independent of
+        whether the pins are shown)."""
         self._close_all_popups()
         self.show_shelter_lines.set(not self.show_shelter_lines.get())
         self._redraw_shelter_lines()
@@ -8211,11 +8212,14 @@ class BeetentApp(ctk.CTk):
         self.shelter_line_overlays = []
 
     def _redraw_shelter_lines(self):
-        """Draw the column / row / both-diagonal sightlines through the ideal
-        (planned) shelter grid. The grid is a regular lattice, so each family of
-        collinear shelters forms one straight guide line; a crew can sight down
-        any of them to keep flags aligned. Uses the planned lattice (not dragged
-        overrides) so the guides show where flags SHOULD sit."""
+        """Draw alignment guide lines through the ideal (planned) shelter grid:
+        one SEPARATE line for each row perpendicular to the planter, plus one
+        SEPARATE line for each diagonal set of shelters (both diagonal
+        directions). The grid is a regular lattice, so each is a straight line
+        threading just that group's shelters — they are never joined into one
+        continuous path. The along-planter lines are intentionally omitted.
+        Uses the planned lattice (not dragged overrides) so the guides show
+        where flags SHOULD sit."""
         self._clear_shelter_lines()
         if not self.show_shelter_lines.get():
             return
@@ -8281,8 +8285,12 @@ class BeetentApp(ctk.CTk):
             indexed = [(round((u - u0) / col_w), round((v - v0) / row_h), la, lo)
                        for u, v, la, lo in pts]
 
-            COL = "#00E5FF"   # cyan — distinct from the gold pins / red sprayer limit
-            def _draw_family(key_fn, sort_fn):
+            ROW_COL  = "#00E5FF"   # cyan  — rows perpendicular to the planter
+            DIAG_COL = "#FF9D00"   # orange — diagonal sightlines
+            def _draw_family(key_fn, sort_fn, color, width):
+                # One SEPARATE polyline per group, threaded through that group's
+                # own shelters (sorted) — never joined to the next group, so each
+                # row / diagonal is its own line rather than one continuous path.
                 groups = defaultdict(list)
                 for it in indexed:
                     groups[key_fn(it)].append(it)
@@ -8290,18 +8298,19 @@ class BeetentApp(ctk.CTk):
                     if len(members) < 2:
                         continue
                     members.sort(key=sort_fn)
-                    a = members[0]; b = members[-1]
+                    path = [(m[2], m[3]) for m in members]
                     try:
-                        p = self.map_widget.set_path(
-                            [(a[2], a[3]), (b[2], b[3])], color=COL, width=1)
+                        p = self.map_widget.set_path(path, color=color, width=width)
                         self.shelter_line_overlays.append(p)
                     except Exception:
                         pass
 
-            _draw_family(lambda it: ("col", it[0]),          lambda it: it[1])  # columns
-            _draw_family(lambda it: ("row", it[1]),          lambda it: it[0])  # rows
-            _draw_family(lambda it: ("dgA", it[0] + it[1]),  lambda it: it[0])  # diagonal /
-            _draw_family(lambda it: ("dgB", it[0] - it[1]),  lambda it: it[0])  # diagonal \
+            # Rows perpendicular to the planter direction (shelters sharing a
+            # transverse position, stepping across the bays).
+            _draw_family(lambda it: ("row", it[1]),         lambda it: it[0], ROW_COL, 2)
+            # Each diagonal set gets its own line (the two diagonal directions).
+            _draw_family(lambda it: ("dgA", it[0] + it[1]), lambda it: it[0], DIAG_COL, 1)
+            _draw_family(lambda it: ("dgB", it[0] - it[1]), lambda it: it[0], DIAG_COL, 1)
         except Exception as e:
             self._log(f"alignment lines failed: {e}")
 
