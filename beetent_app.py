@@ -4027,10 +4027,11 @@ class BeetentApp(ctk.CTk):
         ctk.CTkLabel(ba, text="Allow shelters inside the outside boundary pass zone",
                      anchor="w", text_color=UI_MUTED,
                      font=ctk.CTkFont(size=10)).pack(fill="x")
-        ctk.CTkSegmentedButton(ba, values=["Yes", "No"],
+        self.shelters_in_outside_btn = ctk.CTkSegmentedButton(
+                               ba, values=["Yes", "No"],
                                variable=self.shelters_in_outside_var,
-                               command=lambda v: self._on_shelters_in_outside_toggle()
-                               ).pack(fill="x", pady=(2, 8))
+                               command=lambda v: self._on_shelters_in_outside_toggle())
+        self.shelters_in_outside_btn.pack(fill="x", pady=(2, 8))
 
         ctk.CTkFrame(ba, height=1, fg_color=UI_BORDER).pack(fill="x", pady=(0,4))
         ctk.CTkLabel(ba, text="Shelter at Pivot Point", anchor="w",
@@ -4038,10 +4039,11 @@ class BeetentApp(ctk.CTk):
         ctk.CTkLabel(ba, text="Place a shelter pin at the field centre (pivot)",
                      anchor="w", text_color=UI_MUTED,
                      font=ctk.CTkFont(size=10)).pack(fill="x")
-        ctk.CTkSegmentedButton(ba, values=["Yes", "No"],
+        self.shelter_at_pivot_btn = ctk.CTkSegmentedButton(
+                               ba, values=["Yes", "No"],
                                variable=self.shelter_at_pivot_var,
-                               command=lambda v: self._on_shelter_at_pivot_toggle()
-                               ).pack(fill="x", pady=(2, 8))
+                               command=lambda v: self._on_shelter_at_pivot_toggle())
+        self.shelter_at_pivot_btn.pack(fill="x", pady=(2, 8))
 
         # No "Calculate Trays" button — the summary and the map redraw
         # automatically whenever any bee allocation field changes.
@@ -5361,8 +5363,14 @@ class BeetentApp(ctk.CTk):
             val=f.get(k)
             v.set(str(bf.get(k,"")) if val is None else str(val))
         self._update_map_field_label()   # reflect the newly loaded field name
-        self.shelters_in_outside_var.set(f.get("shelters_in_outside_pass", "Yes"))
-        self.shelter_at_pivot_var.set("Yes" if f.get("shelter_at_pivot") else "No")
+        # Use the WIDGET's .set() (not just the variable) so the on-screen
+        # segment highlight always tracks the loaded field — relying on the var
+        # alone can leave the previous field's choice showing (same class of
+        # leak as the CTkComboBox dropdowns below).
+        _sio = f.get("shelters_in_outside_pass", "Yes")
+        self.shelters_in_outside_var.set(_sio); self.shelters_in_outside_btn.set(_sio)
+        _sap = "Yes" if f.get("shelter_at_pivot") else "No"
+        self.shelter_at_pivot_var.set(_sap); self.shelter_at_pivot_btn.set(_sap)
         self.two_pivots_var.set(bool(f.get("two_pivots")))
         # Row layout: dropdown + custom mask + use-imported-passes toggle.
         # Use the widget's .set() (not just the variable) — a CTkComboBox does
@@ -8886,10 +8894,11 @@ class BeetentApp(ctk.CTk):
             self._redraw_shelter_lines()
 
     def _redraw_shelters(self):
-        self._clear_shelters()
-        if not self.show_shelters.get(): return
+        if not self.show_shelters.get():
+            self._clear_shelters(); return
         # Actual (uploaded/scanned) placement view — an independent point set.
         if self.shelter_view == "actual" and (self.current_field.get("actual_shelter_pins")):
+            self._clear_shelters()
             self._redraw_actual_shelters()
             return
         f=self._field_from_form()
@@ -8897,8 +8906,11 @@ class BeetentApp(ctk.CTk):
         mode_key=self._shelter_mode_labels.get(self.shelter_mode_var.get(),"total")
         _res = self._ensure_tents(f, use_m)
         if _res is None:
+            # Leave the existing pins on screen while the new placement computes
+            # in the background — changing a setting shouldn't blink them away.
             self._status("Calculating shelter positions…")
-            return                           # background compute → redrawn when ready
+            return                           # redrawn when the compute finishes
+        self._clear_shelters()
         positions, row_idxs = _res
         # No shelters + a boundary that sits far from the pivot → the pivot was
         # never set for this field (or was copied from another). get_tent_positions
