@@ -1760,5 +1760,28 @@
     "role": "flag",
     "generated": "2026-06-20T08:08:15",
     "size": 569554
+  },
+  {
+    "id": "exports/Shelter Maps_Bayer_v1",
+    "kind": "export",
+    "name": "Shelter Maps_Bayer_v1",
+    "relpath": "exports/Shelter Maps_Bayer_v1",
+    "is_dir": true,
+    "companies": [
+      "Bayer"
+    ],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "Bayer NE 1-20-15 (Big Field)",
+      "NW 1-20-15"
+    ],
+    "types": [
+      "AgGPS"
+    ],
+    "role": null,
+    "generated": "2026-06-20T08:11:10",
+    "size": 59766
   }
 ]
