@@ -3073,7 +3073,7 @@
         "label": "S-11",
         "visited": false,
         "note": "",
-        "trays": 3
+        "trays": 2
       },
       "geometry": {
         "type": "Point",
@@ -3192,7 +3192,7 @@
         "label": "S-18",
         "visited": false,
         "note": "",
-        "trays": 3
+        "trays": 2
       },
       "geometry": {
         "type": "Point",
@@ -3282,8 +3282,8 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          -111.9489936160911,
-          50.66524202099394
+          -111.95187244104882,
+          50.669396927258894
         ]
       }
     },
@@ -3379,7 +3379,7 @@
         "label": "S-29",
         "visited": false,
         "note": "",
-        "trays": 3
+        "trays": 2
       },
       "geometry": {
         "type": "Point",
@@ -3583,7 +3583,7 @@
         "label": "S-41",
         "visited": false,
         "note": "",
-        "trays": 3
+        "trays": 2
       },
       "geometry": {
         "type": "Point",
@@ -3736,7 +3736,7 @@
         "label": "S-50",
         "visited": false,
         "note": "",
-        "trays": 3
+        "trays": 2
       },
       "geometry": {
         "type": "Point",
@@ -3889,7 +3889,7 @@
         "label": "S-59",
         "visited": false,
         "note": "",
-        "trays": 3
+        "trays": 2
       },
       "geometry": {
         "type": "Point",
@@ -3906,7 +3906,7 @@
         "label": "S-60",
         "visited": false,
         "note": "",
-        "trays": 0
+        "trays": 2
       },
       "geometry": {
         "type": "Point",
@@ -3923,7 +3923,7 @@
         "label": "S-61",
         "visited": false,
         "note": "",
-        "trays": 0
+        "trays": 2
       },
       "geometry": {
         "type": "Point",
@@ -3940,7 +3940,7 @@
         "label": "S-62",
         "visited": false,
         "note": "",
-        "trays": 0
+        "trays": 2
       },
       "geometry": {
         "type": "Point",
