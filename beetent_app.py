@@ -831,6 +831,7 @@ def blank_field(company="",year=""):
                 custom_row_mask="",       # only used when row_layout == "custom"
                 use_bays=True,            # False = blanket-planted crop, no female-bay constraint
                 shelters_in_outside_pass="Yes",track_exclusion_ft="10",
+                spray_both_ways=False,    # square grid sprayable at 0° AND 90° (rare opt-in)
                 pass_edge_buffer_ft="25",   # ft shelters may intrude into a pass from its edge (0 = none / full outside-ring exclusion)
                 tire_width_ft="14",         # ft machine/tire drive width shown down each pass centre (red zone)
                 shelter_buffer_m="1.524",
@@ -3810,6 +3811,7 @@ class BeetentApp(ctk.CTk):
         # Allocation. The outside round itself is always shown when a boundary
         # exists — there is no such thing as a field with no outside pass.
         self.shelters_in_outside_var = tk.StringVar(value="Yes")
+        self.spray_both_ways_var = tk.BooleanVar(value=False)
         self.shelter_at_pivot_var = tk.StringVar(value="No")
 
         self.fv["Planting_angle"].set(""); self.fv["Spray_angle"].set(""); self.fv["Sprayer_width"].set("133")
@@ -4033,6 +4035,17 @@ class BeetentApp(ctk.CTk):
                                command=lambda v: self._on_shelters_in_outside_toggle())
         self.shelters_in_outside_btn.pack(fill="x", pady=(2, 8))
 
+        ctk.CTkFrame(ba, height=1, fg_color=UI_BORDER).pack(fill="x", pady=(0, 4))
+        ctk.CTkCheckBox(ba, text="Spray both directions (0° & 90°)",
+                        variable=self.spray_both_ways_var,
+                        font=ctk.CTkFont(family=FONT_LABEL, size=11),
+                        command=self._on_spray_both_ways_toggle).pack(fill="x", pady=(2, 2))
+        ctk.CTkLabel(ba, text="Square grid locked to the sprayer passes both ways "
+                              "so section control can shut off around every shelter "
+                              "whether spraying along or across the rows.",
+                     anchor="w", justify="left", text_color=UI_MUTED, wraplength=360,
+                     font=ctk.CTkFont(size=10)).pack(fill="x", pady=(0, 8))
+
         ctk.CTkFrame(ba, height=1, fg_color=UI_BORDER).pack(fill="x", pady=(0,4))
         ctk.CTkLabel(ba, text="Shelter at Pivot Point", anchor="w",
                      font=ctk.CTkFont(family=FONT_LABEL, size=11)).pack(fill="x")
@@ -4118,6 +4131,19 @@ class BeetentApp(ctk.CTk):
     def _on_shelter_at_pivot_toggle(self, _=None):
         """Pivot shelter toggle changed — recompute shelters."""
         self._on_form_change()
+
+    def _on_spray_both_ways_toggle(self):
+        """Dual-direction (0°/90°) spray layout toggled — record it on the field,
+        recompute, and persist so the choice survives a restart."""
+        self.current_field["spray_both_ways"] = bool(self.spray_both_ways_var.get())
+        self._on_form_change()
+        try:
+            if self.fv.get("Name") and self.fv["Name"].get().strip():
+                self._save_field()
+        except Exception:
+            pass
+        self._status("Dual-direction (0° & 90°) spray layout "
+                     + ("ON." if self.spray_both_ways_var.get() else "OFF."))
 
     def _on_track_excl_change(self, *_):
         if getattr(self, "_track_excl_refresh_id", None):
@@ -5371,6 +5397,7 @@ class BeetentApp(ctk.CTk):
         self.shelters_in_outside_var.set(_sio); self.shelters_in_outside_btn.set(_sio)
         _sap = "Yes" if f.get("shelter_at_pivot") else "No"
         self.shelter_at_pivot_var.set(_sap); self.shelter_at_pivot_btn.set(_sap)
+        self.spray_both_ways_var.set(bool(f.get("spray_both_ways")))
         self.two_pivots_var.set(bool(f.get("two_pivots")))
         # Row layout: dropdown + custom mask + use-imported-passes toggle.
         # Use the widget's .set() (not just the variable) — a CTkComboBox does
@@ -5434,6 +5461,7 @@ class BeetentApp(ctk.CTk):
         for k,v in self.fv.items(): f[k]=v.get().strip()
         f["shelters_in_outside_pass"] = self.shelters_in_outside_var.get()
         f["shelter_at_pivot"] = (self.shelter_at_pivot_var.get() == "Yes")
+        f["spray_both_ways"] = bool(self.spray_both_ways_var.get())
         f["two_pivots"] = bool(self.two_pivots_var.get())
         f["tray_distribution"]=self._tray_dist_labels.get(self.tray_dist_var.get(),"even")
         f["shelter_mode"]=self._shelter_mode_labels.get(self.shelter_mode_var.get(),"total")

@@ -1569,6 +1569,12 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
 
         seed_angle = float(field_dict.get('Planting_angle') or field_dict.get('Spray_angle') or field_dict.get('Seed_angle') or 0)
 
+        # Dual-direction (0° + 90°) spray layout: place shelters on a SQUARE grid
+        # locked to the sprayer passes in BOTH axes (spray direction and across
+        # it), so the grower can shut section control off around every shelter
+        # whether spraying along the rows or perpendicular to them. Rare opt-in.
+        spray_both_ways = bool(field_dict.get('spray_both_ways'))
+
         # Bay parameters → shelter row laterals.
         # Shelter rows are placed ONE PER MALE BAY, each MALE_BAY_OFFSET_FT (5 ft)
         # WEST of its male bay's west edge so the east-facing opening points into
@@ -2603,29 +2609,85 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
             # corner zone are slid ("snapped") just clear to the nearest valid
             # spot.
             raw = []
-            c_max = int(pn_half / ns_spacing) + 2
-            for idx, (pre_e, _k) in enumerate(row_list):
-                n_stagger = (ns_spacing / 2) if (idx % 2) else 0.0
-                for c in range(-c_max, c_max + 1):
-                    pre_n = pn_center + c * ns_spacing + directional_offset + n_stagger
-                    east  = pre_e * cos_r - pre_n * sin_r
-                    north = pre_n * cos_r + pre_e * sin_r
-                    if not _inside(east, north): continue
-                    if _base_valid(east, north):
-                        # Drop (don't snap) cells in the outside-pass band — the
-                        # grid's outermost row already lands at its inner edge.
-                        if not _outside_ok(east, north):
-                            continue
-                        raw.append((east, north, idx))
-                    else:
-                        # Track / pivot-inner / corner zones: slide the shelter
-                        # just clear to the nearest valid spot (these are thin
-                        # exclusions, so this rarely needs more than a few m).
-                        snapped = _snap_along_pre_n(pre_e, pre_n)
-                        if snapped is not None:
-                            new_e = pre_e * cos_r - snapped * sin_r
-                            new_n = snapped * cos_r + pre_e * sin_r
-                            raw.append((new_e, new_n, idx))
+            if spray_both_ways:
+                # ── SQUARE GRID locked to sprayer passes in BOTH axes ──────────
+                # Pass edges are at multiples of sprayer_width in the spray frame
+                # (lat_e and the perpendicular pre_n). Place shelters at every
+                # K-th pass intersection, inset into the edge-buffer band of BOTH
+                # directions, so a 0° AND a 90° pass each have a clear lane. No
+                # stagger (a square lattice, not triangular) and NO snapping —
+                # a candidate that hits a track / pivot-inner zone is DROPPED,
+                # since sliding it off the grid would put it in a perpendicular
+                # pass's driven middle.
+                if boundary_enu:
+                    _lat_c = [e * cos_r + n * sin_r for e, n in boundary_enu]
+                    _prn_c = [-e * sin_r + n * cos_r for e, n in boundary_enu]
+                    lo_lat, hi_lat = min(_lat_c), max(_lat_c)
+                    lo_prn, hi_prn = min(_prn_c), max(_prn_c)
+                else:
+                    lo_lat, hi_lat = -radius, radius
+                    lo_prn, hi_prn = -radius, radius
+                # Inset from the pass-edge corner into the buffer band (must stay
+                # within pass_edge_buffer of the edge in BOTH axes to be valid).
+                inset = min(pass_edge_buffer_m, MALE_BAY_OFFSET_FT * 0.3048) if buffer_enabled else 0.0
+
+                def _square_grid(K):
+                    step = K * sprayer_width
+                    out = []
+                    i0 = int(math.floor(lo_lat / step)) - 1
+                    i1 = int(math.ceil(hi_lat / step)) + 1
+                    j0 = int(math.floor((lo_prn - directional_offset) / step)) - 1
+                    j1 = int(math.ceil((hi_prn - directional_offset) / step)) + 1
+                    for i in range(i0, i1 + 1):
+                        pre_e = i * step + inset
+                        for j in range(j0, j1 + 1):
+                            pre_n = j * step + inset + directional_offset
+                            east  = pre_e * cos_r - pre_n * sin_r
+                            north = pre_n * cos_r + pre_e * sin_r
+                            if not _inside(east, north): continue
+                            if not _base_valid(east, north): continue
+                            if not _outside_ok(east, north): continue
+                            out.append((east, north, i))
+                    return out
+
+                if num_tents and num_tents > 0:
+                    # Auto-pick the pass-multiple K whose count is closest to the
+                    # target (count falls monotonically as K grows).
+                    best = None
+                    for K in range(1, 41):
+                        g = _square_grid(K)
+                        if best is None or abs(len(g) - num_tents) < abs(len(best) - num_tents):
+                            best = g
+                        if len(g) <= num_tents:
+                            break
+                    raw = best or []
+                else:
+                    _auto_sp = calculate_spacing(radius, sprayer_width)
+                    raw = _square_grid(max(1, int(round(_auto_sp / sprayer_width))))
+            else:
+                c_max = int(pn_half / ns_spacing) + 2
+                for idx, (pre_e, _k) in enumerate(row_list):
+                    n_stagger = (ns_spacing / 2) if (idx % 2) else 0.0
+                    for c in range(-c_max, c_max + 1):
+                        pre_n = pn_center + c * ns_spacing + directional_offset + n_stagger
+                        east  = pre_e * cos_r - pre_n * sin_r
+                        north = pre_n * cos_r + pre_e * sin_r
+                        if not _inside(east, north): continue
+                        if _base_valid(east, north):
+                            # Drop (don't snap) cells in the outside-pass band — the
+                            # grid's outermost row already lands at its inner edge.
+                            if not _outside_ok(east, north):
+                                continue
+                            raw.append((east, north, idx))
+                        else:
+                            # Track / pivot-inner / corner zones: slide the shelter
+                            # just clear to the nearest valid spot (these are thin
+                            # exclusions, so this rarely needs more than a few m).
+                            snapped = _snap_along_pre_n(pre_e, pre_n)
+                            if snapped is not None:
+                                new_e = pre_e * cos_r - snapped * sin_r
+                                new_n = snapped * cos_r + pre_e * sin_r
+                                raw.append((new_e, new_n, idx))
 
             if not raw:
                 return ([], []) if return_rows else []
@@ -2639,7 +2701,7 @@ def get_tent_positions(field_dict, use_metric=True, return_rows=False):
             # as a MIRROR PAIR: +c and −c are both kept only if both exist and
             # neither is a sliver — otherwise drop both, so each half always has
             # the same number of columns.
-            if boundary_enu and ns_spacing > 0 and len(row_list) > 1:
+            if (not spray_both_ways) and boundary_enu and ns_spacing > 0 and len(row_list) > 1:
                 # Stagger puts a visual column every ns_spacing/2 (odd rows are
                 # offset half a step), so index columns by that finer pitch — else
                 # two visual columns merge into one key and slivers go undetected.
