@@ -1441,6 +1441,7 @@ class BeetentApp(ctk.CTk):
         self.after(1000, self._git_pull)            # pull latest on startup
         self.after(300_000, self._check_for_app_update)  # then check every 5 min
         self._autosave_last = None                  # auto-save change-detection baseline
+        self._loading_field = False                 # True while _form_from_field repopulates widgets
         self.after(2500, self._autosave_tick)       # quietly persist map/field edits
 
     # ── Window icon / logo ──────────────────────────────────────────────────
@@ -5306,6 +5307,19 @@ class BeetentApp(ctk.CTk):
             lbl.place_forget()
 
     def _form_from_field(self):
+        # Guard the whole repopulation: setting the form widgets one-by-one
+        # below pumps trace callbacks (and can yield to the Tk event loop), so
+        # without this flag the 2.5s autosave timer could fire MID-UPDATE and
+        # persist a half-old/half-new field — e.g. the new field's latitude but
+        # the previous field's longitude + LLD. That cross-field pivot leak is
+        # exactly the bug this guards against; _autosave_tick checks the flag.
+        self._loading_field = True
+        try:
+            self._form_from_field_impl()
+        finally:
+            self._loading_field = False
+
+    def _form_from_field_impl(self):
         f=self.current_field
         bf=blank_field()
         self._shelter_undo=[]   # undo history is per-field, reset on load/new
@@ -10126,6 +10140,13 @@ class BeetentApp(ctk.CTk):
         exist on disk (created once via Save) so a half-typed new name can't
         spawn an orphan file."""
         self.after(2500, self._autosave_tick)
+        # Never read/persist the form while a field is being loaded into it —
+        # the widgets are updated one at a time, so a mid-load snapshot mixes
+        # the new field's values with the previous field's (the cross-field
+        # pivot/LLD leak). _loading_field is set by _form_from_field;
+        # _activating_field by _activate_field while a load is in flight.
+        if getattr(self, "_loading_field", False) or getattr(self, "_activating_field", False):
+            return
         f = self._field_from_form()
         name = (f.get("Name") or "").strip(); co = (f.get("company") or "").strip()
         if not name or not co or invalid_field_name_chars(name) or invalid_field_name_chars(co):
