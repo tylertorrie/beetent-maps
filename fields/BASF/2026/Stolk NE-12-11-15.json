@@ -1951,5 +1951,5 @@
   "jd_client": "Riverview Ranch",
   "jd_farm": "Stolk",
   "pass_phase_swap": false,
-  "spray_both_ways": false
+  "spray_both_ways": true
 }
