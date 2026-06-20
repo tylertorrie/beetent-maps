@@ -1959,5 +1959,6 @@
   "tray_overrides": {},
   "jd_client": "Riverview Ranch",
   "jd_farm": "Stolk",
-  "pass_phase_swap": false
+  "pass_phase_swap": false,
+  "spray_both_ways": true
 }
