@@ -1839,9 +1839,249 @@ class BeetentApp(ctk.CTk):
                      text_color=UI_MUTED, font=ctk.CTkFont(size=10)).pack(side="left", padx=10)
 
     def _build_cost_estimate_tab(self, parent):
-        # Scope picker + results + export — filled in Phase 3.
-        ctk.CTkLabel(parent, text="(Cost estimate / export — coming next)",
-                     text_color=UI_MUTED).pack(padx=12, pady=12, anchor="w")
+        flt = ctk.CTkFrame(parent, fg_color="transparent")
+        flt.pack(fill="x", pady=(8, 4))
+        ctk.CTkLabel(flt, text="Company:").pack(side="left")
+        self._cost_co = tk.StringVar(value=ALL_COMPANIES)
+        ctk.CTkComboBox(flt, variable=self._cost_co, width=160,
+                        values=[ALL_COMPANIES] + list_companies(),
+                        command=lambda _: self._cost_refresh_fields()).pack(side="left", padx=(4, 12))
+        ctk.CTkLabel(flt, text="Year:").pack(side="left")
+        _years = sorted({y for cc in list_companies() for y in list_years(cc)}, reverse=True)
+        self._cost_yr = tk.StringVar(value=str(datetime.date.today().year))
+        ctk.CTkComboBox(flt, variable=self._cost_yr, width=100,
+                        values=[ALL_YEARS] + _years,
+                        command=lambda _: self._cost_refresh_fields()).pack(side="left", padx=(4, 12))
+        ctk.CTkButton(flt, text="Select all", width=80,
+                      command=lambda: self._cost_check_all(True)).pack(side="left", padx=2)
+        ctk.CTkButton(flt, text="Clear", width=60,
+                      command=lambda: self._cost_check_all(False)).pack(side="left", padx=2)
+
+        self._cost_fields_frame = ctk.CTkScrollableFrame(
+            parent, fg_color="transparent", height=130, label_text="Fields in scope")
+        self._cost_fields_frame.pack(fill="x", pady=(2, 6))
+        self._cost_field_checks = {}
+
+        act = ctk.CTkFrame(parent, fg_color="transparent")
+        act.pack(fill="x", pady=(2, 6))
+        ctk.CTkButton(act, text="Compute costs", command=self._cost_compute).pack(side="left")
+        ctk.CTkButton(act, text="Export CSV", command=self._cost_export_csv).pack(side="left", padx=(8, 0))
+        ctk.CTkButton(act, text="Export PDF", command=self._cost_export_pdf).pack(side="left", padx=(8, 0))
+
+        self._cost_results_frame = ctk.CTkScrollableFrame(parent, fg_color="transparent")
+        self._cost_results_frame.pack(fill="both", expand=True, pady=(2, 4))
+        self._cost_rows = []
+        self._cost_refresh_fields()
+
+    def _cost_refresh_fields(self):
+        for w in self._cost_fields_frame.winfo_children():
+            w.destroy()
+        self._cost_field_checks = {}
+        co = self._cost_co.get(); yr = self._cost_yr.get()
+        companies = list_companies() if co == ALL_COMPANIES else [co]
+        for c in companies:
+            years = list_years(c) if yr == ALL_YEARS else [yr]
+            for y in years:
+                for name in list_fields(c, y):
+                    var = tk.BooleanVar(value=True)
+                    self._cost_field_checks[(c, y, name)] = var
+                    ctk.CTkCheckBox(self._cost_fields_frame,
+                                    text="%s / %s / %s" % (c, y, name), variable=var,
+                                    font=ctk.CTkFont(size=11)).pack(anchor="w", pady=1)
+
+    def _cost_check_all(self, on):
+        for v in self._cost_field_checks.values():
+            v.set(on)
+
+    def _cost_compute(self):
+        sel = [k for k, v in self._cost_field_checks.items() if v.get()]
+        if not sel:
+            self._status("Select at least one field to estimate."); return
+        c = self._cost_inputs()
+        self._status("Computing costs for %d field(s)…" % len(sel))
+        def _work():
+            rows = []
+            for (co, yr, name) in sel:
+                f = load_field(co, yr, name)
+                if not f:
+                    continue
+                try: lc = self._field_cost(f, c)
+                except Exception: continue
+                rows.append((co, yr, name, lc))
+            self.after(0, lambda: self._cost_done(rows))
+        threading.Thread(target=_work, daemon=True).start()
+
+    def _cost_done(self, rows):
+        self._cost_rows = rows
+        self._cost_render_results()
+        self._status("Cost estimate ready: %d field(s)." % len(rows))
+
+    def _cost_totals(self):
+        keys = ("acres", "shelters", "gallons", "trays", "route_km", "shelter", "bee",
+                "tray", "block", "flag", "items", "chemical", "labour_setup",
+                "labour_bees", "labour_removal", "labour", "total")
+        t = {k: 0 for k in keys}
+        for (_co, _yr, _n, lc) in self._cost_rows:
+            for k in keys:
+                t[k] += lc.get(k, 0)
+        return t
+
+    def _cost_render_results(self):
+        for w in self._cost_results_frame.winfo_children():
+            w.destroy()
+        if not self._cost_rows:
+            ctk.CTkLabel(self._cost_results_frame, text="No results — choose fields and Compute.",
+                         text_color=UI_MUTED).pack(anchor="w", padx=4, pady=4)
+            return
+        hdr = "%-34s %8s %7s %10s" % ("Field", "Shelters", "Acres", "Total $")
+        ctk.CTkLabel(self._cost_results_frame, text=hdr, anchor="w",
+                     font=ctk.CTkFont(family="Courier New", size=11, weight="bold")
+                     ).pack(anchor="w", padx=4)
+        for (co, yr, name, lc) in self._cost_rows:
+            line = "%-34s %8d %7.1f %10s" % (
+                ("%s/%s" % (co, name))[:34], lc["shelters"], lc["acres"],
+                "$" + format(lc["total"], ",.0f"))
+            ctk.CTkLabel(self._cost_results_frame, text=line, anchor="w",
+                         font=ctk.CTkFont(family="Courier New", size=11)).pack(anchor="w", padx=4)
+        t = self._cost_totals()
+        ctk.CTkFrame(self._cost_results_frame, height=1, fg_color=UI_BORDER).pack(fill="x", pady=4)
+        tot = "%-34s %8d %7.1f %10s" % ("TOTAL (%d fields)" % len(self._cost_rows),
+                                        t["shelters"], t["acres"], "$" + format(t["total"], ",.0f"))
+        ctk.CTkLabel(self._cost_results_frame, text=tot, anchor="w", text_color=UI_ACCENT,
+                     font=ctk.CTkFont(family="Courier New", size=12, weight="bold")
+                     ).pack(anchor="w", padx=4)
+        brk = ("Items ${:,.0f}   Chemical ${:,.0f}   Labour ${:,.0f}   (route {:,.1f} km)"
+               .format(t["items"], t["chemical"], t["labour"], t["route_km"]))
+        ctk.CTkLabel(self._cost_results_frame, text=brk, anchor="w", text_color=UI_MUTED,
+                     font=ctk.CTkFont(size=11)).pack(anchor="w", padx=4, pady=(2, 0))
+
+    _COST_CSV_COLS = [
+        ("Company", "co"), ("Year", "yr"), ("Field", "name"), ("Acres", "acres"),
+        ("Shelters", "shelters"), ("Trays", "trays"), ("Gallons", "gallons"),
+        ("Route km", "route_km"), ("Shelter $", "shelter"), ("Bee $", "bee"),
+        ("Tray $", "tray"), ("Block $", "block"), ("Flag $", "flag"),
+        ("Chemical $", "chemical"), ("Labour Setup $", "labour_setup"),
+        ("Labour Bees $", "labour_bees"), ("Labour Removal $", "labour_removal"),
+        ("Labour $", "labour"), ("Total $", "total"),
+    ]
+
+    def _cost_export_csv(self):
+        if not self._cost_rows:
+            self._status("Compute costs first."); return
+        dl = Path.home() / "Downloads"
+        stem = "Cost Estimate %s" % datetime.date.today().isoformat()
+        path = dl / (stem + ".csv"); k = 2
+        while path.exists():
+            path = dl / ("%s %d.csv" % (stem, k)); k += 1
+        try:
+            with open(path, "w", newline="", encoding="utf-8") as fh:
+                w = csv.writer(fh)
+                w.writerow([h for h, _ in self._COST_CSV_COLS])
+                for (co, yr, name, lc) in self._cost_rows:
+                    src = dict(lc); src["co"] = co; src["yr"] = yr; src["name"] = name
+                    w.writerow([(src[kk] if kk in ("co", "yr", "name", "shelters", "trays")
+                                 else round(src[kk], 2)) for _h, kk in self._COST_CSV_COLS])
+                t = self._cost_totals()
+                w.writerow(["TOTAL", "", "%d fields" % len(self._cost_rows)]
+                           + [(t[kk] if kk in ("shelters", "trays") else round(t[kk], 2))
+                              for _h, kk in self._COST_CSV_COLS[3:]])
+        except Exception as ex:
+            tkinter.messagebox.showerror("Cost CSV", str(ex)); return
+        self._archive_cost_to_library(str(path), "Cost CSV")
+        self._status("Cost CSV saved → %s" % path.name)
+        try: os.startfile(str(path))
+        except Exception: pass
+
+    def _cost_export_pdf(self):
+        if not self._cost_rows:
+            self._status("Compute costs first."); return
+        import fpdf as _fpdf
+        pdf = _fpdf.FPDF(orientation="L", unit="mm", format="A4")
+        pdf.set_auto_page_break(True, margin=10)
+        pdf.add_page()
+        pdf.set_font("Helvetica", "B", 14)
+        pdf.cell(0, 8, "Cost Estimate", ln=1)
+        pdf.set_font("Helvetica", "", 8)
+        pdf.cell(0, 5, "Generated %s  |  %d field(s)"
+                 % (datetime.date.today().isoformat(), len(self._cost_rows)), ln=1)
+        # assumptions
+        c = self._cost_inputs()
+        assume = "  ".join("%s=%g" % (k, c[k]) for k in
+                           ("cost_per_shelter", "cost_per_gal_bee", "cost_per_tray",
+                            "cost_per_block", "cost_per_flag", "chem_cost_per_acre",
+                            "pay_per_hour", "drive_speed_kmh") if c.get(k))
+        if assume:
+            pdf.cell(0, 5, ("Assumptions: " + assume)[:170], ln=1)
+        pdf.ln(2)
+        cols = [("Field", 60), ("Acres", 18), ("Shelters", 20), ("Trays", 18),
+                ("Route km", 22), ("Items $", 28), ("Chemical $", 28),
+                ("Labour $", 28), ("Total $", 30)]
+        keys = ["name", "acres", "shelters", "trays", "route_km", "items",
+                "chemical", "labour", "total"]
+        pdf.set_font("Helvetica", "B", 8); pdf.set_fill_color(230, 230, 230)
+        for label, w in cols:
+            pdf.cell(w, 7, label, border=1, align="R" if label != "Field" else "L", fill=True)
+        pdf.ln()
+        pdf.set_font("Helvetica", "", 8)
+        def _fmt(kk, v):
+            if kk == "name": return str(v)[:34]
+            if kk in ("shelters", "trays"): return str(v)
+            if kk == "acres": return "%.1f" % v
+            if kk == "route_km": return "%.2f" % v
+            return format(v, ",.0f")
+        for (co, yr, name, lc) in self._cost_rows:
+            src = dict(lc); src["name"] = "%s/%s" % (co, name)
+            for (label, w), kk in zip(cols, keys):
+                pdf.cell(w, 6, _fmt(kk, src[kk]), border=1,
+                         align="L" if kk == "name" else "R")
+            pdf.ln()
+        t = self._cost_totals()
+        pdf.set_font("Helvetica", "B", 8)
+        t["name"] = "TOTAL (%d fields)" % len(self._cost_rows)
+        for (label, w), kk in zip(cols, keys):
+            pdf.cell(w, 7, _fmt(kk, t[kk]), border=1,
+                     align="L" if kk == "name" else "R", fill=True)
+        pdf.ln()
+        dl = Path.home() / "Downloads"
+        stem = "Cost Estimate %s" % datetime.date.today().isoformat()
+        path = dl / (stem + ".pdf"); k = 2
+        while path.exists():
+            path = dl / ("%s %d.pdf" % (stem, k)); k += 1
+        try:
+            pdf.output(str(path), "F")
+        except Exception as ex:
+            tkinter.messagebox.showerror("Cost PDF", str(ex)); return
+        self._archive_cost_to_library(str(path), "Cost PDF")
+        self._status("Cost PDF saved → %s" % path.name)
+        try: os.startfile(str(path))
+        except Exception: pass
+
+    def _archive_cost_to_library(self, save_path, kind_label):
+        try:
+            src = Path(save_path)
+            if not src.exists(): return
+            OUTPUT_PDFS.mkdir(parents=True, exist_ok=True)
+            dest = OUTPUT_PDFS / src.name
+            if dest.exists():
+                k = 2
+                while (OUTPUT_PDFS / ("%s %d%s" % (src.stem, k, src.suffix))).exists():
+                    k += 1
+                dest = OUTPUT_PDFS / ("%s %d%s" % (src.stem, k, src.suffix))
+            shutil.copy2(src, dest)
+            cos = sorted({co for co, _y, _n, _lc in self._cost_rows})
+            yrs = sorted({_y for _co, _y, _n, _lc in self._cost_rows})
+            add_output_record({
+                "id": "pdfs/%s" % dest.name, "kind": "cost", "name": dest.name,
+                "relpath": "pdfs/%s" % dest.name, "is_dir": False,
+                "companies": cos, "years": yrs,
+                "fields": [n for _c, _y, n, _lc in self._cost_rows],
+                "types": [kind_label], "role": None,
+                "generated": datetime.datetime.now().isoformat(timespec="seconds"),
+                "size": dest.stat().st_size,
+            })
+            self.after(0, lambda: self._git_push("output: cost estimate"))
+        except Exception:
+            pass
 
     def _cost_on_tab_select(self, value):
         self._cost_switch_tab("general" if value.startswith("General") else "estimate")
@@ -1878,6 +2118,68 @@ class BeetentApp(ctk.CTk):
             self._git_push("sync cost estimator settings")
         except Exception as ex:
             tkinter.messagebox.showerror("Cost settings", str(ex))
+
+    def _cost_inputs(self):
+        """Parse the General-Information StringVars into a {key: float} dict."""
+        d = {}
+        for k, v in self._cost_vars.items():
+            try: d[k] = float(str(v.get()).strip() or 0)
+            except (ValueError, TypeError): d[k] = 0.0
+        return d
+
+    def _field_cost(self, f, c):
+        """Line-item estimated cost for one field given parsed cost inputs `c`.
+        Capital items are AMORTIZED (unit cost ÷ life-years × qty used); bees are
+        a 1-yr item (full cost). Labour = employees × hours × pay, where
+        hours = shelters × per-shelter-minutes/60 + crew-route-km ÷ driving speed."""
+        # acres: explicit field value, else boundary area
+        acres = 0.0
+        try: acres = float(str(f.get("acres") or "").strip() or 0)
+        except (ValueError, TypeError): acres = 0.0
+        if acres <= 0:
+            bp = f.get("boundary_polygon") or []
+            if len(bp) >= 3:
+                acres = polygon_area_m2(bp) * ACRES_PER_M2
+        # shelters (compute once, reuse for the route)
+        try: pos = maketentgrid.get_tent_positions(f, use_metric=False)
+        except Exception: pos = []
+        n = len(pos)
+        def _ff(k, dflt=0.0):
+            try: return float(str(f.get(k) or "").strip() or dflt)
+            except (ValueError, TypeError): return dflt
+        gpa = _ff("gals_per_acre", 0.0)
+        gpt = _ff("gals_per_tray", 2.0) or 2.0
+        gallons = gpa * acres
+        trays = max(int(math.ceil(gallons / gpt)) if gpt else 0, n)
+        try: route_km = (maketentgrid.crew_route(f, use_metric=False, shelters=pos)[1] / 1000.0) if pos else 0.0
+        except Exception: route_km = 0.0
+        def life(k):
+            v = c.get(k, 0.0)
+            return v if v > 0 else 1.0
+        shelter = n * c.get("cost_per_shelter", 0) / life("shelter_life_yr")
+        bee     = gallons * c.get("cost_per_gal_bee", 0)                 # 1-yr life
+        tray    = trays * c.get("cost_per_tray", 0) / life("tray_life_yr")
+        block   = n * c.get("blocks_per_shelter", 0) * c.get("cost_per_block", 0) / life("block_life_yr")
+        flag    = n * c.get("cost_per_flag", 0) / life("flag_life_yr")
+        chemical = acres * c.get("chem_cost_per_acre", 0)
+        speed = c.get("drive_speed_kmh", 0) or 15.0
+        drive_h = route_km / speed
+        pay = c.get("pay_per_hour", 0)
+        def labour(emp_k, time_k):
+            return c.get(emp_k, 0) * (n * c.get(time_k, 0) / 60.0 + drive_h) * pay
+        lab_setup = labour("emp_setup", "time_setup_min")
+        lab_bees  = labour("emp_bees", "time_bees_min")
+        lab_rem   = labour("emp_removal", "time_removal_min")
+        labour_total = lab_setup + lab_bees + lab_rem
+        items = shelter + bee + tray + block + flag
+        return {
+            "acres": acres, "shelters": n, "gallons": gallons, "trays": trays,
+            "route_km": route_km, "shelter": shelter, "bee": bee, "tray": tray,
+            "block": block, "flag": flag, "items": items, "chemical": chemical,
+            "labour_setup": lab_setup, "labour_bees": lab_bees,
+            "labour_removal": lab_rem, "labour": labour_total,
+            "total": items + chemical + labour_total,
+        }
 
     # ── Monitor view ────────────────────────────────────────────────────────
     # Live map of field crews (flaggers / shelter crews). Fed by monitor_feed:
