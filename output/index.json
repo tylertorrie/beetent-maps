@@ -1807,5 +1807,49 @@
     "role": null,
     "generated": "2026-06-20T08:13:30",
     "size": 40372
+  },
+  {
+    "id": "pdfs/Bayer NE 1-20-15 Big Field 2026 Shelter Map 7.pdf",
+    "kind": "pdf",
+    "name": "Bayer NE 1-20-15 Big Field 2026 Shelter Map 7.pdf",
+    "relpath": "pdfs/Bayer NE 1-20-15 Big Field 2026 Shelter Map 7.pdf",
+    "is_dir": false,
+    "companies": [
+      "Bayer"
+    ],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "Bayer NE 1-20-15 (Big Field)"
+    ],
+    "types": [
+      "PDF"
+    ],
+    "role": "agronomist",
+    "generated": "2026-06-20T08:16:54",
+    "size": 618207
+  },
+  {
+    "id": "pdfs/NW 1-20-15 2026 Shelter Map 7.pdf",
+    "kind": "pdf",
+    "name": "NW 1-20-15 2026 Shelter Map 7.pdf",
+    "relpath": "pdfs/NW 1-20-15 2026 Shelter Map 7.pdf",
+    "is_dir": false,
+    "companies": [
+      "Bayer"
+    ],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "NW 1-20-15"
+    ],
+    "types": [
+      "PDF"
+    ],
+    "role": "agronomist",
+    "generated": "2026-06-20T08:17:05",
+    "size": 488268
   }
 ]
