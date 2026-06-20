@@ -1919,7 +1919,12 @@
       ]
     }
   ],
-  "shelter_overrides": {},
+  "shelter_overrides": {
+    "62": [
+      49.8960550714625,
+      -111.92116574186718
+    ]
+  },
   "gals_per_acre": "3",
   "acres": "152.64",
   "gals_per_tray": "2",
