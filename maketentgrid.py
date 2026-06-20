@@ -1257,6 +1257,107 @@ def male_bay_shelter_laterals(nf, nm, layout, custom, total_rows, rs_m, offset_m
     return sorted(set(round(x, 4) for x in xs))
 
 
+def crew_route(field_dict, use_metric=True, shelters=None):
+    """Estimated crew driving route for a field: a snake driven down the CENTRE
+    of the male bays that have shelters near them (the crew works one male bay
+    at a time, snaking across to the next). Returns (route_latlon, total_m):
+    route_latlon = [(lat, lon), ...] (empty if it can't be built) and total_m =
+    the route length in metres. Shared by the map overlay (_redraw_crews) and the
+    cost estimator's driving-time math.
+
+    Geometry mirrors the male-bay overlay (_redraw_bays / male_bay_shelter_laterals)
+    so the route runs flush down the bay centres. `shelters` (optional
+    [(lat,lon),...]) lets the caller pass already-computed positions to skip a
+    recompute. Route length is computed in the rotated metric frame, so it's
+    invariant to any field shift."""
+    if shelters is None:
+        shelters = get_tent_positions(field_dict, use_metric=use_metric)
+    if not shelters or len(shelters) < 2:
+        return ([], 0.0)
+    try:
+        plat = float(field_dict.get('PP_Latitude'))
+        plon = float(field_dict.get('PP_Longitude'))
+        rs_m = float(field_dict.get('row_spacing_in') or 22) * 0.0254
+        nf = int(float(field_dict.get('num_female_rows') or 8))
+        nm = int(float(field_dict.get('num_male_rows') or 2))
+        total_rows = int(float(field_dict.get('total_rows') or (nf + nm)))
+    except (TypeError, ValueError):
+        return ([], 0.0)
+    layout = str(field_dict.get('row_layout') or 'centered')
+    custom = str(field_dict.get('custom_row_mask') or '')
+    cm = ''.join(c for c in custom.upper() if c in 'MF')
+    if layout == 'custom' and cm:
+        total_rows = len(cm)
+    mask = resolve_row_mask(nf, nm, layout, custom, total_rows)
+    runs_fwd = mask_runs(mask, 'M') if mask else []
+    runs_rev = mask_runs(mask[::-1], 'M') if mask else []
+    pass_w = total_rows * rs_m
+    if not runs_fwd or pass_w <= 0:
+        return ([], 0.0)
+    half = total_rows / 2.0
+    angle = float(field_dict.get('Planting_angle') or field_dict.get('Spray_angle') or 0)
+    rot = math.radians((180 - angle) % 360 - 180)
+    cos_r, sin_r = math.cos(rot), math.sin(rot)
+    ldx, ldy = cos_r, sin_r        # lateral unit (across passes)
+    tdx, tdy = -sin_r, cos_r       # travel unit (along passes)
+    try:
+        bse = float(field_dict.get('bay_shift_e_m') or 0)
+        bsn = float(field_dict.get('bay_shift_n_m') or 0)
+    except (TypeError, ValueError):
+        bse = bsn = 0.0
+    lat_shift = bse * ldx + bsn * ldy
+    phase = 1 if field_dict.get('pass_phase_swap') else 0
+
+    sh_enu = latlon_list_to_enu(shelters, plon, plat)        # [(e,n) rel pivot]
+    max_r = max(math.hypot(e, n) for e, n in sh_enu) * 1.1
+    n_pass = int(max_r / pass_w) + 2
+
+    # Male-bay CENTRE laterals (centre of each M run in each pass), mirroring the
+    # x1..x2 band _redraw_bays draws; the snake also flips the mask on odd passes.
+    centres = sorted({round((i + 0.5) * pass_w + lat_shift
+                             + ((s + e) / 2.0 - half) * rs_m, 3)
+                      for i in range(-n_pass, n_pass + 1)
+                      for (s, e) in (runs_fwd if ((i + phase) % 2 == 0) else runs_rev)})
+    if not centres:
+        return ([], 0.0)
+
+    import bisect
+    cols = {}        # bay-centre lateral -> [along positions of its shelters]
+    for (e, n) in sh_enu:
+        lat_v = e * ldx + n * ldy
+        along = e * tdx + n * tdy
+        j = bisect.bisect_left(centres, lat_v)
+        best = None; best_d = None
+        for k in (j - 1, j, j + 1):
+            if 0 <= k < len(centres):
+                d = abs(centres[k] - lat_v)
+                if best_d is None or d < best_d:
+                    best_d = d; best = centres[k]
+        cols.setdefault(best, []).append(along)
+
+    margin = rs_m
+    route_la = []    # (lateral, along) waypoints
+    direction = 1
+    for cx in sorted(cols):
+        alos = sorted(cols[cx])
+        a0, a1 = alos[0] - margin, alos[-1] + margin
+        route_la.extend([(cx, a0), (cx, a1)] if direction > 0 else [(cx, a1), (cx, a0)])
+        direction = -direction
+
+    total_m = sum(math.hypot(route_la[i][0] - route_la[i - 1][0],
+                             route_la[i][1] - route_la[i - 1][1])
+                  for i in range(1, len(route_la)))
+
+    pe, pn = utmish.from_lonlat(plon, plat, plon)
+    route_ll = []
+    for (cx, along) in route_la:
+        e = cx * ldx + along * tdx
+        n = cx * ldy + along * tdy
+        lon2, lat2 = utmish.to_lonlat(pe + e, pn + n, plon)
+        route_ll.append((lat2, lon2))
+    return (route_ll, total_m)
+
+
 def _offset_polyline_latlon(pts, signed_offset_m):
     """Return a polyline offset perpendicular to `pts` by `signed_offset_m`.
     Positive offset = "right" side relative to travel direction

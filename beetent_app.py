@@ -1385,6 +1385,12 @@ class BeetentApp(ctk.CTk):
         # grid reads straight from any viewing angle (and feeds the Monitor view).
         self.show_shelter_lines = tk.BooleanVar(value=False)
         self.shelter_line_overlays = []
+        # Crew travel line: estimated snake route down the male-bay centres nearest
+        # the shelters, plus a total-km readout (feeds the Cost Estimator).
+        self.show_crews         = tk.BooleanVar(value=False)
+        self.crews_visible_var  = tk.BooleanVar(value=False)
+        self.crew_line_overlays = []
+        self._crew_route_km     = 0.0
         # Boundary visibility (was always drawn; now togglable via toolbar checkbox)
         self.show_boundary      = tk.BooleanVar(value=True)
         # Master checkbox BooleanVars for each toolbar menu button
@@ -3619,6 +3625,12 @@ class BeetentApp(ctk.CTk):
            toggle_var=self.shelters_visible_var, toggle_fn=self._set_shelters_visible)
         self._shelter_btn.pack(side="left", padx=(0,4))
 
+        self._crews_btn = self._make_menu_btn(bb, "🚜 Crews", [
+            ("Show driving distance",        self._crew_distance_status),
+        ], color="#3a2a5a",
+           toggle_var=self.crews_visible_var, toggle_fn=self._set_crews_visible)
+        self._crews_btn.pack(side="left", padx=(0,4))
+
         ctk.CTkButton(bb, text="↶ Reset Move", width=110, fg_color="#4a2a00",
                       command=self._undo_shelter_move).pack(side="left", padx=(0,4))
 
@@ -4116,6 +4128,12 @@ class BeetentApp(ctk.CTk):
                 try: self.after_cancel(rid)
                 except Exception: pass
             self._shelter_lines_refresh_id = self.after(600, self._redraw_shelter_lines)
+        if self.show_crews.get():
+            rid = getattr(self, "_crews_refresh_id", None)
+            if rid:
+                try: self.after_cancel(rid)
+                except Exception: pass
+            self._crews_refresh_id = self.after(600, self._redraw_crews)
         if not self.show_shelters.get(): return
         if self._shelter_refresh_id:
             self.after_cancel(self._shelter_refresh_id)
@@ -5170,6 +5188,8 @@ class BeetentApp(ctk.CTk):
         self.show_bays.set(False)
         self.show_shelters.set(False)
         self.show_shelter_lines.set(False)
+        self.show_crews.set(False)
+        self.crews_visible_var.set(False)
         self.shelter_circle_var.set(False)
         self.show_corner_arms.set(False)
         self.show_planter_passes.set(False)
@@ -7027,6 +7047,58 @@ class BeetentApp(ctk.CTk):
         self.show_shelters.set(on)
         if on: self._redraw_shelters()
         else:  self._clear_shelters()
+
+    def _set_crews_visible(self, on):
+        self.crews_visible_var.set(on)
+        self.show_crews.set(on)
+        if on: self._redraw_crews()
+        else:  self._clear_crews()
+
+    def _clear_crews(self):
+        for o in self.crew_line_overlays:
+            try: o.delete()
+            except Exception: pass
+        self.crew_line_overlays = []
+
+    def _redraw_crews(self):
+        """Draw the estimated crew travel line — a snake down the male-bay centres
+        nearest the shelters — and stash the total km for the status readout and
+        the Cost Estimator. Uses the cached planned shelters (off-thread)."""
+        self._clear_crews()
+        if not self.show_crews.get():
+            return
+        f = self._field_from_form()
+        use_m = self.unit_var.get() == "Metric"
+        _res = self._ensure_tents(f, use_m)
+        if _res is None:
+            self._status("Calculating crew route…")
+            return                          # redrawn when the compute finishes
+        positions = list(_res[0])
+        # Align the route with the drawn shelters (same combined shift); the km is
+        # shift-invariant so this only affects on-screen placement.
+        sse, ssn = self._field_combined_shift(self.current_field)
+        if (sse or ssn) and positions:
+            positions = [self._shift_pt(la, lo, sse, ssn) for la, lo in positions]
+        try:
+            route, total_m = maketentgrid.crew_route(f, use_metric=use_m, shelters=positions)
+        except Exception as e:
+            self._log(f"crew route failed: {e}"); return
+        self._crew_route_km = total_m / 1000.0
+        if len(route) >= 2:
+            try:
+                p = self.map_widget.set_path(
+                    [(la, lo) for la, lo in route], color="#A855F7", width=3)
+                self.crew_line_overlays.append(p)
+            except Exception:
+                pass
+        self._status("Estimated crew travel: %.2f km (%.1f mi)"
+                     % (self._crew_route_km, self._crew_route_km * 0.621371))
+
+    def _crew_distance_status(self):
+        if not self.show_crews.get():
+            self._set_crews_visible(True)
+        self._status("Estimated crew travel: %.2f km (%.1f mi)"
+                     % (self._crew_route_km, self._crew_route_km * 0.621371))
 
     def _redraw_pivot(self):
         """Draw or clear the pivot marker based on show_pivot."""
@@ -8975,6 +9047,8 @@ class BeetentApp(ctk.CTk):
             self._redraw_shelters()
         if self.show_shelter_lines.get():
             self._redraw_shelter_lines()
+        if self.show_crews.get():
+            self._redraw_crews()
 
     def _redraw_shelters(self):
         if not self.show_shelters.get():
@@ -9979,7 +10053,7 @@ class BeetentApp(ctk.CTk):
                       "_redraw_bays", "_redraw_corner_arms", "_redraw_planter_passes",
                       "_redraw_planter_pass_numbers", "_redraw_sprayer_passes",
                       "_redraw_pass_buffer_overlay", "_redraw_shelters",
-                      "_redraw_shelter_lines"):
+                      "_redraw_shelter_lines", "_redraw_crews"):
             try:
                 getattr(self, _name)()
             except Exception as _e:
@@ -10023,6 +10097,7 @@ class BeetentApp(ctk.CTk):
         self._clear_pass_buffer_overlay()
         self._clear_shelters()
         self._clear_shelter_lines()
+        self._clear_crews()
 
     # ── Pivot drag handler ─────────────────────────────────────────────────────
     def _on_pivot_drag(self,lat,lon):
