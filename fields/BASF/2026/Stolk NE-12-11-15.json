@@ -1944,7 +1944,7 @@
   "Planting_angle": "0",
   "bay_gap_in": "0",
   "boundary_inner": [],
-  "shelters_in_outside_pass": "Yes",
+  "shelters_in_outside_pass": "No",
   "shelter_at_pivot": false,
   "tire_width_ft": "14",
   "shelter_buffer_m": "3.048",
@@ -1954,5 +1954,6 @@
   "two_pivots": false,
   "tray_overrides": {},
   "jd_client": "Riverview Ranch",
-  "jd_farm": "Stolk"
+  "jd_farm": "Stolk",
+  "pass_phase_swap": false
 }
