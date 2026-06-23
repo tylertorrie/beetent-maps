@@ -2195,22 +2195,25 @@ class BeetentApp(ctk.CTk):
         cpa = (tot_cost / tot_acres) if tot_acres > 0 else 0.0
         pos, neg = "#16A34A", "#DC2626"
 
-        # ── Hero ──
+        def per_ac(profit, acres):
+            return (profit / acres) if acres > 0 else 0.0
+
+        # ── Hero — headline is PROFIT / ACRE (what we bid on) ──
         hero = ctk.CTkFrame(P, fg_color=UI_CARD, corner_radius=12,
                             border_width=1, border_color=UI_BORDER)
         hero.pack(fill="x", padx=2, pady=(2, 8))
         hi = ctk.CTkFrame(hero, fg_color="transparent"); hi.pack(fill="x", padx=18, pady=14)
-        ctk.CTkLabel(hi, text="ESTIMATED PROFIT", text_color=UI_MUTED,
+        ctk.CTkLabel(hi, text="ESTIMATED PROFIT / ACRE", text_color=UI_MUTED,
                      font=ctk.CTkFont(family=FONT_LABEL, size=11)).pack(anchor="w")
-        ctk.CTkLabel(hi, text=money(tot_profit),
-                     text_color=(pos if tot_profit >= 0 else neg),
+        ctk.CTkLabel(hi, text=(money(ppa) + " /ac") if tot_acres > 0 else "—",
+                     text_color=(pos if ppa >= 0 else neg),
                      font=ctk.CTkFont(family=FONT_HEADING, size=38)).pack(anchor="w")
-        ctk.CTkLabel(hi, text="revenue %s  −  cost %s   ·   %.0f%% margin   ·   %d fields"
-                     % (money(tot_rev), money(tot_cost), margin, len(rows)),
+        ctk.CTkLabel(hi, text="total profit %s   ·   revenue %s − cost %s   ·   "
+                     "%.0f%% margin   ·   %d fields"
+                     % (money(tot_profit), money(tot_rev), money(tot_cost), margin, len(rows)),
                      text_color=UI_MUTED, font=ctk.CTkFont(size=11)).pack(anchor="w", pady=(0, 6))
         pf = ctk.CTkFrame(hi, fg_color="transparent"); pf.pack(fill="x")
-        for lab, val, clr in (("Profit / ac", money(ppa) if tot_acres > 0 else "—",
-                               pos if ppa >= 0 else neg),
+        for lab, val, clr in (("Total profit", money(tot_profit), pos if tot_profit >= 0 else neg),
                               ("Cost / ac", money(cpa) if tot_acres > 0 else "—", UI_TEXT)):
             cell = ctk.CTkFrame(pf, fg_color=UI_HOVER, corner_radius=8)
             cell.pack(side="left", padx=(0, 8))
@@ -2224,17 +2227,18 @@ class BeetentApp(ctk.CTk):
                          % (nbad, "" if nbad == 1 else "s"), text_color=neg,
                          font=ctk.CTkFont(size=11)).pack(anchor="w")
 
-        # ── By company (ranked by profit) ──
+        # ── By company (ranked by profit / acre) ──
         comp = {}
         for r in rows:
             d = comp.setdefault(r["co"], {"rev": 0.0, "cost": 0.0, "acres": 0.0, "n": 0, "bad": 0})
             d["rev"] += r["revenue"]; d["cost"] += r["cost"]
             d["acres"] += r["lc"].get("acres", 0); d["n"] += 1
             d["bad"] += 1 if r["warns"] else 0
-        comp_rank = sorted(comp.items(), key=lambda kv: -(kv[1]["rev"] - kv[1]["cost"]))
-        self._cost_section(P, "Most profitable companies")
+        comp_rank = sorted(comp.items(),
+                           key=lambda kv: -per_ac(kv[1]["rev"] - kv[1]["cost"], kv[1]["acres"]))
+        self._cost_section(P, "Most profitable companies (per acre)")
         for co, d in comp_rank:
-            pft = d["rev"] - d["cost"]
+            pft = d["rev"] - d["cost"]; ppac = per_ac(pft, d["acres"])
             mg = (pft / d["rev"] * 100) if d["rev"] > 0 else 0.0
             card = ctk.CTkFrame(P, fg_color=UI_CARD, corner_radius=10,
                                 border_width=1, border_color=UI_BORDER)
@@ -2246,19 +2250,19 @@ class BeetentApp(ctk.CTk):
             if d["bad"]:
                 ctk.CTkLabel(tp, text="  ❗", text_color="#DC2626",
                              font=ctk.CTkFont(size=12)).pack(side="left")
-            ctk.CTkLabel(tp, text=money(pft), anchor="e",
+            ctk.CTkLabel(tp, text=(money(ppac) + " /ac") if d["acres"] > 0 else "—", anchor="e",
                          font=ctk.CTkFont(family=FONT_HEADING, size=13),
-                         text_color=(pos if pft >= 0 else neg)).pack(side="right")
-            ctk.CTkLabel(card, text="%d field%s · %.0f ac · revenue %s · cost %s · %.0f%% margin"
+                         text_color=(pos if ppac >= 0 else neg)).pack(side="right")
+            ctk.CTkLabel(card, text="%d field%s · %.0f ac · total profit %s · cost %s · %.0f%% margin"
                          % (d["n"], "" if d["n"] == 1 else "s", d["acres"],
-                            money(d["rev"]), money(d["cost"]), mg),
+                            money(pft), money(d["cost"]), mg),
                          anchor="w", font=ctk.CTkFont(size=10), text_color=UI_MUTED
                          ).pack(fill="x", padx=14, pady=(0, 8))
 
-        # ── By field (ranked by profit, highest → lowest) ──
-        self._cost_section(P, "Fields ranked by profit")
-        for r in sorted(rows, key=lambda r: -r["profit"]):
-            lc = r["lc"]
+        # ── By field (ranked by profit / acre, highest → lowest) ──
+        self._cost_section(P, "Fields ranked by profit / acre")
+        for r in sorted(rows, key=lambda r: -per_ac(r["profit"], r["lc"].get("acres", 0))):
+            lc = r["lc"]; acres = lc.get("acres", 0); ppac = per_ac(r["profit"], acres)
             card = ctk.CTkFrame(P, fg_color=UI_CARD, corner_radius=10,
                                 border_width=1, border_color=UI_BORDER)
             card.pack(fill="x", padx=2, pady=(0, 6))
@@ -2269,13 +2273,13 @@ class BeetentApp(ctk.CTk):
             ctk.CTkLabel(tp, text="%s · %s" % (r["name"], r["co"]), anchor="w",
                          font=ctk.CTkFont(family=FONT_HEADING, size=12),
                          text_color=UI_TEXT).pack(side="left")
-            ctk.CTkLabel(tp, text=money(r["profit"]), anchor="e",
+            ctk.CTkLabel(tp, text=(money(ppac) + " /ac") if acres > 0 else "—", anchor="e",
                          font=ctk.CTkFont(family=FONT_HEADING, size=13),
-                         text_color=(pos if r["profit"] >= 0 else neg)).pack(side="right")
-            ctk.CTkLabel(card, text="%.0f ac · contract $%.2f/ac · revenue %s · cost %s "
-                         "($%.0f/ac) · %.0f%% margin"
-                         % (lc.get("acres", 0), r["rate"], money(r["revenue"]),
-                            money(r["cost"]), lc.get("cost_per_acre", 0),
+                         text_color=(pos if ppac >= 0 else neg)).pack(side="right")
+            ctk.CTkLabel(card, text="%.0f ac · contract $%.2f/ac · cost $%.0f/ac · "
+                         "total profit %s · %.0f%% margin"
+                         % (acres, r["rate"], lc.get("cost_per_acre", 0),
+                            money(r["profit"]),
                             (r["profit"] / r["revenue"] * 100) if r["revenue"] > 0 else 0.0),
                          anchor="w", font=ctk.CTkFont(size=10), text_color=UI_MUTED
                          ).pack(fill="x", padx=14, pady=(0, 2 if r["warns"] else 8))
@@ -3152,7 +3156,9 @@ class BeetentApp(ctk.CTk):
             mins  = c.get(time_k, 0)
             work_h = n * mins / 60.0                       # total person-hours
             dur_h  = (work_h / people) if people > 0 else 0.0
-            fuel_km = rt_km * 2.0 * crews + route_km       # crews' round trips + in-field route
+            # Each crew drives the FULL home->field round trip (rt_km x2 each); the
+            # in-field route is SHARED/split across crews so it's counted once total.
+            fuel_km = rt_km * 2.0 * crews + route_km
             return {"crews": crews, "epc": epc, "people": people, "min": mins,
                     "work_h": work_h, "work": work_h * pay, "dur_h": dur_h,
                     "travel": people * rt_h * pay, "fuel_km": fuel_km,
@@ -3177,8 +3183,8 @@ class BeetentApp(ctk.CTk):
                 return "set Home + Parking pins, then Update travel times"
             return ("%g ppl × %.1f h round trip × $%.0f/hr" % (t["people"], rt_h, pay))
         def _fuel_calc(t):
-            return ("%.1f km × %g L/km × $%.2f/L  (%g crew round trip + route)"
-                    % (t["fuel_km"], fuel_l_per_km, fuel_per_l, t["crews"]))
+            return ("%.1f km × %g L/km × $%.2f/L  (%g crew × %.1f km round trip + %.1f km field route shared)"
+                    % (t["fuel_km"], fuel_l_per_km, fuel_per_l, t["crews"], rt_km * 2.0, route_km))
         lines = [
             ("Items", "Shelters", "%d shelters × $%.2f ÷ %gyr life"
              % (n, c.get("cost_per_shelter", 0), life("shelter_life_yr")), shelter),

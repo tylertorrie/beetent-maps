@@ -222,10 +222,10 @@ Nav-drawer view (💰) with three `CTkSegmentedButton` tabs:
   show on return without re-costing), or auto-runs `_profit_compute` once if empty.
   `_profit_compute` (off-thread, own company/year scope) costs each field with **its own
   year's** prices/rate (`_cost_inputs_for_year`/`_contract_rates_for_year`); the ↻ Refresh
-  button + scope combos re-run it. `_profit_render` ranks companies by total profit and
-  fields high→low profit (margin + cost/ac). A red **❗** (`_field_profit_warnings`) flags
-  fields missing info that skews results (no acreage / shelters / contract rate / travel),
-  reasons listed inline.
+  button + scope combos re-run it. `_profit_render` headlines **profit / acre** and ranks
+  BOTH companies and fields by profit/acre, high→low (total profit shown secondary). A red
+  **❗** (`_field_profit_warnings`) flags fields missing info that skews results (no acreage
+  / shelters / contract rate / travel), reasons listed inline.
 
 ### Home pin (global depot)
 
