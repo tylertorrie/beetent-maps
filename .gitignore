@@ -60,5 +60,8 @@ fields/**/*_map.json
 firebase_config.json
 tablet/firebase-config.js
 
+# Google Maps API key for Cost Estimator travel times — secret, repo is public.
+maps_api_key.txt
+
 # Compiled/installed dependencies that ship with the source
 # (shapefile.py, simplekml, utm, fpdf are vendored — DO track them)

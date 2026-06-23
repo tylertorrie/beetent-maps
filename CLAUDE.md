@@ -59,7 +59,8 @@ simplekml/            — Vendored for KML export
 fpdf/                 — Vendored PDF generation
 fields/               — Saved field JSON files (git-tracked, auto-synced)
   bay_presets.json    — Saved bay calculator presets
-  cost_prefs.json     — Global Cost Estimator inputs (not per-field)
+  cost_prefs.json     — Global Cost Estimator inputs + home/depot pin (not per-field)
+maps_api_key.txt      — Google Maps API key (gitignored secret; repo is public)
   Corteva/2026/       — Field files per company/year
 .gitignore            — Excludes CSV, ODS, build output, Claude worktrees
 ```
@@ -94,6 +95,8 @@ fields/               — Saved field JSON files (git-tracked, auto-synced)
   "tray_overrides": {idx: count}            # manual per-shelter tray counts (LIVE set for the current combo)
   "spray_both_ways": False,                 # square grid sprayable at 0° AND 90° (rare opt-in)
   "adjust_by_combo": {combo_key: {shelter_overrides, tray_overrides}}  # moves/deletes kept PER settings combo
+  "home_to_parking_km": 0, "home_to_parking_min": 0,  # cached Google road dist/time home→parking (Cost Estimator)
+  "home_coords_used": [lat,lon]              # home pin used for the cache (detect a moved depot)
 }
 ```
 
@@ -173,13 +176,34 @@ cache key; cleaned up on field switch.
 
 Nav-drawer view (💰) with two `CTkSegmentedButton` tabs:
 - **General Information** — global cost inputs (items + depreciation life, chemical,
-  labour) in `self._cost_vars`, persisted to `fields/cost_prefs.json`
-  (`_load_cost_prefs`/`_save_cost_prefs`, git-synced like `overview_prefs.json`).
+  **fuel**, labour) in `self._cost_vars`, persisted to `fields/cost_prefs.json`
+  (`_load_cost_prefs`/`_save_cost_prefs`, git-synced like `overview_prefs.json`). The
+  Travel card here holds the **Google Maps API key** (stored in gitignored
+  `maps_api_key.txt`, NOT cost_prefs — the repo is public) and shows the global
+  **home/depot pin** (set from the map, persisted as `home_lat`/`home_lon` in
+  cost_prefs via `_set_home_pin`; `_home_pin` is the in-memory copy). "💾 Save settings"
+  → `_save_cost_settings` (key + numeric prefs).
 - **Cost Estimator** — company/year scope picker + per-field checkboxes; `_field_cost(f, c)`
   computes AMORTIZED items (unit cost ÷ life-years × qty; bees = 1-yr full cost) +
-  chemical (per acre) + labour per task (employees × (shelters × per-shelter-min/60 +
-  `crew_route` km ÷ drive speed) × pay). Exports CSV + landscape PDF to `~/Downloads`,
+  chemical (per acre) + **fuel** + labour. **Labour per task** (setup/bees/removal) =
+  *work* (shelters × per-shelter-min/60 person-hours × pay — **invariant to crew count**)
+  + *travel* (crews × emp_per_crew people × home↔parking round-trip × pay). Crew count
+  (`crews_X` × `emp_per_crew_X`) only shortens each task's wall-clock **duration**
+  (`dur_X`, shown). **Fuel** = (crews × round-trip km + in-field `crew_route` km) ×
+  `fuel_l_per_km` × `fuel_cost_per_l`, per task. The home↔parking road distance/time is
+  fetched via Google (`_drive_distance_google`, Distance Matrix API) by the
+  **"↻ Update travel times"** button (`_cost_update_travel`, off-thread) and cached on
+  each field as `home_to_parking_km`/`home_to_parking_min`/`home_coords_used`;
+  `_field_cost` only READS that cache. Exports CSV + landscape PDF to `~/Downloads`,
   archived to the output library (`_archive_cost_to_library`).
+
+### Home pin (global depot)
+
+One global pin (not per-field) for the company base. Set via Boundary ▸ **Set Home Pin
+(depot)** (`_mode_set_home` → `click_mode="set_home"`), drawn as a blue **H** marker in
+`_redraw_field_info` (reads `self._home_pin`, not `current_field`), draggable like the
+E/P pins (`_on_field_info_drag` routes `home_pin` to `_set_home_pin`). Persisted
+immediately to `cost_prefs.json`; gated on the `show_field_info` toggle.
 
 ## Architecture — maketentgrid.py
 

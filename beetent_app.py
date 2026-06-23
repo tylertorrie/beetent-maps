@@ -257,6 +257,7 @@ def _install_fast_tiles():
 _install_fast_tiles()
 DATA_DIR      = Path(__file__).parent / "fields"
 ASSETS_DIR    = Path(__file__).parent / "assets"   # bundled logo (synced via git)
+MAPS_KEY_FILE = Path(__file__).parent / "maps_api_key.txt"   # Google key (gitignored)
 DEFAULT_LAT, DEFAULT_LON, DEFAULT_ZOOM = 49.86, -111.96, 10
 
 # Mouse-wheel zoom granularity. tkintermapview's default Windows step is
@@ -1450,6 +1451,7 @@ class BeetentApp(ctk.CTk):
         self.cost_estimator_view = None
         self._cost_vars = {}            # cost-input key -> tk.StringVar (global, persisted)
         self._cost_tab = "general"      # "general" | "estimate"
+        self._home_pin = self._read_home_pin()   # global depot [lat,lon] from cost_prefs.json
         self._files_cwd  = None     # None = top level; else (record_id, (sub,paths))
         self._files_checks = {}      # path-str → BooleanVar for current listing
         self._ov_sort_col = None     # Overview spreadsheet sort state
@@ -1779,14 +1781,21 @@ class BeetentApp(ctk.CTk):
         ("Chemical", "#EA580C", [
             ("chem_cost_per_acre", "Chemical cost per acre ($)",      ""),
         ]),
+        ("Fuel", "#475569", [
+            ("fuel_l_per_km",      "Equipment fuel use (L/km)",       "0.35"),
+            ("fuel_cost_per_l",    "Fuel cost ($/L)",                 ""),
+        ]),
         ("Labour", "#6366F1", [
             ("pay_per_hour",       "Average pay per hour ($)",        ""),
             ("drive_speed_kmh",    "Driving speed between shelters (km/h)", "15"),
-            ("emp_setup",          "Employees — shelter setup",       "1"),
+            ("crews_setup",        "Crews — shelter setup",           "1"),
+            ("emp_per_crew_setup", "Employees per crew — setup",      "1"),
             ("time_setup_min",     "Setup time per shelter (min)",    "10"),
-            ("emp_bees",           "Employees — bee distribution",    "1"),
+            ("crews_bees",         "Crews — bee distribution",        "1"),
+            ("emp_per_crew_bees",  "Employees per crew — bees",       "1"),
             ("time_bees_min",      "Bee distribution time per shelter (min)", "5"),
-            ("emp_removal",        "Employees — shelter removal",     "1"),
+            ("crews_removal",      "Crews — shelter removal",         "1"),
+            ("emp_per_crew_removal","Employees per crew — removal",   "1"),
             ("time_removal_min",   "Removal time per shelter (min)",  "5"),
         ]),
     ]
@@ -1851,10 +1860,49 @@ class BeetentApp(ctk.CTk):
                 ctk.CTkEntry(r, textvariable=v, width=110, justify="right").pack(side="right")
                 self._cost_vars[key] = v
             ctk.CTkFrame(card, fg_color="transparent", height=6).pack()
+
+        # ── Travel (Google Maps key + home/depot pin) ──
+        tcard = ctk.CTkFrame(parent, fg_color=UI_CARD, corner_radius=10,
+                             border_width=1, border_color=UI_BORDER)
+        tcard.pack(fill="x", padx=2, pady=(0, 10))
+        th = ctk.CTkFrame(tcard, fg_color="transparent"); th.pack(fill="x", padx=14, pady=(10, 6))
+        ctk.CTkFrame(th, width=4, height=16, fg_color="#2563EB", corner_radius=2
+                     ).pack(side="left", padx=(0, 8))
+        ctk.CTkLabel(th, text="Travel", font=ctk.CTkFont(family=FONT_HEADING, size=13),
+                     text_color=UI_TEXT).pack(side="left")
+        ctk.CTkLabel(tcard, text="Driving time from the home/depot pin to each field's "
+                     "parking pin (Google road distance). The key stays on this device only.",
+                     anchor="w", justify="left", text_color=UI_MUTED, wraplength=520,
+                     font=ctk.CTkFont(size=10)).pack(fill="x", padx=16, pady=(0, 4))
+        kr = ctk.CTkFrame(tcard, fg_color="transparent"); kr.pack(fill="x", padx=16, pady=2)
+        ctk.CTkLabel(kr, text="Google Maps API key", anchor="w",
+                     font=ctk.CTkFont(family=FONT_LABEL, size=12), text_color=UI_TEXT
+                     ).pack(side="left")
+        self._maps_key_var = tk.StringVar(value=self._read_maps_key())
+        ctk.CTkEntry(kr, textvariable=self._maps_key_var, width=240, show="•").pack(side="right")
+        hr = ctk.CTkFrame(tcard, fg_color="transparent"); hr.pack(fill="x", padx=16, pady=(2, 4))
+        self._home_lbl = ctk.CTkLabel(hr, anchor="w", text=self._home_pin_text(),
+                                      font=ctk.CTkFont(size=11), text_color=UI_MUTED)
+        self._home_lbl.pack(side="left")
+        ctk.CTkLabel(hr, text="Set the home pin from the map: Boundary ▸ Set Home Pin (depot)",
+                     anchor="e", font=ctk.CTkFont(size=10), text_color=UI_MUTED
+                     ).pack(side="right")
+        ctk.CTkFrame(tcard, fg_color="transparent", height=6).pack()
+
         btn = ctk.CTkFrame(parent, fg_color="transparent")
         btn.pack(fill="x", pady=(6, 10))
         ctk.CTkButton(btn, text="💾  Save settings", width=150, height=36,
-                      command=self._save_cost_prefs).pack(side="left")
+                      command=self._save_cost_settings).pack(side="left")
+
+    def _home_pin_text(self):
+        if self._home_pin:
+            return "Home pin: %.5f, %.5f" % (self._home_pin[0], self._home_pin[1])
+        return "Home pin: not set"
+
+    def _save_cost_settings(self):
+        """Save both the numeric prefs and the Google key from the General tab."""
+        self._save_maps_key()
+        self._save_cost_prefs()
 
     def _build_cost_estimate_tab(self, parent):
         # ── Scope picker card ──
@@ -1891,6 +1939,8 @@ class BeetentApp(ctk.CTk):
         act = ctk.CTkFrame(parent, fg_color="transparent")
         act.pack(fill="x", padx=2, pady=(0, 8))
         ctk.CTkButton(act, text="Compute costs", height=36, command=self._cost_compute).pack(side="left")
+        ctk.CTkButton(act, text="↻  Update travel times", height=36, fg_color="#2563EB",
+                      hover_color="#1D4ED8", command=self._cost_update_travel).pack(side="left", padx=(8, 0))
         ctk.CTkButton(act, text="⬇  Export CSV", height=36, fg_color="#475569",
                       hover_color="#334155", command=self._cost_export_csv).pack(side="left", padx=(8, 0))
         ctk.CTkButton(act, text="⬇  Export PDF", height=36, fg_color="#475569",
@@ -1944,10 +1994,65 @@ class BeetentApp(ctk.CTk):
         self._cost_render_results()
         self._status("Cost estimate ready: %d field(s)." % len(rows))
 
+    def _cost_update_travel(self):
+        """Fetch home→parking road distance/time (Google) for each selected field
+        and cache it on the field JSON. Runs off-thread; one network call per field."""
+        sel = [k for k, v in self._cost_field_checks.items() if v.get()]
+        if not sel:
+            self._status("Select at least one field."); return
+        if not self._read_maps_key():
+            tkinter.messagebox.showwarning(
+                "Travel times", "Enter your Google Maps API key on the "
+                "General Information tab first."); return
+        if not self._home_pin:
+            tkinter.messagebox.showwarning(
+                "Travel times", "Set the Home (depot) pin first:\n"
+                "open a field, then Boundary ▸ Set Home Pin (depot)."); return
+        home = list(self._home_pin)
+        self._status("Fetching travel times for %d field(s)…" % len(sel))
+        def _work():
+            ok = 0; skipped = 0; updates = {}
+            for (co, yr, name) in sel:
+                f = load_field(co, yr, name)
+                if not f:
+                    continue
+                park = f.get("parking_pin")
+                try:
+                    plat, plon = float(park[0]), float(park[1])
+                except (TypeError, ValueError, IndexError):
+                    skipped += 1; continue
+                res = self._drive_distance_google(home[0], home[1], plat, plon)
+                if not res:
+                    skipped += 1; continue
+                km, mins = res
+                f["home_to_parking_km"] = round(km, 3)
+                f["home_to_parking_min"] = round(mins, 1)
+                f["home_coords_used"] = [round(home[0], 6), round(home[1], 6)]
+                try: save_field(f)
+                except Exception: pass
+                updates[(co, yr, name)] = (round(km, 3), round(mins, 1))
+                ok += 1
+            def _done():
+                # keep the open field's in-memory copy in sync so a later Save
+                # Field doesn't clobber the freshly written travel cache on disk.
+                cf = self.current_field
+                key = (cf.get("company"), str(cf.get("year")), cf.get("Name"))
+                if key in updates:
+                    cf["home_to_parking_km"], cf["home_to_parking_min"] = updates[key]
+                    cf["home_coords_used"] = [round(home[0], 6), round(home[1], 6)]
+                self._git_push("update travel times")
+                self._status("Travel times updated: %d field(s)%s." % (
+                    ok, (" · %d skipped (no parking pin / no route)" % skipped)
+                    if skipped else ""))
+                if self._cost_rows:
+                    self._cost_compute()
+            self.after(0, _done)
+        threading.Thread(target=_work, daemon=True).start()
+
     def _cost_totals(self):
         keys = ("acres", "shelters", "gallons", "trays", "route_km", "shelter", "bee",
                 "tray", "block", "flag", "items", "chemical", "labour_setup",
-                "labour_bees", "labour_removal", "labour", "total")
+                "labour_bees", "labour_removal", "labour", "fuel", "travel", "total")
         t = {k: 0 for k in keys}
         gt = {}
         for (_co, _yr, _n, lc) in self._cost_rows:
@@ -1959,12 +2064,21 @@ class BeetentApp(ctk.CTk):
         return t
 
     _COST_CAT_COLORS = {"Items": "#0E9384", "Bees": "#EAB308",
-                        "Chemical": "#EA580C", "Labour": "#6366F1"}
-    _COST_CAT_ORDER = ("Items", "Bees", "Chemical", "Labour")
+                        "Chemical": "#EA580C", "Fuel": "#475569", "Labour": "#6366F1"}
+    _COST_CAT_ORDER = ("Items", "Bees", "Chemical", "Fuel", "Labour")
 
     @staticmethod
     def _cost_money(x):
         return "$" + format(int(round(x)), ",d")
+
+    @staticmethod
+    def _cost_schedule_text(lc):
+        """One-line travel + per-task wall-clock duration summary for a field."""
+        tk_ = lc.get("travel_km", 0); tm = lc.get("travel_min", 0)
+        trav = ("🏠 travel %.0f km / %.0f min one way · " % (tk_, tm)) if tk_ > 0 \
+            else "🏠 travel not set · "
+        return (trav + "duration: setup ~%.1f h · bees ~%.1f h · removal ~%.1f h"
+                % (lc.get("dur_setup", 0), lc.get("dur_bees", 0), lc.get("dur_removal", 0)))
 
     def _cost_pill(self, parent, label, value):
         p = ctk.CTkFrame(parent, fg_color=UI_HOVER, corner_radius=8)
@@ -2023,6 +2137,10 @@ class BeetentApp(ctk.CTk):
                          ("Trays", "%d" % t["trays"]), ("Bee gal", "%.0f" % t["gallons"]),
                          ("Crew km", "%.1f" % t["route_km"])):
             self._cost_pill(pills, lab, val)
+        if nfld == 1:
+            ctk.CTkLabel(hi, text=self._cost_schedule_text(self._cost_rows[0][3]),
+                         text_color=UI_MUTED, font=ctk.CTkFont(size=11)
+                         ).pack(anchor="w", pady=(8, 0))
 
         # ── Composition bar + legend ─────────────────────────────────────────
         self._cost_section(P, "Where the cost goes")
@@ -2087,8 +2205,11 @@ class BeetentApp(ctk.CTk):
                 ctk.CTkLabel(tp, text=money(lc["total"]), anchor="e",
                              font=ctk.CTkFont(family=FONT_HEADING, size=13),
                              text_color=UI_ACCENT).pack(side="right")
-                ctk.CTkLabel(fc, text="%s · %.0f ac · %d shelters · %d trays · %.1f km"
+                ctk.CTkLabel(fc, text="%s · %.0f ac · %d shelters · %d trays · %.1f crew km"
                              % (co, lc["acres"], lc["shelters"], lc["trays"], lc["route_km"]),
+                             anchor="w", font=ctk.CTkFont(size=10), text_color=UI_MUTED
+                             ).pack(fill="x", padx=14, pady=(0, 1))
+                ctk.CTkLabel(fc, text=self._cost_schedule_text(lc),
                              anchor="w", font=ctk.CTkFont(size=10), text_color=UI_MUTED
                              ).pack(fill="x", padx=14, pady=(0, 4))
                 fgt = lc.get("groups", {})
@@ -2103,7 +2224,8 @@ class BeetentApp(ctk.CTk):
         ("Tray $", "tray"), ("Block $", "block"), ("Flag $", "flag"),
         ("Chemical $", "chemical"), ("Labour Setup $", "labour_setup"),
         ("Labour Bees $", "labour_bees"), ("Labour Removal $", "labour_removal"),
-        ("Labour $", "labour"), ("Total $", "total"),
+        ("Labour $", "labour"), ("Travel $", "travel"), ("Travel km", "travel_km"),
+        ("Fuel $", "fuel"), ("Total $", "total"),
     ]
 
     def _cost_export_csv(self):
@@ -2148,7 +2270,8 @@ class BeetentApp(ctk.CTk):
         rows = sorted(self._cost_rows, key=lambda r: -r[3]["total"])
         money = lambda x: "$" + format(int(round(x)), ",d")
         RGB = {"Items": (14, 147, 132), "Bees": (234, 179, 8),
-               "Chemical": (234, 88, 12), "Labour": (99, 102, 241)}
+               "Chemical": (234, 88, 12), "Fuel": (71, 85, 105),
+               "Labour": (99, 102, 241)}
         TEAL = (14, 147, 132); INK = (31, 42, 55); MUT = (107, 114, 128); LINE = (227, 229, 232)
         gt = t.get("groups", {})
 
@@ -2261,10 +2384,14 @@ class BeetentApp(ctk.CTk):
                   ("tray_life_yr", "Tray life yr"), ("cost_per_block", "Block $"),
                   ("block_life_yr", "Block life yr"), ("blocks_per_shelter", "Blocks/shelter"),
                   ("cost_per_flag", "Flag $"), ("flag_life_yr", "Flag life yr"),
-                  ("chem_cost_per_acre", "Chemical $/ac"), ("pay_per_hour", "Pay $/hr"),
-                  ("drive_speed_kmh", "Drive km/h"), ("emp_setup", "Setup crew"),
-                  ("time_setup_min", "Setup min/shelter"), ("emp_bees", "Bee crew"),
-                  ("time_bees_min", "Bee min/shelter"), ("emp_removal", "Removal crew"),
+                  ("chem_cost_per_acre", "Chemical $/ac"), ("fuel_l_per_km", "Fuel L/km"),
+                  ("fuel_cost_per_l", "Fuel $/L"), ("pay_per_hour", "Pay $/hr"),
+                  ("drive_speed_kmh", "Drive km/h"),
+                  ("crews_setup", "Setup crews"), ("emp_per_crew_setup", "Setup emp/crew"),
+                  ("time_setup_min", "Setup min/shelter"),
+                  ("crews_bees", "Bee crews"), ("emp_per_crew_bees", "Bee emp/crew"),
+                  ("time_bees_min", "Bee min/shelter"),
+                  ("crews_removal", "Removal crews"), ("emp_per_crew_removal", "Removal emp/crew"),
                   ("time_removal_min", "Removal min/shelter")]
         pdf.set_font("Helvetica", "", 8); colw = W / 3.0; ry = pdf.get_y()
         for i, (k, lab) in enumerate(labels):
@@ -2331,25 +2458,106 @@ class BeetentApp(ctk.CTk):
         else:
             self._cost_estimate_frame.pack(fill="both", expand=True, padx=12, pady=(0, 8))
 
-    def _load_cost_prefs(self):
-        """Load global cost inputs from fields/cost_prefs.json into the StringVars."""
+    # ── cost_prefs.json raw access (home pin lives here too, not just StringVars) ──
+    @staticmethod
+    def _cost_prefs_path():
+        return DATA_DIR / "cost_prefs.json"
+
+    def _read_cost_prefs_raw(self):
         try:
-            p = DATA_DIR / "cost_prefs.json"
+            p = self._cost_prefs_path()
             if p.exists():
                 d = json.loads(p.read_text(encoding="utf-8"))
                 if isinstance(d, dict):
-                    for k, v in self._cost_vars.items():
-                        if k in d:
-                            v.set(str(d[k]))
+                    return d
         except Exception:
             pass
+        return {}
+
+    def _write_cost_prefs_raw(self, d):
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        self._cost_prefs_path().write_text(json.dumps(d, indent=2), encoding="utf-8")
+
+    def _read_home_pin(self):
+        """Global depot [lat,lon] from cost_prefs.json, or None."""
+        d = self._read_cost_prefs_raw()
+        try:
+            lat = float(d.get("home_lat")); lon = float(d.get("home_lon"))
+            return [lat, lon]
+        except (TypeError, ValueError):
+            return None
+
+    def _set_home_pin(self, lat, lon):
+        """Persist the global home pin to cost_prefs.json (preserving other keys)."""
+        self._home_pin = [lat, lon]
+        d = self._read_cost_prefs_raw()
+        d["home_lat"] = "%.7f" % lat
+        d["home_lon"] = "%.7f" % lon
+        try:
+            self._write_cost_prefs_raw(d)
+            self._git_push("sync home pin")
+        except Exception as ex:
+            self._log(f"home pin save failed: {ex}")
+        if getattr(self, "_home_lbl", None) is not None:
+            try: self._home_lbl.configure(text=self._home_pin_text())
+            except Exception: pass
+
+    # ── Google Maps API key (gitignored local file) ──────────────────────────
+    @staticmethod
+    def _read_maps_key():
+        try:
+            if MAPS_KEY_FILE.exists():
+                return MAPS_KEY_FILE.read_text(encoding="utf-8").strip()
+        except Exception:
+            pass
+        return ""
+
+    def _save_maps_key(self):
+        try:
+            MAPS_KEY_FILE.write_text((self._maps_key_var.get() or "").strip(),
+                                     encoding="utf-8")
+            self._status("Google Maps key saved (stays on this device).")
+        except Exception as ex:
+            tkinter.messagebox.showerror("Maps key", str(ex))
+
+    def _drive_distance_google(self, lat1, lon1, lat2, lon2):
+        """Road distance + time via the Google Distance Matrix API.
+        Returns (km, minutes) or None on any error / missing key."""
+        key = self._read_maps_key()
+        if not key:
+            return None
+        try:
+            import requests
+            r = requests.get(
+                "https://maps.googleapis.com/maps/api/distancematrix/json",
+                params={"origins": "%f,%f" % (lat1, lon1),
+                        "destinations": "%f,%f" % (lat2, lon2),
+                        "units": "metric", "mode": "driving", "key": key},
+                timeout=20)
+            data = r.json()
+            el = data["rows"][0]["elements"][0]
+            if el.get("status") != "OK":
+                return None
+            return (el["distance"]["value"] / 1000.0, el["duration"]["value"] / 60.0)
+        except Exception as e:
+            self._log(f"Google distance lookup failed: {e}")
+            return None
+
+    def _load_cost_prefs(self):
+        """Load global cost inputs from fields/cost_prefs.json into the StringVars."""
+        d = self._read_cost_prefs_raw()
+        for k, v in self._cost_vars.items():
+            if k in d:
+                v.set(str(d[k]))
+        self._home_pin = self._read_home_pin()
+        if getattr(self, "_maps_key_var", None) is not None:
+            self._maps_key_var.set(self._read_maps_key())
 
     def _save_cost_prefs(self):
         try:
-            DATA_DIR.mkdir(parents=True, exist_ok=True)
-            d = {k: v.get().strip() for k, v in self._cost_vars.items()}
-            (DATA_DIR / "cost_prefs.json").write_text(
-                json.dumps(d, indent=2), encoding="utf-8")
+            d = self._read_cost_prefs_raw()          # preserve home_lat/home_lon etc.
+            d.update({k: v.get().strip() for k, v in self._cost_vars.items()})
+            self._write_cost_prefs_raw(d)
             self._status("Cost settings saved.")
             self._git_push("sync cost estimator settings")
         except Exception as ex:
@@ -2366,8 +2574,10 @@ class BeetentApp(ctk.CTk):
     def _field_cost(self, f, c):
         """Line-item estimated cost for one field given parsed cost inputs `c`.
         Capital items are AMORTIZED (unit cost ÷ life-years × qty used); bees are
-        a 1-yr item (full cost). Labour = employees × hours × pay, where
-        hours = shelters × per-shelter-minutes/60 + crew-route-km ÷ driving speed."""
+        a 1-yr item (full cost). Labour per task = work (shelters × min/60 person-
+        hours × pay — invariant to crew count) + travel (all people × home↔field
+        round-trip × pay). Fuel = (crews × round-trip km + in-field route km) ×
+        L/km × $/L. Crew count only shortens each task's wall-clock duration."""
         # acres: explicit field value, else boundary area
         acres = 0.0
         try: acres = float(str(f.get("acres") or "").strip() or 0)
@@ -2403,20 +2613,51 @@ class BeetentApp(ctk.CTk):
         block   = n * c.get("blocks_per_shelter", 0) * c.get("cost_per_block", 0) / life("block_life_yr")
         flag    = n * c.get("cost_per_flag", 0) / life("flag_life_yr")
         chemical = acres * c.get("chem_cost_per_acre", 0)
-        speed = c.get("drive_speed_kmh", 0) or 15.0
-        drive_h = route_km / speed
         pay = c.get("pay_per_hour", 0)
-        def labour(emp_k, time_k):
-            return c.get(emp_k, 0) * (n * c.get(time_k, 0) / 60.0 + drive_h) * pay
-        lab_setup = labour("emp_setup", "time_setup_min")
-        lab_bees  = labour("emp_bees", "time_bees_min")
-        lab_rem   = labour("emp_removal", "time_removal_min")
+        # Round-trip travel from the home depot to this field's parking pin. The
+        # one-way km/min are cached on the field by "Update travel times" (Google);
+        # 0 until then. rt_h is the per-person round-trip time everyone is paid for.
+        rt_km  = _ff("home_to_parking_km", 0.0)    # one-way road km (cached)
+        rt_min = _ff("home_to_parking_min", 0.0)   # one-way road minutes (cached)
+        rt_h   = rt_min / 60.0 * 2.0               # round trip, hours
+        fuel_l_per_km = c.get("fuel_l_per_km", 0)
+        fuel_per_l    = c.get("fuel_cost_per_l", 0)
+        # Per task: WORK cost is crew-count invariant (total person-hours of work);
+        # crews only shorten the wall-clock duration and multiply travel + fuel.
+        def task(crews_k, emp_k, time_k):
+            crews = max(c.get(crews_k, 0), 0.0)
+            epc   = max(c.get(emp_k, 0), 0.0)
+            people = crews * epc
+            mins  = c.get(time_k, 0)
+            work_h = n * mins / 60.0                       # total person-hours
+            dur_h  = (work_h / people) if people > 0 else 0.0
+            fuel_km = rt_km * 2.0 * crews + route_km       # crews' round trips + in-field route
+            return {"crews": crews, "epc": epc, "people": people, "min": mins,
+                    "work_h": work_h, "work": work_h * pay, "dur_h": dur_h,
+                    "travel": people * rt_h * pay, "fuel_km": fuel_km,
+                    "fuel": fuel_km * fuel_l_per_km * fuel_per_l}
+        ts = task("crews_setup",   "emp_per_crew_setup",   "time_setup_min")
+        tb = task("crews_bees",    "emp_per_crew_bees",    "time_bees_min")
+        tr = task("crews_removal", "emp_per_crew_removal", "time_removal_min")
+        lab_setup = ts["work"] + ts["travel"]
+        lab_bees  = tb["work"] + tb["travel"]
+        lab_rem   = tr["work"] + tr["travel"]
         labour_total = lab_setup + lab_bees + lab_rem
+        fuel_total   = ts["fuel"] + tb["fuel"] + tr["fuel"]
+        travel_total = ts["travel"] + tb["travel"] + tr["travel"]
         items = shelter + bee + tray + block + flag
         # Per-line-item breakdown with the calculation shown (for the detailed
         # on-screen view + PDF). qty/calc strings are human-readable.
-        def _h(emp_k, time_k):
-            return n * c.get(time_k, 0) / 60.0 + drive_h
+        def _work_calc(t):
+            return ("%d × %gmin = %.1f person-hr × $%.0f/hr  ·  ~%.1f h with %g×%g crew"
+                    % (n, t["min"], t["work_h"], pay, t["dur_h"], t["crews"], t["epc"]))
+        def _travel_calc(t):
+            if rt_h <= 0:
+                return "set Home + Parking pins, then ↻ Update travel times"
+            return ("%g ppl × %.1f h round trip × $%.0f/hr" % (t["people"], rt_h, pay))
+        def _fuel_calc(t):
+            return ("%.1f km × %g L/km × $%.2f/L  (%g crew round trip + route)"
+                    % (t["fuel_km"], fuel_l_per_km, fuel_per_l, t["crews"]))
         lines = [
             ("Items", "Shelters", "%d shelters × $%.2f ÷ %gyr life"
              % (n, c.get("cost_per_shelter", 0), life("shelter_life_yr")), shelter),
@@ -2430,12 +2671,15 @@ class BeetentApp(ctk.CTk):
              % (n, c.get("cost_per_flag", 0), life("flag_life_yr")), flag),
             ("Chemical", "Chemical", "%.1f ac × $%.2f/ac"
              % (acres, c.get("chem_cost_per_acre", 0)), chemical),
-            ("Labour", "Shelter setup", "%g ppl × %.1f hr × $%.0f/hr"
-             % (c.get("emp_setup", 0), _h("emp_setup", "time_setup_min"), pay), lab_setup),
-            ("Labour", "Bee distribution", "%g ppl × %.1f hr × $%.0f/hr"
-             % (c.get("emp_bees", 0), _h("emp_bees", "time_bees_min"), pay), lab_bees),
-            ("Labour", "Shelter removal", "%g ppl × %.1f hr × $%.0f/hr"
-             % (c.get("emp_removal", 0), _h("emp_removal", "time_removal_min"), pay), lab_rem),
+            ("Labour", "Setup — work", _work_calc(ts), ts["work"]),
+            ("Labour", "Setup — travel", _travel_calc(ts), ts["travel"]),
+            ("Labour", "Bees — work", _work_calc(tb), tb["work"]),
+            ("Labour", "Bees — travel", _travel_calc(tb), tb["travel"]),
+            ("Labour", "Removal — work", _work_calc(tr), tr["work"]),
+            ("Labour", "Removal — travel", _travel_calc(tr), tr["travel"]),
+            ("Fuel", "Setup fuel", _fuel_calc(ts), ts["fuel"]),
+            ("Fuel", "Bees fuel", _fuel_calc(tb), tb["fuel"]),
+            ("Fuel", "Removal fuel", _fuel_calc(tr), tr["fuel"]),
         ]
         groups = {}
         for (g, _l, _calc, amt) in lines:
@@ -2446,7 +2690,11 @@ class BeetentApp(ctk.CTk):
             "block": block, "flag": flag, "items": items, "chemical": chemical,
             "labour_setup": lab_setup, "labour_bees": lab_bees,
             "labour_removal": lab_rem, "labour": labour_total,
-            "total": items + chemical + labour_total, "lines": lines, "groups": groups,
+            "fuel": fuel_total, "travel": travel_total,
+            "travel_km": rt_km, "travel_min": rt_min,
+            "dur_setup": ts["dur_h"], "dur_bees": tb["dur_h"], "dur_removal": tr["dur_h"],
+            "total": items + chemical + labour_total + fuel_total,
+            "lines": lines, "groups": groups,
         }
 
     # ── Monitor view ────────────────────────────────────────────────────────
@@ -4282,6 +4530,7 @@ class BeetentApp(ctk.CTk):
             ("—  Additional Field Info  —", lambda: None),
             ("Set Entrance Pin",      self._mode_set_entrance),
             ("Set Parking Pin",       self._mode_set_parking),
+            ("Set Home Pin (depot)",  self._mode_set_home),
             ("Delete Entrance / Parking", self._delete_field_info_pin),
             ("Toggle Field Info",     self._toggle_field_info),
         ], color="#5a3a8a",
@@ -6743,6 +6992,11 @@ class BeetentApp(ctk.CTk):
         self.click_mode = "set_parking"
         self._status("Click the map to set the PARKING pin.")
 
+    def _mode_set_home(self):
+        self._close_all_popups()
+        self.click_mode = "set_home"
+        self._status("Click the map to set the HOME (depot) pin — used for travel times.")
+
     def _toggle_field_info(self):
         self._close_all_popups()
         self.show_field_info.set(not self.show_field_info.get())
@@ -6751,6 +7005,11 @@ class BeetentApp(ctk.CTk):
                      ("shown." if self.show_field_info.get() else "hidden."))
 
     def _on_field_info_drag(self, which, lat, lon):
+        if which == "home_pin":
+            self._set_home_pin(lat, lon)        # also refreshes the General-tab label
+            self._redraw_field_info()
+            self._status(f"Home pin moved: {lat:.5f}, {lon:.5f} (saved).")
+            return
         self.current_field[which] = [lat, lon]
         self._redraw_field_info()
         self._status(f"{'Entrance' if which=='entrance_pin' else 'Parking'} moved — Save Field to keep.")
@@ -6784,12 +7043,14 @@ class BeetentApp(ctk.CTk):
         self._unregister_drag_prefix("fieldinfo_")
         if not self.show_field_info.get():
             return
-        # Single letter centred in the pin (like the shelter numbers): E / P.
+        # Single letter centred in the pin (like the shelter numbers): E / P / H.
+        # Entrance/Parking are per-field; Home is the global depot (cost prefs).
         specs = [("entrance_pin", "E", "#16A34A", "#0B5D27"),
-                 ("parking_pin",  "P", "#F59E0B", "#8A5E00")]
+                 ("parking_pin",  "P", "#F59E0B", "#8A5E00"),
+                 ("home_pin",     "H", "#2563EB", "#163E8A")]
         canvas = self.map_widget.canvas
         for key, letter, cc, oc in specs:
-            p = self.current_field.get(key)
+            p = self._home_pin if key == "home_pin" else self.current_field.get(key)
             if not p:
                 continue
             try:
@@ -7496,6 +7757,13 @@ class BeetentApp(ctk.CTk):
             self.click_mode = None
             self._redraw_field_info()
             self._status(f"Parking pin set: {lat:.5f}, {lon:.5f} — Save Field to keep.")
+
+        elif mode=="set_home":
+            self._set_home_pin(lat, lon)        # global depot — persisted immediately
+            self.show_field_info.set(True)
+            self.click_mode = None
+            self._redraw_field_info()
+            self._status(f"Home pin set: {lat:.5f}, {lon:.5f} (saved).")
 
         elif mode=="boundary_circle":
             try:
