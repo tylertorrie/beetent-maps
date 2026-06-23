@@ -8,7 +8,7 @@
   "Planting_angle": "0",
   "Spray_angle": "0",
   "Sprayer_width": "120",
-  "shelter_mode": "trays_2",
+  "shelter_mode": "total",
   "num_structures": "",
   "shelters_per_acre": "",
   "acres_per_shelter": "2",
@@ -343,16 +343,7 @@
   "bays_through_inner": false,
   "shelter_at_pivot": false,
   "manual_shelter_pins": [],
-  "shelter_overrides": {
-    "35": [
-      50.67054354107903,
-      -111.96148610690204
-    ],
-    "27": [
-      50.67054184115224,
-      -111.96249729970066
-    ]
-  },
+  "shelter_overrides": {},
   "tray_overrides": {},
   "actual_shelter_pins": null,
   "shelter_rows": "",
@@ -363,5 +354,25 @@
   "pass_phase_swap": false,
   "jd_client": "TNT Pollination",
   "jd_farm": "Bayer",
-  "acres_manual": false
+  "acres_manual": false,
+  "adjust_by_combo": {
+    "trays_2|None=|out=No|both=0": {
+      "shelter_overrides": {
+        "35": [
+          50.67054354107903,
+          -111.96148610690204
+        ],
+        "27": [
+          50.67054184115224,
+          -111.96249729970066
+        ]
+      },
+      "tray_overrides": {}
+    },
+    "total|num_structures=|out=No|both=0": {
+      "shelter_overrides": {},
+      "tray_overrides": {}
+    }
+  },
+  "spray_both_ways": false
 }
