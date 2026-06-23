@@ -627,5 +627,11 @@
   "parking_pin": [
     49.80035189033358,
     -111.92267906305096
+  ],
+  "home_to_parking_km": 20.327,
+  "home_to_parking_min": 14.8,
+  "home_coords_used": [
+    49.874135,
+    -111.742934
   ]
 }
