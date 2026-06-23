@@ -376,6 +376,10 @@
     "total|num_structures=6|out=No|both=0": {
       "shelter_overrides": {},
       "tray_overrides": {}
+    },
+    "total|num_structures=61|out=No|both=0": {
+      "shelter_overrides": {},
+      "tray_overrides": {}
     }
   },
   "spray_both_ways": false
