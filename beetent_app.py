@@ -1791,12 +1791,15 @@ class BeetentApp(ctk.CTk):
             ("crews_setup",        "Crews — shelter setup",           "1"),
             ("emp_per_crew_setup", "Employees per crew — setup",      "1"),
             ("time_setup_min",     "Setup time per shelter (min)",    "10"),
+            ("load_setup_min_per_shelter", "Setup loading per shelter (min)", ""),
             ("crews_bees",         "Crews — bee distribution",        "1"),
             ("emp_per_crew_bees",  "Employees per crew — bees",       "1"),
             ("time_bees_min",      "Bee distribution time per shelter (min)", "5"),
+            ("load_bees_min_per_tray", "Bee loading per tray (min)",  "1.06"),
             ("crews_removal",      "Crews — shelter removal",         "1"),
             ("emp_per_crew_removal","Employees per crew — removal",   "1"),
             ("time_removal_min",   "Removal time per shelter (min)",  "5"),
+            ("load_removal_min_per_shelter", "Removal loading per shelter (min)", ""),
         ]),
     ]
 
@@ -2801,10 +2804,13 @@ class BeetentApp(ctk.CTk):
                   ("drive_speed_kmh", "Drive km/h"),
                   ("crews_setup", "Setup crews"), ("emp_per_crew_setup", "Setup emp/crew"),
                   ("time_setup_min", "Setup min/shelter"),
+                  ("load_setup_min_per_shelter", "Setup load min/shelter"),
                   ("crews_bees", "Bee crews"), ("emp_per_crew_bees", "Bee emp/crew"),
                   ("time_bees_min", "Bee min/shelter"),
+                  ("load_bees_min_per_tray", "Bee load min/tray"),
                   ("crews_removal", "Removal crews"), ("emp_per_crew_removal", "Removal emp/crew"),
-                  ("time_removal_min", "Removal min/shelter")]
+                  ("time_removal_min", "Removal min/shelter"),
+                  ("load_removal_min_per_shelter", "Removal load min/shelter")]
         pdf.set_font("Helvetica", "", 8); colw = W / 3.0; ry = pdf.get_y()
         for i, (k, lab) in enumerate(labels):
             coln = i % 3
@@ -3151,34 +3157,44 @@ class BeetentApp(ctk.CTk):
         speed = c.get("drive_speed_kmh", 0) or 15.0    # in-field driving speed
         # Per task: WORK cost is crew-count invariant (total person-hours of work);
         # crews only shorten the wall-clock duration and multiply travel + fuel.
-        def task(crews_k, emp_k, time_k):
+        def task(crews_k, emp_k, time_k, load_k, units, unit_name):
             crews = max(c.get(crews_k, 0), 0.0)
             epc   = max(c.get(emp_k, 0), 0.0)
             people = crews * epc
             mins  = c.get(time_k, 0)
             work_h = n * mins / 60.0                       # total person-hours of handling
+            # Truck loading/handling: paid person-hours = units × min/unit (scales with
+            # the field). Like handling, it splits across people for wall-clock time.
+            load_min = c.get(load_k, 0)
+            load_h = units * load_min / 60.0
             # In-field driving time is SHARED across crews (each crew covers route/crews
             # of the field), so it adds (route_km / crews / speed) to wall-clock duration.
             drive_h = (route_km / crews / speed) if crews > 0 else 0.0
-            dur_h  = (work_h / people + drive_h) if people > 0 else 0.0
+            dur_h  = ((work_h + load_h) / people + drive_h) if people > 0 else 0.0
             # The whole crew is on the clock while driving the field → paid labour =
             # people × per-crew drive time (= epc × route/speed, crew-count invariant).
             drive_labour = people * drive_h * pay
             field_labour = work_h * pay + drive_labour     # handling + in-field driving
+            load_labour  = load_h * pay
             # Each crew drives the FULL home->field round trip (rt_km x2 each); the
             # in-field route is SHARED/split across crews so it's counted once total.
             fuel_km = rt_km * 2.0 * crews + route_km
             return {"crews": crews, "epc": epc, "people": people, "min": mins,
                     "work_h": work_h, "work": work_h * pay, "dur_h": dur_h,
+                    "load_min": load_min, "load_units": units, "load_unit_name": unit_name,
+                    "load_h": load_h, "load_labour": load_labour,
                     "drive_h": drive_h, "drive_labour": drive_labour,
                     "field_labour": field_labour, "travel": people * rt_h * pay,
                     "fuel_km": fuel_km, "fuel": fuel_km * fuel_l_per_km * fuel_per_l}
-        ts = task("crews_setup",   "emp_per_crew_setup",   "time_setup_min")
-        tb = task("crews_bees",    "emp_per_crew_bees",    "time_bees_min")
-        tr = task("crews_removal", "emp_per_crew_removal", "time_removal_min")
-        lab_setup = ts["field_labour"] + ts["travel"]
-        lab_bees  = tb["field_labour"] + tb["travel"]
-        lab_rem   = tr["field_labour"] + tr["travel"]
+        ts = task("crews_setup",   "emp_per_crew_setup",   "time_setup_min",
+                  "load_setup_min_per_shelter", n, "shelters")
+        tb = task("crews_bees",    "emp_per_crew_bees",    "time_bees_min",
+                  "load_bees_min_per_tray", trays, "trays")
+        tr = task("crews_removal", "emp_per_crew_removal", "time_removal_min",
+                  "load_removal_min_per_shelter", n, "shelters")
+        lab_setup = ts["field_labour"] + ts["load_labour"] + ts["travel"]
+        lab_bees  = tb["field_labour"] + tb["load_labour"] + tb["travel"]
+        lab_rem   = tr["field_labour"] + tr["load_labour"] + tr["travel"]
         labour_total = lab_setup + lab_bees + lab_rem
         fuel_total   = ts["fuel"] + tb["fuel"] + tr["fuel"]
         travel_total = ts["travel"] + tb["travel"] + tr["travel"]
@@ -3198,6 +3214,12 @@ class BeetentApp(ctk.CTk):
             if rt_h <= 0:
                 return "set Home + Parking pins, then Update travel times"
             return ("%g ppl × %.1f h round trip × $%.0f/hr" % (t["people"], rt_h, pay))
+        def _load_calc(t):
+            if t["load_h"] <= 0:
+                return "set loading min/%s in General Information" % t["load_unit_name"][:-1]
+            return ("%d %s × %g min = %.1f person-hr × $%.0f/hr  ·  ~%.1f h with %g ppl"
+                    % (t["load_units"], t["load_unit_name"], t["load_min"], t["load_h"],
+                       pay, (t["load_h"] / t["people"]) if t["people"] > 0 else 0, t["people"]))
         def _fuel_calc(t):
             return ("%.1f km × %g L/km × $%.2f/L  (%g crew × %.1f km round trip + %.1f km field route shared)"
                     % (t["fuel_km"], fuel_l_per_km, fuel_per_l, t["crews"], rt_km * 2.0, route_km))
@@ -3214,10 +3236,13 @@ class BeetentApp(ctk.CTk):
              % (gallons, c.get("cost_per_gal_bee", 0)), bee),
             ("Chemical", "Chemical", "%.1f ac × $%.2f/ac"
              % (acres, c.get("chem_cost_per_acre", 0)), chemical),
+            ("Labour", "Setup (loading)", _load_calc(ts), ts["load_labour"]),
             ("Labour", "Setup (on-field)", _work_calc(ts), ts["field_labour"]),
             ("Labour", "Setup (travel)", _travel_calc(ts), ts["travel"]),
+            ("Labour", "Bees (loading)", _load_calc(tb), tb["load_labour"]),
             ("Labour", "Bees (on-field)", _work_calc(tb), tb["field_labour"]),
             ("Labour", "Bees (travel)", _travel_calc(tb), tb["travel"]),
+            ("Labour", "Removal (loading)", _load_calc(tr), tr["load_labour"]),
             ("Labour", "Removal (on-field)", _work_calc(tr), tr["field_labour"]),
             ("Labour", "Removal (travel)", _travel_calc(tr), tr["travel"]),
             ("Fuel", "Setup fuel", _fuel_calc(ts), ts["fuel"]),

@@ -192,15 +192,16 @@ Nav-drawer view (💰) with three `CTkSegmentedButton` tabs:
   cache). `_build_contract_rows` is rebuilt per visit so new companies appear.
 - **Cost Estimator** — company/year scope picker + per-field checkboxes; `_field_cost(f, c)`
   computes AMORTIZED items (unit cost ÷ life-years × qty; bees = 1-yr full cost) +
-  chemical (per acre) + **fuel** + labour. **Labour per task** (setup/bees/removal) =
-  *on-field* (handling `shelters × min/60` person-hours **+** in-field driving
-  `people × route_km/crews/drive_speed_kmh` person-hours, both paid × pay — **~crew-count
-  invariant**) + *travel* (crews × emp_per_crew people × home↔parking round-trip × pay).
-  Wall-clock **duration** `dur_X` = work_h/people **+** `route_km/crews/speed` (both split
-  by crews). So crews shorten duration and raise travel+fuel, but on-field labour cost is
-  crew-invariant. **Fuel** = (crews × round-trip km + in-field `crew_route` km, route
-  shared across crews) × `fuel_l_per_km` × `fuel_cost_per_l`, per task. Breakdown lines:
-  `<task> (on-field)` = handling + in-field driving labour; `<task> (travel)`. The home↔parking road distance/time is
+  chemical (per acre) + **fuel** + labour. **Labour per task** (setup/bees/removal) has
+  three paid parts: *loading* (truck/handling — `units × load-min/60` person-hours, per
+  tray for bees / per shelter for setup+removal, `load_*` inputs), *on-field* (handling
+  `shelters × min/60` **+** in-field driving `people × route_km/crews/speed`, both paid),
+  and *travel* (crews × emp_per_crew people × home↔parking round-trip × pay). Loading +
+  on-field labour are **~crew-count invariant** (they split across people); travel + fuel
+  scale with crews. Wall-clock **duration** `dur_X` = `(work_h + load_h)/people` **+**
+  `route_km/crews/speed`. **Fuel** = (crews × round-trip km + in-field `crew_route` km,
+  route shared across crews) × `fuel_l_per_km` × `fuel_cost_per_l`, per task. Breakdown
+  lines per task: `(loading)`, `(on-field)` = handling + in-field driving, `(travel)`. The home↔parking road distance/time is
   fetched via Google (`_drive_distance_google`, Distance Matrix API) by the
   **"↻ Update travel times"** button (`_cost_update_travel`, off-thread) and cached on
   each field as `home_to_parking_km`/`home_to_parking_min`/`home_coords_used`;
