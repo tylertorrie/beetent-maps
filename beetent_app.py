@@ -3147,6 +3147,7 @@ class BeetentApp(ctk.CTk):
         rt_h   = rt_min / 60.0 * 2.0               # round trip, hours
         fuel_l_per_km = c.get("fuel_l_per_km", 0)
         fuel_per_l    = c.get("fuel_cost_per_l", 0)
+        speed = c.get("drive_speed_kmh", 0) or 15.0    # in-field driving speed
         # Per task: WORK cost is crew-count invariant (total person-hours of work);
         # crews only shorten the wall-clock duration and multiply travel + fuel.
         def task(crews_k, emp_k, time_k):
@@ -3155,13 +3156,16 @@ class BeetentApp(ctk.CTk):
             people = crews * epc
             mins  = c.get(time_k, 0)
             work_h = n * mins / 60.0                       # total person-hours
-            dur_h  = (work_h / people) if people > 0 else 0.0
+            # In-field driving time is SHARED across crews (each crew covers route/crews
+            # of the field), so it adds (route_km / crews / speed) to wall-clock duration.
+            drive_h = (route_km / crews / speed) if crews > 0 else 0.0
+            dur_h  = (work_h / people + drive_h) if people > 0 else 0.0
             # Each crew drives the FULL home->field round trip (rt_km x2 each); the
             # in-field route is SHARED/split across crews so it's counted once total.
             fuel_km = rt_km * 2.0 * crews + route_km
             return {"crews": crews, "epc": epc, "people": people, "min": mins,
                     "work_h": work_h, "work": work_h * pay, "dur_h": dur_h,
-                    "travel": people * rt_h * pay, "fuel_km": fuel_km,
+                    "drive_h": drive_h, "travel": people * rt_h * pay, "fuel_km": fuel_km,
                     "fuel": fuel_km * fuel_l_per_km * fuel_per_l}
         ts = task("crews_setup",   "emp_per_crew_setup",   "time_setup_min")
         tb = task("crews_bees",    "emp_per_crew_bees",    "time_bees_min")
@@ -3176,8 +3180,9 @@ class BeetentApp(ctk.CTk):
         # Per-line-item breakdown with the calculation shown (for the detailed
         # on-screen view + PDF). qty/calc strings are human-readable.
         def _work_calc(t):
-            return ("%d × %gmin = %.1f person-hr × $%.0f/hr  ·  ~%.1f h with %g×%g crew"
-                    % (n, t["min"], t["work_h"], pay, t["dur_h"], t["crews"], t["epc"]))
+            drive = ("  +%.1f h field drive" % t["drive_h"]) if t["drive_h"] > 0 else ""
+            return ("%d × %gmin = %.1f person-hr × $%.0f/hr  ·  ~%.1f h with %g×%g crew%s"
+                    % (n, t["min"], t["work_h"], pay, t["dur_h"], t["crews"], t["epc"], drive))
         def _travel_calc(t):
             if rt_h <= 0:
                 return "set Home + Parking pins, then Update travel times"

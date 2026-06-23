@@ -195,9 +195,11 @@ Nav-drawer view (💰) with three `CTkSegmentedButton` tabs:
   chemical (per acre) + **fuel** + labour. **Labour per task** (setup/bees/removal) =
   *work* (shelters × per-shelter-min/60 person-hours × pay — **invariant to crew count**)
   + *travel* (crews × emp_per_crew people × home↔parking round-trip × pay). Crew count
-  (`crews_X` × `emp_per_crew_X`) only shortens each task's wall-clock **duration**
-  (`dur_X`, shown). **Fuel** = (crews × round-trip km + in-field `crew_route` km) ×
-  `fuel_l_per_km` × `fuel_cost_per_l`, per task. The home↔parking road distance/time is
+  (`crews_X` × `emp_per_crew_X`) only affects each task's wall-clock **duration** `dur_X`
+  (= work_h/people **+** in-field drive `route_km/crews/drive_speed_kmh`, both split by
+  crews — driving time is duration-only, NOT added to cost). **Fuel** = (crews ×
+  round-trip km + in-field `crew_route` km, route shared across crews) × `fuel_l_per_km`
+  × `fuel_cost_per_l`, per task. The home↔parking road distance/time is
   fetched via Google (`_drive_distance_google`, Distance Matrix API) by the
   **"↻ Update travel times"** button (`_cost_update_travel`, off-thread) and cached on
   each field as `home_to_parking_km`/`home_to_parking_min`/`home_coords_used`;
