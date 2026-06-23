@@ -1335,14 +1335,83 @@ def crew_route(field_dict, use_metric=True, shelters=None):
                     best_d = d; best = centres[k]
         cols.setdefault(best, []).append(along)
 
-    margin = rs_m
+    used = sorted(cols)        # bay-centre laterals that have shelters
+
+    # Boundary in the rotated (lateral, along) frame, if the field has one. A crew
+    # never crosses the standing crop: each pass is driven the FULL length to the
+    # field boundary, then they follow the boundary (headland) to the next pass.
+    bnd_la = None
+    bp = field_dict.get('boundary_polygon') or []
+    if len(bp) >= 3:
+        try:
+            bnd_enu = latlon_list_to_enu([(float(p[0]), float(p[1])) for p in bp], plon, plat)
+            bnd_la = [(e * ldx + n * ldy, e * tdx + n * tdy) for (e, n) in bnd_enu]
+        except Exception:
+            bnd_la = None
+
     route_la = []    # (lateral, along) waypoints
-    direction = 1
-    for cx in sorted(cols):
-        alos = sorted(cols[cx])
-        a0, a1 = alos[0] - margin, alos[-1] + margin
-        route_la.extend([(cx, a0), (cx, a1)] if direction > 0 else [(cx, a1), (cx, a0)])
-        direction = -direction
+    if bnd_la and len(bnd_la) >= 3:
+        m = len(bnd_la)
+
+        def _clip_col(cx):
+            # along-values + boundary-edge index where the vertical line
+            # lateral=cx crosses the boundary; sorted [(along, edge), ...].
+            cr = []
+            for k in range(m):
+                x1, y1 = bnd_la[k]; x2, y2 = bnd_la[(k + 1) % m]
+                if (x1 < cx) != (x2 < cx):
+                    t = (cx - x1) / (x2 - x1)
+                    cr.append((y1 + t * (y2 - y1), k))
+            cr.sort()
+            return cr
+
+        def _arc(p, e_p, q, e_q):
+            # Boundary vertices strictly between boundary points p and q (each a
+            # (lateral, along) tuple on edges e_p / e_q) — the SHORTER of the two
+            # perimeter arcs, i.e. the headland the crew drives between passes.
+            if e_p == e_q:
+                return []
+            def collect(step):
+                verts = []; idx = (e_p + 1) % m if step > 0 else e_p
+                target = e_q if step > 0 else (e_q + 1) % m
+                for _ in range(m + 1):
+                    verts.append(bnd_la[idx])
+                    if idx == target: break
+                    idx = (idx + step) % m
+                return verts
+            def plen(verts):
+                pts = [p] + verts + [q]
+                return sum(math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1])
+                           for i in range(1, len(pts)))
+            fwd = collect(1); bwd = collect(-1)
+            return fwd if plen(fwd) <= plen(bwd) else bwd
+
+        prev = None; prev_e = None       # last column's exit point + its edge
+        direction = 1
+        for cx in used:
+            cr = _clip_col(cx)
+            if len(cr) < 2:
+                continue
+            a_lo, e_lo = cr[0]; a_hi, e_hi = cr[-1]
+            if direction > 0:
+                entry, e_en, exit_, e_ex = (cx, a_lo), e_lo, (cx, a_hi), e_hi
+            else:
+                entry, e_en, exit_, e_ex = (cx, a_hi), e_hi, (cx, a_lo), e_lo
+            if prev is not None:
+                route_la.extend(_arc(prev, prev_e, entry, e_en))   # along the headland
+            route_la.append(entry)
+            route_la.append(exit_)
+            prev, prev_e = exit_, e_ex
+            direction = -direction
+
+    if not route_la:
+        # No boundary (or clip failed): straight-connector snake over the shelter
+        # extent of each column (best effort when there's nothing to clip to).
+        direction = 1
+        for cx in used:
+            alos = sorted(cols[cx]); a0, a1 = alos[0] - rs_m, alos[-1] + rs_m
+            route_la.extend([(cx, a0), (cx, a1)] if direction > 0 else [(cx, a1), (cx, a0)])
+            direction = -direction
 
     total_m = sum(math.hypot(route_la[i][0] - route_la[i - 1][0],
                              route_la[i][1] - route_la[i - 1][1])
