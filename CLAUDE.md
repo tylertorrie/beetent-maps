@@ -172,9 +172,22 @@ vertex markers (drag/add via map-click/delete via 🗑), saved per-field as
 and `_field_cost` uses its length; "Reset Crew Route" clears it. Excluded from the tent
 cache key; cleaned up on field switch.
 
-## Cost Estimator view
+## Nav drawer
 
-Nav-drawer view (💰) with three `CTkSegmentedButton` tabs:
+The ☰ menu lists, in order: **🗺 Map View**, **📡 Monitor**, **💰 Financial View**
+(the cost estimator), **📁 Files**. The **Overview** is no longer a top-level entry — it
+lives as a third tab inside the Files view (Output Files / Reference Files / **Overview**),
+built lazily as a child of `files_view` via `_build_overview_view(parent=…)` and shown by
+`_files_switch_tab("overview")` (which hides the file-list widgets and shows the Units
+toolbar). There is no "Export all to tablet" button — every field write (manual `_save_field`
+**and** the `_autosave_tick`) calls `_export_tablet_geojson(f)`, so any edit syncs to the
+field tablet live.
+
+## Financial View (cost estimator)
+
+Nav-drawer view (💰, labelled "Financial View"; internals still use the
+`cost_estimator_view` / `_open_cost_estimator_view` names) with three
+`CTkSegmentedButton` tabs:
 - **General Information** — cost inputs (items + depreciation life, chemical, **fuel**,
   labour) in `self._cost_vars` and bid **$/acre per company** (`self._contract_vars`,
   Contracts card). **Everything here is stored PER PRICING YEAR**: a year dropdown

@@ -1695,11 +1695,9 @@ class BeetentApp(ctk.CTk):
         ctk.CTkFrame(self.nav_drawer, height=1, fg_color=UI_BORDER).pack(
             fill="x", padx=8, pady=(0, 6))
         for text, cmd in [("🗺  Map View", self._open_map_view),
-                          ("📊  Overview", self._open_overview_view),
                           ("📡  Monitor",  self._open_monitor_view),
-                          ("📁  Files",    self._open_files_view),
-                          ("💰  Cost Estimator", self._open_cost_estimator_view),
-                          ("📤  Export all to tablet", self._export_all_tablet_geojson)]:
+                          ("💰  Financial View", self._open_cost_estimator_view),
+                          ("📁  Files",    self._open_files_view)]:
             ctk.CTkButton(self.nav_drawer, text=text, anchor="w", height=40,
                           fg_color="transparent", hover_color=UI_HOVER,
                           text_color=UI_TEXT,
@@ -1749,17 +1747,10 @@ class BeetentApp(ctk.CTk):
         self._files_refresh_filter_options()
         self._files_refresh()
 
-    def _open_overview_view(self):
-        self._close_nav_drawer()
-        self._hide_all_views()
-        if getattr(self, "overview_view", None) is None:
-            self._build_overview_view()
-        self.overview_view.pack(fill="both", expand=True)
-        self._apply_toolbar_for_view("overview")
-        self._overview_refresh_filter_options()
-        self._overview_refresh()
+    # Overview now lives as a tab inside the Files view (see _files_switch_tab);
+    # it is no longer a top-level nav entry.
 
-    # ── Cost Estimator view ──────────────────────────────────────────────────
+    # ── Financial View (cost estimator) ──────────────────────────────────────
     # Global cost inputs (one set, persisted to fields/cost_prefs.json) entered on
     # the "General Information" tab; the "Cost Estimator" tab computes per-field +
     # aggregate cost and exports CSV / PDF.
@@ -1815,7 +1806,7 @@ class BeetentApp(ctk.CTk):
         self.cost_estimator_view = ctk.CTkFrame(self, corner_radius=0)
         hdr = ctk.CTkFrame(self.cost_estimator_view, fg_color="transparent")
         hdr.pack(fill="x", padx=12, pady=(10, 4))
-        ctk.CTkLabel(hdr, text="Cost Estimator", text_color=UI_TEXT,
+        ctk.CTkLabel(hdr, text="Financial View", text_color=UI_TEXT,
                      font=ctk.CTkFont(family=FONT_HEADING, size=18)).pack(side="left")
         self._cost_tab_seg = ctk.CTkSegmentedButton(
             hdr, values=["General Information", "Cost Estimator", "Profitability"],
@@ -3801,6 +3792,7 @@ class BeetentApp(ctk.CTk):
         # Tab state: "output" = generated field outputs, "reference" = the
         # permanent reference library. Set before any widgets use it.
         self._files_tab = "output"
+        self._fv_overview_built = False  # Overview tab is built lazily on first open
         self._files_res_cwd = ()        # subfolder path under reference/
         hdr = ctk.CTkFrame(self.files_view, fg_color="transparent")
         hdr.pack(fill="x", padx=12, pady=(10, 4))
@@ -3808,7 +3800,7 @@ class BeetentApp(ctk.CTk):
                                       font=ctk.CTkFont(family=FONT_HEADING, size=18))
         self._fv_title.pack(side="left")
         self._fv_tab_seg = ctk.CTkSegmentedButton(
-            hdr, values=["Output Files", "Reference Files"],
+            hdr, values=["Output Files", "Reference Files", "Overview"],
             command=self._files_on_tab_select)
         self._fv_tab_seg.set("Output Files")
         self._fv_tab_seg.pack(side="right")
@@ -3862,6 +3854,7 @@ class BeetentApp(ctk.CTk):
         # the Reference tab, packed before Select All)
         act = ctk.CTkFrame(self.files_view, fg_color="transparent")
         act.pack(fill="x", padx=12, pady=(2, 4))
+        self._fv_action_row = act
         self._fv_upload_btn = ctk.CTkButton(
             act, text="⬆ Upload File…", width=120, fg_color="#1a5c8a",
             command=self._files_upload)
@@ -3893,29 +3886,60 @@ class BeetentApp(ctk.CTk):
             self._fv_role_cb.pack_forget()
         self._files_refresh()
 
-    # ── Files view: tabs (Output Files / Reference Files) ──
+    # ── Files view: tabs (Output Files / Reference Files / Overview) ──
     def _files_on_tab_select(self, value):
-        self._files_switch_tab("reference" if value.startswith("Reference")
-                               else "output")
-        self._files_refresh()
+        tab = ("overview" if value.startswith("Overview")
+               else "reference" if value.startswith("Reference") else "output")
+        self._files_switch_tab(tab)
+        if tab == "overview":
+            self._overview_refresh_filter_options()
+            self._overview_refresh()
+        else:
+            self._files_refresh()
 
     def _files_switch_tab(self, tab):
         """Toggle which widgets are visible for the chosen tab. Does not refresh
-        the list — callers do that."""
+        the list / table — callers do that."""
         self._files_tab = tab
+        # Always hide the embedded Overview first; shown only on its own tab.
+        if getattr(self, "overview_view", None) is not None:
+            self.overview_view.pack_forget()
+
+        if tab == "overview":
+            # Hide all the file-list widgets and show the Overview table instead.
+            self._fv_title.configure(text="Overview")
+            for w in (self._fv_filter_row, self._fv_crumb, self._fv_action_row,
+                      self._fv_scroll):
+                w.pack_forget()
+            if not getattr(self, "_fv_overview_built", False):
+                self._build_overview_view(parent=self.files_view)
+                self._fv_overview_built = True
+            self.overview_view.pack(fill="both", expand=True, padx=0, pady=0)
+            self._apply_toolbar_for_view("overview")     # keep the Units toggle
+            return
+
+        # Output / Reference: re-pack the file-list body in the correct order
+        # (these may have been hidden by the Overview tab).
+        for w in (self._fv_filter_row, self._fv_crumb, self._fv_action_row,
+                  self._fv_scroll):
+            w.pack_forget()
         if tab == "reference":
             self._fv_title.configure(text="Reference Files")
-            self._fv_filter_row.pack_forget()
+        else:
+            self._fv_title.configure(text="Output Files")
+            self._fv_filter_row.pack(fill="x", padx=12, pady=(2, 4))
+        self._fv_crumb.pack(fill="x", padx=12, pady=(0, 2))
+        self._fv_action_row.pack(fill="x", padx=12, pady=(2, 4))
+        self._fv_scroll.pack(fill="both", expand=True, padx=12, pady=(2, 10))
+        if tab == "reference":
             self._fv_upload_btn.pack(side="left", padx=(0, 6),
                                      before=self._fv_selectall_btn)
             self._fv_newfolder_btn.pack(side="left", padx=(0, 12),
                                         before=self._fv_selectall_btn)
         else:
-            self._fv_title.configure(text="Output Files")
             self._fv_upload_btn.pack_forget()
             self._fv_newfolder_btn.pack_forget()
-            self._fv_filter_row.pack(fill="x", padx=12, pady=(2, 4),
-                                     before=self._fv_crumb)
+        self._apply_toolbar_for_view("files")
 
     # ── Files view: navigation state ──
     def _files_record(self, rec_id):
@@ -4637,8 +4661,11 @@ class BeetentApp(ctk.CTk):
             return f"{val:g}"
         return str(val) if val not in (None, "") else "—"
 
-    def _build_overview_view(self):
-        self.overview_view = ctk.CTkFrame(self, corner_radius=0)
+    def _build_overview_view(self, parent=None):
+        # Overview is embedded as a tab inside the Files view, so it is built as a
+        # child of that view (parent passed in); packing is handled by the tab switch.
+        self.overview_view = ctk.CTkFrame(parent if parent is not None else self,
+                                          corner_radius=0)
         self._ov_visible = self._ov_load_prefs()
 
         hdr = ctk.CTkFrame(self.overview_view, fg_color="transparent")
@@ -12387,6 +12414,9 @@ class BeetentApp(ctk.CTk):
             return                                  # nothing changed
         try: save_field(f)
         except Exception: return
+        # Push the change to the field tablet live (same as a manual Save).
+        try: self._export_tablet_geojson(f)
+        except Exception as e: self._log(f"Tablet export (auto-save) skipped: {e}")
         self._autosave_last = snap
         self._refresh_field_list()
         self._git_push(f"auto-save: {name}")
