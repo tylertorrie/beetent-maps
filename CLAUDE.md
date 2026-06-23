@@ -204,8 +204,13 @@ Nav-drawer view (💰) with three `CTkSegmentedButton` tabs:
   `_field_cost` only READS that cache. `_field_cost` returns `cost_per_acre` (= total ÷
   acres); `_cost_compute` also attaches `contract_rate`/`contract_value`/`net_profit`
   per field (revenue = the field-year's contract rate × acres; net profit = contract
-  value − total cost). Hero shows Cost/ac plus a **Contract value / Total cost / Net
-  profit** trio (when a rate is set); per-field cards + CSV + PDF carry all three. The
+  value − total cost; plus `profit_per_acre`). Both heroes (this tab + Profitability)
+  show **Cost / ac** and **Profit / ac** next to the headline figure; the cost hero adds
+  a **Contract value / Total cost / Net profit** trio when a rate is set. Per-field cards
+  + CSV + PDF carry contract value, net profit, cost/ac and profit/ac. **PDF caveat:**
+  fpdf core fonts are latin-1 — any dynamic text (line labels, calc strings, field names)
+  must go through `_pdf_txt` or non-ASCII chars (em-dash, →) raise UnicodeEncodeError on
+  export. The
   field picker is **collapsible** (`_cost_toggle_field_list`). The breakdown groups in a
   fixed `_COST_CAT_ORDER` (Items, Bees, Chemical, Fuel, Labour); the `lines` list keeps
   same-group rows contiguous so each group renders as ONE card (Items =

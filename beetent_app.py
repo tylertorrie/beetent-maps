@@ -2189,7 +2189,10 @@ class BeetentApp(ctk.CTk):
         tot_rev = sum(r["revenue"] for r in rows)
         tot_cost = sum(r["cost"] for r in rows)
         tot_profit = tot_rev - tot_cost
+        tot_acres = sum(r["lc"].get("acres", 0) for r in rows)
         margin = (tot_profit / tot_rev * 100) if tot_rev > 0 else 0.0
+        ppa = (tot_profit / tot_acres) if tot_acres > 0 else 0.0
+        cpa = (tot_cost / tot_acres) if tot_acres > 0 else 0.0
         pos, neg = "#16A34A", "#DC2626"
 
         # ── Hero ──
@@ -2204,7 +2207,17 @@ class BeetentApp(ctk.CTk):
                      font=ctk.CTkFont(family=FONT_HEADING, size=38)).pack(anchor="w")
         ctk.CTkLabel(hi, text="revenue %s  −  cost %s   ·   %.0f%% margin   ·   %d fields"
                      % (money(tot_rev), money(tot_cost), margin, len(rows)),
-                     text_color=UI_MUTED, font=ctk.CTkFont(size=11)).pack(anchor="w", pady=(0, 2))
+                     text_color=UI_MUTED, font=ctk.CTkFont(size=11)).pack(anchor="w", pady=(0, 6))
+        pf = ctk.CTkFrame(hi, fg_color="transparent"); pf.pack(fill="x")
+        for lab, val, clr in (("Profit / ac", money(ppa) if tot_acres > 0 else "—",
+                               pos if ppa >= 0 else neg),
+                              ("Cost / ac", money(cpa) if tot_acres > 0 else "—", UI_TEXT)):
+            cell = ctk.CTkFrame(pf, fg_color=UI_HOVER, corner_radius=8)
+            cell.pack(side="left", padx=(0, 8))
+            ctk.CTkLabel(cell, text=val, text_color=clr,
+                         font=ctk.CTkFont(family=FONT_HEADING, size=18)).pack(padx=14, pady=(6, 0))
+            ctk.CTkLabel(cell, text=lab, text_color=UI_MUTED,
+                         font=ctk.CTkFont(size=10)).pack(padx=14, pady=(0, 6))
         nbad = sum(1 for r in rows if r["warns"])
         if nbad:
             ctk.CTkLabel(hi, text="❗ %d field%s missing info — results may be off"
@@ -2297,6 +2310,7 @@ class BeetentApp(ctk.CTk):
                 lc["contract_rate"] = rate
                 lc["contract_value"] = rate * lc.get("acres", 0)
                 lc["net_profit"] = lc["contract_value"] - lc.get("total", 0)
+                lc["profit_per_acre"] = (lc["net_profit"] / lc["acres"]) if lc.get("acres", 0) > 0 else 0.0
                 rows.append((co, yr, name, lc))
             self.after(0, lambda: self._cost_done(rows))
         threading.Thread(target=_work, daemon=True).start()
@@ -2376,6 +2390,7 @@ class BeetentApp(ctk.CTk):
         t["groups"] = gt
         t["cost_per_acre"] = (t["total"] / t["acres"]) if t["acres"] > 0 else 0.0
         t["contract_rate"] = (t["contract_value"] / t["acres"]) if t["acres"] > 0 else 0.0
+        t["profit_per_acre"] = (t["net_profit"] / t["acres"]) if t["acres"] > 0 else 0.0
         return t
 
     _COST_CAT_COLORS = {"Items": "#0E9384", "Bees": "#EAB308",
@@ -2449,7 +2464,6 @@ class BeetentApp(ctk.CTk):
                      text_color=UI_MUTED, font=ctk.CTkFont(size=11)).pack(anchor="w", pady=(0, 8))
         pills = ctk.CTkFrame(hi, fg_color="transparent"); pills.pack(fill="x")
         for lab, val in (("Acres", "%.0f" % t["acres"]), ("Shelters", "%d" % t["shelters"]),
-                         ("Cost / ac", money(t["total"] / t["acres"]) if t["acres"] > 0 else "—"),
                          ("Trays", "%d" % t["trays"]), ("Bee gal", "%.0f" % t["gallons"]),
                          ("Crew km", "%.1f" % t["route_km"])):
             self._cost_pill(pills, lab, val)
@@ -2457,27 +2471,35 @@ class BeetentApp(ctk.CTk):
             ctk.CTkLabel(hi, text=self._cost_schedule_text(self._cost_rows[0][3]),
                          text_color=UI_MUTED, font=ctk.CTkFont(size=11)
                          ).pack(anchor="w", pady=(8, 0))
-        # ── Contract value + net profit (when contract $/acre is set) ──
-        cv = t.get("contract_value", 0); npft = t.get("net_profit", 0)
+        # ── Cost/acre always; contract value + net profit + profit/acre when a rate is set ──
+        acres = t.get("acres", 0); cv = t.get("contract_value", 0); npft = t.get("net_profit", 0)
+        pos, neg = "#16A34A", "#DC2626"
+        cpa = money(t["cost_per_acre"]) if acres > 0 else "—"
+        ppa = money(t["profit_per_acre"]) if acres > 0 else "—"
+        cells = []
         if cv > 0:
-            pos, neg = "#16A34A", "#DC2626"
-            pf = ctk.CTkFrame(hi, fg_color="transparent"); pf.pack(fill="x", pady=(10, 0))
-            for lab, val, clr in (("Contract value", money(cv), UI_TEXT),
-                                  ("Total cost", money(t["total"]), UI_TEXT),
-                                  ("Net profit", money(npft), pos if npft >= 0 else neg)):
-                cell = ctk.CTkFrame(pf, fg_color=UI_HOVER, corner_radius=8)
-                cell.pack(side="left", padx=(0, 8))
-                ctk.CTkLabel(cell, text=val, text_color=clr,
-                             font=ctk.CTkFont(family=FONT_HEADING, size=18)).pack(padx=14, pady=(6, 0))
-                ctk.CTkLabel(cell, text=lab, text_color=UI_MUTED,
-                             font=ctk.CTkFont(size=10)).pack(padx=14, pady=(0, 6))
-            mg = (npft / cv * 100) if cv > 0 else 0
-            ctk.CTkLabel(pf, text="%.0f%% margin" % mg, text_color=UI_MUTED,
-                         font=ctk.CTkFont(size=11)).pack(side="left", padx=(4, 0), pady=8)
+            cells.append(("Contract value", money(cv), UI_TEXT))
+        cells.append(("Total cost", money(t["total"]), UI_TEXT))
+        cells.append(("Cost / ac", cpa, UI_TEXT))
+        if cv > 0:
+            cells.append(("Net profit", money(npft), pos if npft >= 0 else neg))
+            cells.append(("Profit / ac", ppa, pos if t["profit_per_acre"] >= 0 else neg))
+        pf = ctk.CTkFrame(hi, fg_color="transparent"); pf.pack(fill="x", pady=(10, 0))
+        for lab, val, clr in cells:
+            cell = ctk.CTkFrame(pf, fg_color=UI_HOVER, corner_radius=8)
+            cell.pack(side="left", padx=(0, 8))
+            ctk.CTkLabel(cell, text=val, text_color=clr,
+                         font=ctk.CTkFont(family=FONT_HEADING, size=18)).pack(padx=14, pady=(6, 0))
+            ctk.CTkLabel(cell, text=lab, text_color=UI_MUTED,
+                         font=ctk.CTkFont(size=10)).pack(padx=14, pady=(0, 6))
+        if cv > 0:
+            ctk.CTkLabel(pf, text="%.0f%% margin" % (npft / cv * 100),
+                         text_color=UI_MUTED, font=ctk.CTkFont(size=11)
+                         ).pack(side="left", padx=(4, 0), pady=8)
         else:
             ctk.CTkLabel(hi, text="Set contract $/acre per company on General Information "
-                         "to see contract value + net profit here.", text_color=UI_MUTED,
-                         font=ctk.CTkFont(size=10)).pack(anchor="w", pady=(8, 0))
+                         "to see contract value, net profit + profit/ac here.",
+                         text_color=UI_MUTED, font=ctk.CTkFont(size=10)).pack(anchor="w", pady=(6, 0))
 
         # ── Composition bar + legend ─────────────────────────────────────────
         self._cost_section(P, "Where the cost goes")
@@ -2572,7 +2594,7 @@ class BeetentApp(ctk.CTk):
         ("Labour $", "labour"), ("Travel $", "travel"), ("Travel km", "travel_km"),
         ("Fuel $", "fuel"), ("Total $", "total"), ("Cost/ac $", "cost_per_acre"),
         ("Contract $/ac", "contract_rate"), ("Contract value $", "contract_value"),
-        ("Net profit $", "net_profit"),
+        ("Net profit $", "net_profit"), ("Profit/ac $", "profit_per_acre"),
     ]
 
     def _cost_export_csv(self):
@@ -2601,6 +2623,13 @@ class BeetentApp(ctk.CTk):
         self._status("Cost CSV saved → %s" % path.name)
         try: os.startfile(str(path))
         except Exception: pass
+
+    @staticmethod
+    def _pdf_txt(s):
+        """Coerce text to the latin-1 range fpdf's core fonts support (em-dashes,
+        arrows etc. otherwise raise UnicodeEncodeError on export)."""
+        return (str(s).replace("—", "-").replace("–", "-").replace("→", "->")
+                .replace("•", "-").encode("latin-1", "replace").decode("latin-1"))
 
     @staticmethod
     def _pdf_section(pdf, title, x0, W, ink):
@@ -2653,21 +2682,25 @@ class BeetentApp(ctk.CTk):
             pdf.set_xy(xx, y + 6); pdf.set_text_color(*MUT); pdf.set_font("Helvetica", "", 8); pdf.cell(pw, 4, lab)
         pdf.set_y(y + 13)
 
-        # ── Contract value + net profit (when a contract rate is set) ──
+        # ── Contract value + net profit + per-acre (when a contract rate is set) ──
         cv = t.get("contract_value", 0); npft = t.get("net_profit", 0)
         if cv > 0:
             GRN = (22, 163, 74); RED = (220, 38, 38)
             pdf.set_x(x0); pdf.set_text_color(*MUT); pdf.set_font("Helvetica", "", 9)
-            pdf.cell(0, 5, "CONTRACT VALUE  vs  NET PROFIT", ln=1)
-            yy = pdf.get_y(); cw = W / 3.0
-            for j, (lab, val, rgb) in enumerate((
-                    ("Contract value", money(cv), INK), ("Total cost", money(t["total"]), INK),
-                    ("Net profit", money(npft), GRN if npft >= 0 else RED))):
+            pdf.cell(0, 5, "CONTRACT VALUE  vs  NET PROFIT  ·  %.0f%% margin"
+                     % (npft / cv * 100), ln=1)
+            ppr = GRN if t.get("profit_per_acre", 0) >= 0 else RED
+            stats5 = [("Contract value", money(cv), INK), ("Total cost", money(t["total"]), INK),
+                      ("Cost / ac", money(t.get("cost_per_acre", 0)), INK),
+                      ("Net profit", money(npft), GRN if npft >= 0 else RED),
+                      ("Profit / ac", money(t.get("profit_per_acre", 0)), ppr)]
+            yy = pdf.get_y(); cw = W / len(stats5)
+            for j, (lab, val, rgb) in enumerate(stats5):
                 xx = x0 + j * cw
-                pdf.set_xy(xx, yy); pdf.set_text_color(*rgb); pdf.set_font("Helvetica", "B", 14)
+                pdf.set_xy(xx, yy); pdf.set_text_color(*rgb); pdf.set_font("Helvetica", "B", 13)
                 pdf.cell(cw, 7, val)
                 pdf.set_xy(xx, yy + 7); pdf.set_text_color(*MUT); pdf.set_font("Helvetica", "", 8)
-                pdf.cell(cw, 4, lab + ("  (%.0f%% margin)" % (npft / cv * 100) if lab == "Net profit" else ""))
+                pdf.cell(cw, 4, lab)
             pdf.set_y(yy + 13)
 
         # ── Composition bar ──
@@ -2710,10 +2743,10 @@ class BeetentApp(ctk.CTk):
                 pdf.cell(W - 30, 6, g)
                 pdf.set_text_color(*INK); pdf.cell(30, 6, money(gtot[g]), align="R", ln=1)
             pdf.set_x(x0 + 4); pdf.set_text_color(*INK); pdf.set_font("Helvetica", "", 9)
-            pdf.cell(48, 5, l)
+            pdf.cell(48, 5, self._pdf_txt(l))
             calc = next((cc for (gg, ll, cc, _a) in single if gg == g and ll == l), "") if single else ""
             pdf.set_text_color(*MUT); pdf.set_font("Helvetica", "", 8)
-            pdf.cell(W - 48 - 30, 5, calc)
+            pdf.cell(W - 48 - 30, 5, self._pdf_txt(calc))
             pdf.set_text_color(*INK); pdf.set_font("Helvetica", "", 9)
             pdf.cell(30, 5, money(agg[(g, l)]), align="R", ln=1)
 
@@ -2725,7 +2758,7 @@ class BeetentApp(ctk.CTk):
             yy = pdf.get_y()
             pdf.set_fill_color(245, 246, 248); pdf.rect(x0, yy, W, 7, "F")
             pdf.set_xy(x0 + 2, yy + 1); pdf.set_text_color(*INK); pdf.set_font("Helvetica", "B", 10)
-            pdf.cell(W * 0.62, 5, ("%s  ·  %s" % (name, co))[:60])
+            pdf.cell(W * 0.62, 5, self._pdf_txt("%s  ·  %s" % (name, co))[:60])
             pdf.set_text_color(*TEAL); pdf.set_font("Helvetica", "B", 11)
             pdf.cell(W * 0.38 - 2, 5, money(lc["total"]), align="R", ln=1)
             pdf.set_x(x0); pdf.set_text_color(*MUT); pdf.set_font("Helvetica", "", 8)
@@ -2744,9 +2777,9 @@ class BeetentApp(ctk.CTk):
                 ry = pdf.get_y()
                 pdf.set_fill_color(*RGB.get(g, INK)); pdf.rect(x0 + 3, ry + 1.4, 2, 2, "F")
                 pdf.set_xy(x0 + 7, ry); pdf.set_text_color(*INK); pdf.set_font("Helvetica", "", 9)
-                pdf.cell(44, 4.6, l)
+                pdf.cell(44, 4.6, self._pdf_txt(l))
                 pdf.set_text_color(*MUT); pdf.set_font("Helvetica", "", 8)
-                pdf.cell(W - 44 - 30 - 7, 4.6, calc)
+                pdf.cell(W - 44 - 30 - 7, 4.6, self._pdf_txt(calc))
                 pdf.set_text_color(*INK); pdf.set_font("Helvetica", "", 9)
                 pdf.cell(30, 4.6, money(amt), align="R", ln=1)
             pdf.ln(3)
@@ -3141,7 +3174,7 @@ class BeetentApp(ctk.CTk):
                     % (n, t["min"], t["work_h"], pay, t["dur_h"], t["crews"], t["epc"]))
         def _travel_calc(t):
             if rt_h <= 0:
-                return "set Home + Parking pins, then ↻ Update travel times"
+                return "set Home + Parking pins, then Update travel times"
             return ("%g ppl × %.1f h round trip × $%.0f/hr" % (t["people"], rt_h, pay))
         def _fuel_calc(t):
             return ("%.1f km × %g L/km × $%.2f/L  (%g crew round trip + route)"
@@ -3159,12 +3192,12 @@ class BeetentApp(ctk.CTk):
              % (gallons, c.get("cost_per_gal_bee", 0)), bee),
             ("Chemical", "Chemical", "%.1f ac × $%.2f/ac"
              % (acres, c.get("chem_cost_per_acre", 0)), chemical),
-            ("Labour", "Setup — work", _work_calc(ts), ts["work"]),
-            ("Labour", "Setup — travel", _travel_calc(ts), ts["travel"]),
-            ("Labour", "Bees — work", _work_calc(tb), tb["work"]),
-            ("Labour", "Bees — travel", _travel_calc(tb), tb["travel"]),
-            ("Labour", "Removal — work", _work_calc(tr), tr["work"]),
-            ("Labour", "Removal — travel", _travel_calc(tr), tr["travel"]),
+            ("Labour", "Setup (work)", _work_calc(ts), ts["work"]),
+            ("Labour", "Setup (travel)", _travel_calc(ts), ts["travel"]),
+            ("Labour", "Bees (work)", _work_calc(tb), tb["work"]),
+            ("Labour", "Bees (travel)", _travel_calc(tb), tb["travel"]),
+            ("Labour", "Removal (work)", _work_calc(tr), tr["work"]),
+            ("Labour", "Removal (travel)", _travel_calc(tr), tr["travel"]),
             ("Fuel", "Setup fuel", _fuel_calc(ts), ts["fuel"]),
             ("Fuel", "Bees fuel", _fuel_calc(tb), tb["fuel"]),
             ("Fuel", "Removal fuel", _fuel_calc(tr), tr["fuel"]),
