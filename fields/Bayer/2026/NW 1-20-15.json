@@ -9,7 +9,7 @@
   "Spray_angle": "0",
   "Sprayer_width": "120",
   "shelter_mode": "total",
-  "num_structures": "",
+  "num_structures": "61",
   "shelters_per_acre": "",
   "acres_per_shelter": "2",
   "spacing": "",
@@ -370,6 +370,10 @@
       "tray_overrides": {}
     },
     "total|num_structures=|out=No|both=0": {
+      "shelter_overrides": {},
+      "tray_overrides": {}
+    },
+    "total|num_structures=6|out=No|both=0": {
       "shelter_overrides": {},
       "tray_overrides": {}
     }
