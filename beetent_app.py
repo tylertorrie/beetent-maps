@@ -1931,34 +1931,143 @@ class BeetentApp(ctk.CTk):
                 t[k] += lc.get(k, 0)
         return t
 
+    _COST_CAT_COLORS = {"Items": "#0E9384", "Chemical": "#D97706", "Labour": "#6366F1"}
+
+    @staticmethod
+    def _cost_money(x):
+        return "$" + format(int(round(x)), ",d")
+
+    def _cost_pill(self, parent, label, value):
+        p = ctk.CTkFrame(parent, fg_color=UI_HOVER, corner_radius=8)
+        p.pack(side="left", padx=(0, 6))
+        ctk.CTkLabel(p, text=value, font=ctk.CTkFont(family=FONT_HEADING, size=15),
+                     text_color=UI_TEXT).pack(padx=12, pady=(5, 0))
+        ctk.CTkLabel(p, text=label, font=ctk.CTkFont(size=9), text_color=UI_MUTED
+                     ).pack(padx=12, pady=(0, 5))
+
+    def _cost_section(self, parent, title):
+        ctk.CTkLabel(parent, text=title, anchor="w", text_color=UI_TEXT,
+                     font=ctk.CTkFont(family=FONT_HEADING, size=14)
+                     ).pack(fill="x", padx=4, pady=(10, 5))
+
+    def _cost_bar(self, parent, segs, total, h=16, pad=2):
+        bar = ctk.CTkFrame(parent, fg_color=UI_BORDER, corner_radius=h // 2, height=h)
+        bar.pack(fill="x", padx=pad, pady=(0, 2)); bar.pack_propagate(False)
+        if total <= 0:
+            return
+        x = 0.0
+        for (lab, val, col) in segs:
+            frac = max(0.0, val / total)
+            if frac <= 0.001:
+                continue
+            ctk.CTkFrame(bar, fg_color=col, corner_radius=h // 2
+                         ).place(relx=x, rely=0, relwidth=frac, relheight=1.0)
+            x += frac
+
     def _cost_render_results(self):
         for w in self._cost_results_frame.winfo_children():
             w.destroy()
+        P = self._cost_results_frame
         if not self._cost_rows:
-            ctk.CTkLabel(self._cost_results_frame, text="No results — choose fields and Compute.",
-                         text_color=UI_MUTED).pack(anchor="w", padx=4, pady=4)
+            ctk.CTkLabel(P, text="No results yet — choose fields above and press “Compute costs”.",
+                         text_color=UI_MUTED, font=ctk.CTkFont(size=12)).pack(anchor="w", padx=6, pady=10)
             return
-        hdr = "%-34s %8s %7s %10s" % ("Field", "Shelters", "Acres", "Total $")
-        ctk.CTkLabel(self._cost_results_frame, text=hdr, anchor="w",
-                     font=ctk.CTkFont(family="Courier New", size=11, weight="bold")
-                     ).pack(anchor="w", padx=4)
-        for (co, yr, name, lc) in self._cost_rows:
-            line = "%-34s %8d %7.1f %10s" % (
-                ("%s/%s" % (co, name))[:34], lc["shelters"], lc["acres"],
-                "$" + format(lc["total"], ",.0f"))
-            ctk.CTkLabel(self._cost_results_frame, text=line, anchor="w",
-                         font=ctk.CTkFont(family="Courier New", size=11)).pack(anchor="w", padx=4)
         t = self._cost_totals()
-        ctk.CTkFrame(self._cost_results_frame, height=1, fg_color=UI_BORDER).pack(fill="x", pady=4)
-        tot = "%-34s %8d %7.1f %10s" % ("TOTAL (%d fields)" % len(self._cost_rows),
-                                        t["shelters"], t["acres"], "$" + format(t["total"], ",.0f"))
-        ctk.CTkLabel(self._cost_results_frame, text=tot, anchor="w", text_color=UI_ACCENT,
-                     font=ctk.CTkFont(family="Courier New", size=12, weight="bold")
-                     ).pack(anchor="w", padx=4)
-        brk = ("Items ${:,.0f}   Chemical ${:,.0f}   Labour ${:,.0f}   (route {:,.1f} km)"
-               .format(t["items"], t["chemical"], t["labour"], t["route_km"]))
-        ctk.CTkLabel(self._cost_results_frame, text=brk, anchor="w", text_color=UI_MUTED,
-                     font=ctk.CTkFont(size=11)).pack(anchor="w", padx=4, pady=(2, 0))
+        col = self._COST_CAT_COLORS
+        money = self._cost_money
+        nfld = len(self._cost_rows)
+
+        # ── Hero summary ─────────────────────────────────────────────────────
+        hero = ctk.CTkFrame(P, fg_color=UI_CARD, corner_radius=12,
+                            border_width=1, border_color=UI_BORDER)
+        hero.pack(fill="x", padx=2, pady=(2, 8))
+        hi = ctk.CTkFrame(hero, fg_color="transparent"); hi.pack(fill="x", padx=18, pady=14)
+        ctk.CTkLabel(hi, text="ESTIMATED TOTAL", text_color=UI_MUTED,
+                     font=ctk.CTkFont(family=FONT_LABEL, size=11)).pack(anchor="w")
+        ctk.CTkLabel(hi, text=money(t["total"]), text_color=UI_ACCENT,
+                     font=ctk.CTkFont(family=FONT_HEADING, size=38)).pack(anchor="w")
+        ctk.CTkLabel(hi, text="%d field%s  ·  avg %s / field"
+                     % (nfld, "" if nfld == 1 else "s", money(t["total"] / max(1, nfld))),
+                     text_color=UI_MUTED, font=ctk.CTkFont(size=11)).pack(anchor="w", pady=(0, 8))
+        pills = ctk.CTkFrame(hi, fg_color="transparent"); pills.pack(fill="x")
+        for lab, val in (("Acres", "%.0f" % t["acres"]), ("Shelters", "%d" % t["shelters"]),
+                         ("Trays", "%d" % t["trays"]), ("Bee gal", "%.0f" % t["gallons"]),
+                         ("Crew km", "%.1f" % t["route_km"])):
+            self._cost_pill(pills, lab, val)
+
+        # ── Composition bar + legend ─────────────────────────────────────────
+        self._cost_section(P, "Where the cost goes")
+        segs = [("Items", t["items"], col["Items"]),
+                ("Chemical", t["chemical"], col["Chemical"]),
+                ("Labour", t["labour"], col["Labour"])]
+        self._cost_bar(P, segs, t["total"])
+        leg = ctk.CTkFrame(P, fg_color="transparent"); leg.pack(fill="x", padx=2, pady=(5, 4))
+        for lab, val, c in segs:
+            pct = (val / t["total"] * 100) if t["total"] else 0
+            ch = ctk.CTkFrame(leg, fg_color="transparent"); ch.pack(side="left", padx=(0, 16))
+            ctk.CTkFrame(ch, width=12, height=12, fg_color=c, corner_radius=3).pack(side="left", padx=(0, 5))
+            ctk.CTkLabel(ch, text="%s  %s (%.0f%%)" % (lab, money(val), pct),
+                         font=ctk.CTkFont(size=11), text_color=UI_TEXT).pack(side="left")
+
+        # ── Itemized breakdown (aggregated across fields) ───────────────────
+        agg = {}; order = []
+        for (_co, _yr, _n, lc) in self._cost_rows:
+            for (g, l, calc, amt) in lc.get("lines", []):
+                k = (g, l)
+                if k not in agg:
+                    agg[k] = 0.0; order.append(k)
+                agg[k] += amt
+        self._cost_section(P, "Cost breakdown")
+        gtot = {"Items": t["items"], "Chemical": t["chemical"], "Labour": t["labour"]}
+        single = self._cost_rows[0][3]["lines"] if nfld == 1 else None
+        cur = None; card = None
+        for (g, l) in order:
+            if g != cur:
+                cur = g
+                card = ctk.CTkFrame(P, fg_color=UI_CARD, corner_radius=10,
+                                    border_width=1, border_color=UI_BORDER)
+                card.pack(fill="x", padx=2, pady=(0, 8))
+                hd = ctk.CTkFrame(card, fg_color="transparent"); hd.pack(fill="x", padx=14, pady=(10, 4))
+                ctk.CTkFrame(hd, width=4, height=16, fg_color=col.get(g, UI_ACCENT),
+                             corner_radius=2).pack(side="left", padx=(0, 8))
+                ctk.CTkLabel(hd, text=g, font=ctk.CTkFont(family=FONT_HEADING, size=13),
+                             text_color=UI_TEXT).pack(side="left")
+                ctk.CTkLabel(hd, text=money(gtot.get(g, 0)), font=ctk.CTkFont(family=FONT_HEADING, size=13),
+                             text_color=UI_TEXT).pack(side="right")
+            row = ctk.CTkFrame(card, fg_color="transparent"); row.pack(fill="x", padx=16, pady=1)
+            ctk.CTkLabel(row, text=l, anchor="w", width=120, font=ctk.CTkFont(size=12),
+                         text_color=UI_TEXT).pack(side="left")
+            ctk.CTkLabel(row, text=money(agg[(g, l)]), anchor="e", width=70,
+                         font=ctk.CTkFont(size=12), text_color=UI_TEXT).pack(side="right")
+            if single is not None:
+                calc = next((cc for (gg, ll, cc, _a) in single if gg == g and ll == l), "")
+                ctk.CTkLabel(row, text=calc, anchor="w", font=ctk.CTkFont(size=10),
+                             text_color=UI_MUTED).pack(side="left", padx=(10, 0))
+        if card:
+            ctk.CTkFrame(card, fg_color="transparent", height=6).pack()
+
+        # ── Per-field cards (only when more than one field) ─────────────────
+        if nfld > 1:
+            self._cost_section(P, "By field")
+            for (co, yr, name, lc) in sorted(self._cost_rows, key=lambda r: -r[3]["total"]):
+                fc = ctk.CTkFrame(P, fg_color=UI_CARD, corner_radius=10,
+                                  border_width=1, border_color=UI_BORDER)
+                fc.pack(fill="x", padx=2, pady=(0, 6))
+                tp = ctk.CTkFrame(fc, fg_color="transparent"); tp.pack(fill="x", padx=14, pady=(8, 1))
+                ctk.CTkLabel(tp, text=name, anchor="w", font=ctk.CTkFont(family=FONT_HEADING, size=12),
+                             text_color=UI_TEXT).pack(side="left")
+                ctk.CTkLabel(tp, text=money(lc["total"]), anchor="e",
+                             font=ctk.CTkFont(family=FONT_HEADING, size=13),
+                             text_color=UI_ACCENT).pack(side="right")
+                ctk.CTkLabel(fc, text="%s · %.0f ac · %d shelters · %d trays · %.1f km"
+                             % (co, lc["acres"], lc["shelters"], lc["trays"], lc["route_km"]),
+                             anchor="w", font=ctk.CTkFont(size=10), text_color=UI_MUTED
+                             ).pack(fill="x", padx=14, pady=(0, 4))
+                self._cost_bar(fc, [("Items", lc["items"], col["Items"]),
+                                    ("Chemical", lc["chemical"], col["Chemical"]),
+                                    ("Labour", lc["labour"], col["Labour"])],
+                               lc["total"], h=6, pad=14)
+                ctk.CTkFrame(fc, fg_color="transparent", height=6).pack()
 
     _COST_CSV_COLS = [
         ("Company", "co"), ("Year", "yr"), ("Field", "name"), ("Acres", "acres"),
@@ -1997,56 +2106,150 @@ class BeetentApp(ctk.CTk):
         try: os.startfile(str(path))
         except Exception: pass
 
+    @staticmethod
+    def _pdf_section(pdf, title, x0, W, ink):
+        pdf.ln(3); pdf.set_x(x0); pdf.set_text_color(*ink); pdf.set_font("Helvetica", "B", 11)
+        pdf.cell(0, 6, title, ln=1)
+        pdf.set_draw_color(227, 229, 232); pdf.set_line_width(0.3)
+        pdf.line(x0, pdf.get_y(), x0 + W, pdf.get_y()); pdf.ln(2)
+
     def _cost_export_pdf(self):
         if not self._cost_rows:
             self._status("Compute costs first."); return
         import fpdf as _fpdf
-        pdf = _fpdf.FPDF(orientation="L", unit="mm", format="A4")
-        pdf.set_auto_page_break(True, margin=10)
+        t = self._cost_totals(); c = self._cost_inputs()
+        rows = sorted(self._cost_rows, key=lambda r: -r[3]["total"])
+        money = lambda x: "$" + format(int(round(x)), ",d")
+        RGB = {"Items": (14, 147, 132), "Chemical": (217, 119, 6), "Labour": (99, 102, 241)}
+        TEAL = (14, 147, 132); INK = (31, 42, 55); MUT = (107, 114, 128); LINE = (227, 229, 232)
+
+        pdf = _fpdf.FPDF(orientation="P", unit="mm", format="A4")
+        pdf.set_auto_page_break(True, margin=12)
         pdf.add_page()
-        pdf.set_font("Helvetica", "B", 14)
-        pdf.cell(0, 8, "Cost Estimate", ln=1)
-        pdf.set_font("Helvetica", "", 8)
-        pdf.cell(0, 5, "Generated %s  |  %d field(s)"
-                 % (datetime.date.today().isoformat(), len(self._cost_rows)), ln=1)
-        # assumptions
-        c = self._cost_inputs()
-        assume = "  ".join("%s=%g" % (k, c[k]) for k in
-                           ("cost_per_shelter", "cost_per_gal_bee", "cost_per_tray",
-                            "cost_per_block", "cost_per_flag", "chem_cost_per_acre",
-                            "pay_per_hour", "drive_speed_kmh") if c.get(k))
-        if assume:
-            pdf.cell(0, 5, ("Assumptions: " + assume)[:170], ln=1)
-        pdf.ln(2)
-        cols = [("Field", 60), ("Acres", 18), ("Shelters", 20), ("Trays", 18),
-                ("Route km", 22), ("Items $", 28), ("Chemical $", 28),
-                ("Labour $", 28), ("Total $", 30)]
-        keys = ["name", "acres", "shelters", "trays", "route_km", "items",
-                "chemical", "labour", "total"]
-        pdf.set_font("Helvetica", "B", 8); pdf.set_fill_color(230, 230, 230)
-        for label, w in cols:
-            pdf.cell(w, 7, label, border=1, align="R" if label != "Field" else "L", fill=True)
-        pdf.ln()
-        pdf.set_font("Helvetica", "", 8)
-        def _fmt(kk, v):
-            if kk == "name": return str(v)[:34]
-            if kk in ("shelters", "trays"): return str(v)
-            if kk == "acres": return "%.1f" % v
-            if kk == "route_km": return "%.2f" % v
-            return format(v, ",.0f")
-        for (co, yr, name, lc) in self._cost_rows:
-            src = dict(lc); src["name"] = "%s/%s" % (co, name)
-            for (label, w), kk in zip(cols, keys):
-                pdf.cell(w, 6, _fmt(kk, src[kk]), border=1,
-                         align="L" if kk == "name" else "R")
-            pdf.ln()
-        t = self._cost_totals()
-        pdf.set_font("Helvetica", "B", 8)
-        t["name"] = "TOTAL (%d fields)" % len(self._cost_rows)
-        for (label, w), kk in zip(cols, keys):
-            pdf.cell(w, 7, _fmt(kk, t[kk]), border=1,
-                     align="L" if kk == "name" else "R", fill=True)
-        pdf.ln()
+        x0 = pdf.l_margin
+        W = pdf.w - pdf.l_margin - pdf.r_margin
+
+        # ── Header band ──
+        pdf.set_fill_color(*TEAL); pdf.rect(0, 0, pdf.w, 26, "F")
+        pdf.set_xy(x0, 6); pdf.set_text_color(255, 255, 255); pdf.set_font("Helvetica", "B", 18)
+        pdf.cell(0, 9, "Cost Estimate", ln=1)
+        pdf.set_x(x0); pdf.set_font("Helvetica", "", 9)
+        pdf.cell(0, 5, "%d field%s  ·  generated %s" % (
+            len(rows), "" if len(rows) == 1 else "s", datetime.date.today().isoformat()), ln=1)
+        pdf.set_y(32)
+
+        # ── Hero total + stats ──
+        pdf.set_x(x0); pdf.set_text_color(*MUT); pdf.set_font("Helvetica", "", 9)
+        pdf.cell(0, 5, "ESTIMATED TOTAL", ln=1)
+        pdf.set_x(x0); pdf.set_text_color(*TEAL); pdf.set_font("Helvetica", "B", 26)
+        pdf.cell(0, 11, money(t["total"]), ln=1); pdf.ln(1)
+        stats = [("Acres", "%.0f" % t["acres"]), ("Shelters", "%d" % t["shelters"]),
+                 ("Trays", "%d" % t["trays"]), ("Bee gal", "%.0f" % t["gallons"]),
+                 ("Crew km", "%.1f" % t["route_km"])]
+        pw = W / len(stats); y = pdf.get_y()
+        for i, (lab, val) in enumerate(stats):
+            xx = x0 + i * pw
+            pdf.set_xy(xx, y); pdf.set_text_color(*INK); pdf.set_font("Helvetica", "B", 13); pdf.cell(pw, 6, val)
+            pdf.set_xy(xx, y + 6); pdf.set_text_color(*MUT); pdf.set_font("Helvetica", "", 8); pdf.cell(pw, 4, lab)
+        pdf.set_y(y + 13)
+
+        # ── Composition bar ──
+        self._pdf_section(pdf, "Where the cost goes", x0, W, INK)
+        segs = [("Items", t["items"], RGB["Items"]), ("Chemical", t["chemical"], RGB["Chemical"]),
+                ("Labour", t["labour"], RGB["Labour"])]
+        by = pdf.get_y(); bh = 6
+        pdf.set_fill_color(*LINE); pdf.rect(x0, by, W, bh, "F")
+        if t["total"] > 0:
+            cx = x0
+            for _lab, val, rgb in segs:
+                fw = W * max(0.0, val / t["total"])
+                if fw > 0.2:
+                    pdf.set_fill_color(*rgb); pdf.rect(cx, by, fw, bh, "F"); cx += fw
+        pdf.set_y(by + bh + 2.5)
+        lx = x0; pdf.set_font("Helvetica", "", 8); ly = pdf.get_y()
+        for lab, val, rgb in segs:
+            pct = val / t["total"] * 100 if t["total"] else 0
+            pdf.set_fill_color(*rgb); pdf.rect(lx, ly + 0.6, 3, 3, "F")
+            txt = "%s  %s (%.0f%%)" % (lab, money(val), pct)
+            pdf.set_xy(lx + 4, ly); pdf.set_text_color(*INK); pdf.cell(pdf.get_string_width(txt) + 2, 4, txt)
+            lx += pdf.get_string_width(txt) + 12
+        pdf.ln(7)
+
+        # ── Aggregated cost breakdown ──
+        agg = {}; order = []
+        for (_co, _yr, _n, lc) in rows:
+            for (g, l, _calc, amt) in lc.get("lines", []):
+                k = (g, l)
+                if k not in agg:
+                    agg[k] = 0.0; order.append(k)
+                agg[k] += amt
+        single = rows[0][3]["lines"] if len(rows) == 1 else None
+        self._pdf_section(pdf, "Cost breakdown", x0, W, INK)
+        gtot = {"Items": t["items"], "Chemical": t["chemical"], "Labour": t["labour"]}
+        cur = None
+        for (g, l) in order:
+            if g != cur:
+                cur = g; pdf.ln(1)
+                pdf.set_x(x0); pdf.set_text_color(*RGB[g]); pdf.set_font("Helvetica", "B", 10)
+                pdf.cell(W - 30, 6, g)
+                pdf.set_text_color(*INK); pdf.cell(30, 6, money(gtot[g]), align="R", ln=1)
+            pdf.set_x(x0 + 4); pdf.set_text_color(*INK); pdf.set_font("Helvetica", "", 9)
+            pdf.cell(48, 5, l)
+            calc = next((cc for (gg, ll, cc, _a) in single if gg == g and ll == l), "") if single else ""
+            pdf.set_text_color(*MUT); pdf.set_font("Helvetica", "", 8)
+            pdf.cell(W - 48 - 30, 5, calc)
+            pdf.set_text_color(*INK); pdf.set_font("Helvetica", "", 9)
+            pdf.cell(30, 5, money(agg[(g, l)]), align="R", ln=1)
+
+        # ── Per-field detail with each calculation ──
+        self._pdf_section(pdf, "Detailed breakdown by field", x0, W, INK)
+        for (co, yr, name, lc) in rows:
+            if pdf.get_y() > pdf.h - 55:
+                pdf.add_page()
+            yy = pdf.get_y()
+            pdf.set_fill_color(245, 246, 248); pdf.rect(x0, yy, W, 7, "F")
+            pdf.set_xy(x0 + 2, yy + 1); pdf.set_text_color(*INK); pdf.set_font("Helvetica", "B", 10)
+            pdf.cell(W * 0.62, 5, ("%s  ·  %s" % (name, co))[:60])
+            pdf.set_text_color(*TEAL); pdf.set_font("Helvetica", "B", 11)
+            pdf.cell(W * 0.38 - 2, 5, money(lc["total"]), align="R", ln=1)
+            pdf.set_x(x0); pdf.set_text_color(*MUT); pdf.set_font("Helvetica", "", 8)
+            pdf.cell(0, 5, "%.0f ac · %d shelters · %d trays · %.0f bee gal · %.1f crew km"
+                     % (lc["acres"], lc["shelters"], lc["trays"], lc["gallons"], lc["route_km"]), ln=1)
+            for (g, l, calc, amt) in lc["lines"]:
+                ry = pdf.get_y()
+                pdf.set_fill_color(*RGB.get(g, INK)); pdf.rect(x0 + 3, ry + 1.4, 2, 2, "F")
+                pdf.set_xy(x0 + 7, ry); pdf.set_text_color(*INK); pdf.set_font("Helvetica", "", 9)
+                pdf.cell(44, 4.6, l)
+                pdf.set_text_color(*MUT); pdf.set_font("Helvetica", "", 8)
+                pdf.cell(W - 44 - 30 - 7, 4.6, calc)
+                pdf.set_text_color(*INK); pdf.set_font("Helvetica", "", 9)
+                pdf.cell(30, 4.6, money(amt), align="R", ln=1)
+            pdf.ln(3)
+
+        # ── Assumptions ──
+        self._pdf_section(pdf, "Cost assumptions", x0, W, INK)
+        labels = [("cost_per_shelter", "Shelter $"), ("shelter_life_yr", "Shelter life yr"),
+                  ("cost_per_gal_bee", "Bee $/gal"), ("cost_per_tray", "Tray $"),
+                  ("tray_life_yr", "Tray life yr"), ("cost_per_block", "Block $"),
+                  ("block_life_yr", "Block life yr"), ("blocks_per_shelter", "Blocks/shelter"),
+                  ("cost_per_flag", "Flag $"), ("flag_life_yr", "Flag life yr"),
+                  ("chem_cost_per_acre", "Chemical $/ac"), ("pay_per_hour", "Pay $/hr"),
+                  ("drive_speed_kmh", "Drive km/h"), ("emp_setup", "Setup crew"),
+                  ("time_setup_min", "Setup min/shelter"), ("emp_bees", "Bee crew"),
+                  ("time_bees_min", "Bee min/shelter"), ("emp_removal", "Removal crew"),
+                  ("time_removal_min", "Removal min/shelter")]
+        pdf.set_font("Helvetica", "", 8); colw = W / 3.0; ry = pdf.get_y()
+        for i, (k, lab) in enumerate(labels):
+            coln = i % 3
+            if coln == 0 and i > 0:
+                ry += 5.2
+            xx = x0 + coln * colw
+            pdf.set_xy(xx, ry); pdf.set_text_color(*MUT); pdf.set_font("Helvetica", "", 8)
+            pdf.cell(colw * 0.60, 5, lab)
+            pdf.set_text_color(*INK); pdf.set_font("Helvetica", "B", 8)
+            pdf.cell(colw * 0.40, 5, "%g" % c.get(k, 0))
+        pdf.set_y(ry + 7)
+
         dl = Path.home() / "Downloads"
         stem = "Cost Estimate %s" % datetime.date.today().isoformat()
         path = dl / (stem + ".pdf"); k = 2
@@ -2182,13 +2385,37 @@ class BeetentApp(ctk.CTk):
         lab_rem   = labour("emp_removal", "time_removal_min")
         labour_total = lab_setup + lab_bees + lab_rem
         items = shelter + bee + tray + block + flag
+        # Per-line-item breakdown with the calculation shown (for the detailed
+        # on-screen view + PDF). qty/calc strings are human-readable.
+        def _h(emp_k, time_k):
+            return n * c.get(time_k, 0) / 60.0 + drive_h
+        lines = [
+            ("Items", "Shelters", "%d shelters × $%.2f ÷ %gyr life"
+             % (n, c.get("cost_per_shelter", 0), life("shelter_life_yr")), shelter),
+            ("Items", "Bees", "%.0f gal × $%.2f  (1-yr)"
+             % (gallons, c.get("cost_per_gal_bee", 0)), bee),
+            ("Items", "Incubation trays", "%d trays × $%.2f ÷ %gyr life"
+             % (trays, c.get("cost_per_tray", 0), life("tray_life_yr")), tray),
+            ("Items", "Nesting blocks", "%d × %g/shelter × $%.2f ÷ %gyr life"
+             % (n, c.get("blocks_per_shelter", 0), c.get("cost_per_block", 0), life("block_life_yr")), block),
+            ("Items", "Flags", "%d flags × $%.2f ÷ %gyr life"
+             % (n, c.get("cost_per_flag", 0), life("flag_life_yr")), flag),
+            ("Chemical", "Chemical", "%.1f ac × $%.2f/ac"
+             % (acres, c.get("chem_cost_per_acre", 0)), chemical),
+            ("Labour", "Shelter setup", "%g ppl × %.1f hr × $%.0f/hr"
+             % (c.get("emp_setup", 0), _h("emp_setup", "time_setup_min"), pay), lab_setup),
+            ("Labour", "Bee distribution", "%g ppl × %.1f hr × $%.0f/hr"
+             % (c.get("emp_bees", 0), _h("emp_bees", "time_bees_min"), pay), lab_bees),
+            ("Labour", "Shelter removal", "%g ppl × %.1f hr × $%.0f/hr"
+             % (c.get("emp_removal", 0), _h("emp_removal", "time_removal_min"), pay), lab_rem),
+        ]
         return {
             "acres": acres, "shelters": n, "gallons": gallons, "trays": trays,
             "route_km": route_km, "shelter": shelter, "bee": bee, "tray": tray,
             "block": block, "flag": flag, "items": items, "chemical": chemical,
             "labour_setup": lab_setup, "labour_bees": lab_bees,
             "labour_removal": lab_rem, "labour": labour_total,
-            "total": items + chemical + labour_total,
+            "total": items + chemical + labour_total, "lines": lines,
         }
 
     # ── Monitor view ────────────────────────────────────────────────────────
