@@ -1762,10 +1762,9 @@ class BeetentApp(ctk.CTk):
     # the "General Information" tab; the "Cost Estimator" tab computes per-field +
     # aggregate cost and exports CSV / PDF.
     COST_FIELD_SPEC = [
-        ("Items — unit cost & depreciation life", [
+        ("Items", "#0E9384", [
             ("cost_per_shelter",   "Cost per shelter ($)",            ""),
             ("shelter_life_yr",    "Shelter life (yrs)",              "5"),
-            ("cost_per_gal_bee",   "Cost per gallon of bees ($)",     ""),
             ("cost_per_tray",      "Cost per incubation tray ($)",    ""),
             ("tray_life_yr",       "Incubation tray life (yrs)",      "5"),
             ("cost_per_block",     "Cost per nesting block ($)",      ""),
@@ -1774,10 +1773,13 @@ class BeetentApp(ctk.CTk):
             ("cost_per_flag",      "Cost per flag ($, 1 per shelter)",""),
             ("flag_life_yr",       "Flag life (yrs)",                 "3"),
         ]),
-        ("Chemical", [
+        ("Bees", "#EAB308", [
+            ("cost_per_gal_bee",   "Cost per gallon of bees ($)",     ""),
+        ]),
+        ("Chemical", "#EA580C", [
             ("chem_cost_per_acre", "Chemical cost per acre ($)",      ""),
         ]),
-        ("Labour", [
+        ("Labour", "#6366F1", [
             ("pay_per_hour",       "Average pay per hour ($)",        ""),
             ("drive_speed_kmh",    "Driving speed between shelters (km/h)", "15"),
             ("emp_setup",          "Employees — shelter setup",       "1"),
@@ -1823,55 +1825,76 @@ class BeetentApp(ctk.CTk):
 
     def _build_cost_general_tab(self, parent):
         self._cost_vars = {}
-        for section, rows in self.COST_FIELD_SPEC:
-            ctk.CTkLabel(parent, text=section, anchor="w",
-                         font=ctk.CTkFont(family=FONT_HEADING, size=13),
-                         text_color=UI_ACCENT).pack(fill="x", pady=(10, 2))
+        ctk.CTkLabel(parent, text="Unit costs, depreciation life and labour — entered once "
+                     "and applied to every field.", anchor="w", justify="left",
+                     text_color=UI_MUTED, wraplength=560,
+                     font=ctk.CTkFont(size=11)).pack(fill="x", padx=4, pady=(2, 6))
+        for section, color, rows in self.COST_FIELD_SPEC:
+            card = ctk.CTkFrame(parent, fg_color=UI_CARD, corner_radius=10,
+                                border_width=1, border_color=UI_BORDER)
+            card.pack(fill="x", padx=2, pady=(0, 10))
+            hd = ctk.CTkFrame(card, fg_color="transparent"); hd.pack(fill="x", padx=14, pady=(10, 6))
+            ctk.CTkFrame(hd, width=4, height=16, fg_color=color, corner_radius=2
+                         ).pack(side="left", padx=(0, 8))
+            ctk.CTkLabel(hd, text=section, font=ctk.CTkFont(family=FONT_HEADING, size=13),
+                         text_color=UI_TEXT).pack(side="left")
+            if section == "Bees":
+                ctk.CTkLabel(hd, text="depreciates over 1 yr", text_color=UI_MUTED,
+                             font=ctk.CTkFont(size=10)).pack(side="right")
             for key, label, default in rows:
-                r = ctk.CTkFrame(parent, fg_color="transparent")
-                r.pack(fill="x", pady=1)
-                ctk.CTkLabel(r, text=label, anchor="w", width=320,
-                             font=ctk.CTkFont(family=FONT_LABEL, size=12)
+                r = ctk.CTkFrame(card, fg_color="transparent")
+                r.pack(fill="x", padx=16, pady=2)
+                ctk.CTkLabel(r, text=label, anchor="w",
+                             font=ctk.CTkFont(family=FONT_LABEL, size=12), text_color=UI_TEXT
                              ).pack(side="left")
                 v = tk.StringVar(value=default)
-                ctk.CTkEntry(r, textvariable=v, width=120).pack(side="left", padx=(8, 0))
+                ctk.CTkEntry(r, textvariable=v, width=110, justify="right").pack(side="right")
                 self._cost_vars[key] = v
+            ctk.CTkFrame(card, fg_color="transparent", height=6).pack()
         btn = ctk.CTkFrame(parent, fg_color="transparent")
-        btn.pack(fill="x", pady=(14, 8))
-        ctk.CTkButton(btn, text="💾 Save settings", width=140,
+        btn.pack(fill="x", pady=(6, 10))
+        ctk.CTkButton(btn, text="💾  Save settings", width=150, height=36,
                       command=self._save_cost_prefs).pack(side="left")
-        ctk.CTkLabel(btn, text="Costs apply to every field; bees depreciate over 1 yr.",
-                     text_color=UI_MUTED, font=ctk.CTkFont(size=10)).pack(side="left", padx=10)
 
     def _build_cost_estimate_tab(self, parent):
-        flt = ctk.CTkFrame(parent, fg_color="transparent")
-        flt.pack(fill="x", pady=(8, 4))
-        ctk.CTkLabel(flt, text="Company:").pack(side="left")
+        # ── Scope picker card ──
+        pick = ctk.CTkFrame(parent, fg_color=UI_CARD, corner_radius=10,
+                            border_width=1, border_color=UI_BORDER)
+        pick.pack(fill="x", padx=2, pady=(4, 8))
+        hd = ctk.CTkFrame(pick, fg_color="transparent"); hd.pack(fill="x", padx=14, pady=(10, 4))
+        ctk.CTkFrame(hd, width=4, height=16, fg_color=UI_ACCENT, corner_radius=2
+                     ).pack(side="left", padx=(0, 8))
+        ctk.CTkLabel(hd, text="Fields to estimate", font=ctk.CTkFont(family=FONT_HEADING, size=13),
+                     text_color=UI_TEXT).pack(side="left")
+        flt = ctk.CTkFrame(pick, fg_color="transparent"); flt.pack(fill="x", padx=14, pady=(2, 4))
+        ctk.CTkLabel(flt, text="Company").pack(side="left")
         self._cost_co = tk.StringVar(value=ALL_COMPANIES)
-        ctk.CTkComboBox(flt, variable=self._cost_co, width=160,
+        ctk.CTkComboBox(flt, variable=self._cost_co, width=150,
                         values=[ALL_COMPANIES] + list_companies(),
                         command=lambda _: self._cost_refresh_fields()).pack(side="left", padx=(4, 12))
-        ctk.CTkLabel(flt, text="Year:").pack(side="left")
+        ctk.CTkLabel(flt, text="Year").pack(side="left")
         _years = sorted({y for cc in list_companies() for y in list_years(cc)}, reverse=True)
         self._cost_yr = tk.StringVar(value=str(datetime.date.today().year))
-        ctk.CTkComboBox(flt, variable=self._cost_yr, width=100,
+        ctk.CTkComboBox(flt, variable=self._cost_yr, width=90,
                         values=[ALL_YEARS] + _years,
                         command=lambda _: self._cost_refresh_fields()).pack(side="left", padx=(4, 12))
-        ctk.CTkButton(flt, text="Select all", width=80,
-                      command=lambda: self._cost_check_all(True)).pack(side="left", padx=2)
-        ctk.CTkButton(flt, text="Clear", width=60,
-                      command=lambda: self._cost_check_all(False)).pack(side="left", padx=2)
-
-        self._cost_fields_frame = ctk.CTkScrollableFrame(
-            parent, fg_color="transparent", height=130, label_text="Fields in scope")
-        self._cost_fields_frame.pack(fill="x", pady=(2, 6))
+        ctk.CTkButton(flt, text="Select all", width=84, fg_color=UI_HOVER, text_color=UI_TEXT,
+                      hover_color="#E2E5EA", command=lambda: self._cost_check_all(True)
+                      ).pack(side="right", padx=(4, 0))
+        ctk.CTkButton(flt, text="Deselect all", width=92, fg_color=UI_HOVER, text_color=UI_TEXT,
+                      hover_color="#E2E5EA", command=lambda: self._cost_check_all(False)
+                      ).pack(side="right")
+        self._cost_fields_frame = ctk.CTkScrollableFrame(pick, fg_color="transparent", height=120)
+        self._cost_fields_frame.pack(fill="x", padx=10, pady=(0, 10))
         self._cost_field_checks = {}
 
         act = ctk.CTkFrame(parent, fg_color="transparent")
-        act.pack(fill="x", pady=(2, 6))
-        ctk.CTkButton(act, text="Compute costs", command=self._cost_compute).pack(side="left")
-        ctk.CTkButton(act, text="Export CSV", command=self._cost_export_csv).pack(side="left", padx=(8, 0))
-        ctk.CTkButton(act, text="Export PDF", command=self._cost_export_pdf).pack(side="left", padx=(8, 0))
+        act.pack(fill="x", padx=2, pady=(0, 8))
+        ctk.CTkButton(act, text="Compute costs", height=36, command=self._cost_compute).pack(side="left")
+        ctk.CTkButton(act, text="⬇  Export CSV", height=36, fg_color="#475569",
+                      hover_color="#334155", command=self._cost_export_csv).pack(side="left", padx=(8, 0))
+        ctk.CTkButton(act, text="⬇  Export PDF", height=36, fg_color="#475569",
+                      hover_color="#334155", command=self._cost_export_pdf).pack(side="left", padx=(8, 0))
 
         self._cost_results_frame = ctk.CTkScrollableFrame(parent, fg_color="transparent")
         self._cost_results_frame.pack(fill="both", expand=True, pady=(2, 4))
@@ -1926,12 +1949,18 @@ class BeetentApp(ctk.CTk):
                 "tray", "block", "flag", "items", "chemical", "labour_setup",
                 "labour_bees", "labour_removal", "labour", "total")
         t = {k: 0 for k in keys}
+        gt = {}
         for (_co, _yr, _n, lc) in self._cost_rows:
             for k in keys:
                 t[k] += lc.get(k, 0)
+            for g, v in lc.get("groups", {}).items():
+                gt[g] = gt.get(g, 0.0) + v
+        t["groups"] = gt
         return t
 
-    _COST_CAT_COLORS = {"Items": "#0E9384", "Chemical": "#D97706", "Labour": "#6366F1"}
+    _COST_CAT_COLORS = {"Items": "#0E9384", "Bees": "#EAB308",
+                        "Chemical": "#EA580C", "Labour": "#6366F1"}
+    _COST_CAT_ORDER = ("Items", "Bees", "Chemical", "Labour")
 
     @staticmethod
     def _cost_money(x):
@@ -1997,9 +2026,8 @@ class BeetentApp(ctk.CTk):
 
         # ── Composition bar + legend ─────────────────────────────────────────
         self._cost_section(P, "Where the cost goes")
-        segs = [("Items", t["items"], col["Items"]),
-                ("Chemical", t["chemical"], col["Chemical"]),
-                ("Labour", t["labour"], col["Labour"])]
+        gt = t.get("groups", {})
+        segs = [(g, gt.get(g, 0), col[g]) for g in self._COST_CAT_ORDER if gt.get(g, 0) > 0]
         self._cost_bar(P, segs, t["total"])
         leg = ctk.CTkFrame(P, fg_color="transparent"); leg.pack(fill="x", padx=2, pady=(5, 4))
         for lab, val, c in segs:
@@ -2018,7 +2046,7 @@ class BeetentApp(ctk.CTk):
                     agg[k] = 0.0; order.append(k)
                 agg[k] += amt
         self._cost_section(P, "Cost breakdown")
-        gtot = {"Items": t["items"], "Chemical": t["chemical"], "Labour": t["labour"]}
+        gtot = gt
         single = self._cost_rows[0][3]["lines"] if nfld == 1 else None
         cur = None; card = None
         for (g, l) in order:
@@ -2063,10 +2091,9 @@ class BeetentApp(ctk.CTk):
                              % (co, lc["acres"], lc["shelters"], lc["trays"], lc["route_km"]),
                              anchor="w", font=ctk.CTkFont(size=10), text_color=UI_MUTED
                              ).pack(fill="x", padx=14, pady=(0, 4))
-                self._cost_bar(fc, [("Items", lc["items"], col["Items"]),
-                                    ("Chemical", lc["chemical"], col["Chemical"]),
-                                    ("Labour", lc["labour"], col["Labour"])],
-                               lc["total"], h=6, pad=14)
+                fgt = lc.get("groups", {})
+                self._cost_bar(fc, [(g, fgt.get(g, 0), col[g]) for g in self._COST_CAT_ORDER
+                                    if fgt.get(g, 0) > 0], lc["total"], h=6, pad=14)
                 ctk.CTkFrame(fc, fg_color="transparent", height=6).pack()
 
     _COST_CSV_COLS = [
@@ -2120,8 +2147,10 @@ class BeetentApp(ctk.CTk):
         t = self._cost_totals(); c = self._cost_inputs()
         rows = sorted(self._cost_rows, key=lambda r: -r[3]["total"])
         money = lambda x: "$" + format(int(round(x)), ",d")
-        RGB = {"Items": (14, 147, 132), "Chemical": (217, 119, 6), "Labour": (99, 102, 241)}
+        RGB = {"Items": (14, 147, 132), "Bees": (234, 179, 8),
+               "Chemical": (234, 88, 12), "Labour": (99, 102, 241)}
         TEAL = (14, 147, 132); INK = (31, 42, 55); MUT = (107, 114, 128); LINE = (227, 229, 232)
+        gt = t.get("groups", {})
 
         pdf = _fpdf.FPDF(orientation="P", unit="mm", format="A4")
         pdf.set_auto_page_break(True, margin=12)
@@ -2155,8 +2184,7 @@ class BeetentApp(ctk.CTk):
 
         # ── Composition bar ──
         self._pdf_section(pdf, "Where the cost goes", x0, W, INK)
-        segs = [("Items", t["items"], RGB["Items"]), ("Chemical", t["chemical"], RGB["Chemical"]),
-                ("Labour", t["labour"], RGB["Labour"])]
+        segs = [(g, gt.get(g, 0), RGB[g]) for g in self._COST_CAT_ORDER if gt.get(g, 0) > 0]
         by = pdf.get_y(); bh = 6
         pdf.set_fill_color(*LINE); pdf.rect(x0, by, W, bh, "F")
         if t["total"] > 0:
@@ -2185,7 +2213,7 @@ class BeetentApp(ctk.CTk):
                 agg[k] += amt
         single = rows[0][3]["lines"] if len(rows) == 1 else None
         self._pdf_section(pdf, "Cost breakdown", x0, W, INK)
-        gtot = {"Items": t["items"], "Chemical": t["chemical"], "Labour": t["labour"]}
+        gtot = gt
         cur = None
         for (g, l) in order:
             if g != cur:
@@ -2392,7 +2420,7 @@ class BeetentApp(ctk.CTk):
         lines = [
             ("Items", "Shelters", "%d shelters × $%.2f ÷ %gyr life"
              % (n, c.get("cost_per_shelter", 0), life("shelter_life_yr")), shelter),
-            ("Items", "Bees", "%.0f gal × $%.2f  (1-yr)"
+            ("Bees", "Bees", "%.0f gal × $%.2f  (1-yr)"
              % (gallons, c.get("cost_per_gal_bee", 0)), bee),
             ("Items", "Incubation trays", "%d trays × $%.2f ÷ %gyr life"
              % (trays, c.get("cost_per_tray", 0), life("tray_life_yr")), tray),
@@ -2409,13 +2437,16 @@ class BeetentApp(ctk.CTk):
             ("Labour", "Shelter removal", "%g ppl × %.1f hr × $%.0f/hr"
              % (c.get("emp_removal", 0), _h("emp_removal", "time_removal_min"), pay), lab_rem),
         ]
+        groups = {}
+        for (g, _l, _calc, amt) in lines:
+            groups[g] = groups.get(g, 0.0) + amt
         return {
             "acres": acres, "shelters": n, "gallons": gallons, "trays": trays,
             "route_km": route_km, "shelter": shelter, "bee": bee, "tray": tray,
             "block": block, "flag": flag, "items": items, "chemical": chemical,
             "labour_setup": lab_setup, "labour_bees": lab_bees,
             "labour_removal": lab_rem, "labour": labour_total,
-            "total": items + chemical + labour_total, "lines": lines,
+            "total": items + chemical + labour_total, "lines": lines, "groups": groups,
         }
 
     # ── Monitor view ────────────────────────────────────────────────────────
