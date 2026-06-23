@@ -17,5 +17,13 @@
   "emp_bees": "1",
   "time_bees_min": "1",
   "emp_removal": "3",
-  "time_removal_min": "4"
+  "time_removal_min": "4",
+  "fuel_l_per_km": "0.35",
+  "fuel_cost_per_l": "",
+  "crews_setup": "1",
+  "emp_per_crew_setup": "1",
+  "crews_bees": "1",
+  "emp_per_crew_bees": "1",
+  "crews_removal": "1",
+  "emp_per_crew_removal": "1"
 }
