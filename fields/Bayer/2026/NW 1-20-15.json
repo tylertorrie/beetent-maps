@@ -34,7 +34,7 @@
   "gals_per_acre": "2",
   "acres": "105.81",
   "gals_per_tray": "2",
-  "tray_distribution": "even",
+  "tray_distribution": "outside",
   "boundary_polygon": [
     [
       50.668501643637285,
