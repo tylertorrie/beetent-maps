@@ -155,9 +155,19 @@ total-km readout on the status line. The geometry comes from
 `maketentgrid.crew_route(field_dict, use_metric, shelters=None) -> (route_latlon,
 total_m)` — a pure function that mirrors the male-bay overlay (`resolve_row_mask`/
 `mask_runs`, pass tiling, planting-angle rotation, bay shift), groups shelters by
-nearest male-bay centre and snakes column to column. Route length is computed in the
-rotated metric frame (shift-invariant). `_redraw_crews` uses the cached off-thread
-tents (`_ensure_tents`); the Cost Estimator calls `crew_route` per field for driving time.
+nearest male-bay centre and snakes column to column. Each pass runs the FULL length to
+the field boundary and consecutive passes are joined by following the boundary perimeter
+(the headland) — never across the crop. If `parking_pin` is set, the route starts AND
+ends there (parking → boundary → along the headland → field → back). Route length is
+computed in the rotated metric frame (shift-invariant). `_redraw_crews` uses the cached
+off-thread tents (`_ensure_tents`); the Cost Estimator calls `crew_route` per field for
+driving time.
+
+The line is **editable** like a boundary: 🚜 Crews → "Edit Crew Route" drops draggable
+vertex markers (drag/add via map-click/delete via 🗑), saved per-field as
+`crew_route_override` (`[[lat,lon],...]`). When present, `_redraw_crews` draws it as-is
+and `_field_cost` uses its length; "Reset Crew Route" clears it. Excluded from the tent
+cache key; cleaned up on field switch.
 
 ## Cost Estimator view
 
