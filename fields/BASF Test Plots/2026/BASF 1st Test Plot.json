@@ -1,0 +1,162 @@
+{
+  "Name": "BASF 1st Test Plot",
+  "company": "BASF Test Plots",
+  "year": "2026",
+  "PP_Latitude": "49.6852885",
+  "PP_Longitude": "-112.7535736",
+  "lld": "SW-35-8-21-W4",
+  "Spray_angle": "0",
+  "Sprayer_width": "133",
+  "shelter_mode": "manual",
+  "num_structures": "",
+  "shelters_per_acre": "",
+  "acres_per_shelter": "",
+  "spacing": "",
+  "shelter_spacing": "",
+  "directional_offset": "",
+  "row_spacing_in": "22",
+  "num_female_rows": "8",
+  "num_male_rows": "2",
+  "total_rows": "20",
+  "row_layout": "centered",
+  "custom_row_mask": "",
+  "use_bays": false,
+  "outside_sprayer_pass": "No",
+  "track_exclusion_ft": "10",
+  "pass_edge_buffer_ft": "25",
+  "shelter_buffer_m": "1.524",
+  "planter_passes": null,
+  "use_imported_passes": false,
+  "sprayer_passes": null,
+  "gals_per_acre": "3",
+  "acres": "6.97",
+  "gals_per_tray": "2",
+  "tray_distribution": "even",
+  "boundary_polygon": [
+    [
+      49.68529368079942,
+      -112.75356824186017
+    ],
+    [
+      49.68357218274288,
+      -112.75364334371258
+    ],
+    [
+      49.683603420145786,
+      -112.75407249715497
+    ],
+    [
+      49.68369019060409,
+      -112.75457138803174
+    ],
+    [
+      49.68380819817886,
+      -112.75494689729382
+    ],
+    [
+      49.684030329307284,
+      -112.75539214399029
+    ],
+    [
+      49.68424551787014,
+      -112.75571400907208
+    ],
+    [
+      49.68451623761247,
+      -112.75595540788342
+    ],
+    [
+      49.684752248465564,
+      -112.75610024717022
+    ],
+    [
+      49.684932726580165,
+      -112.75616998460461
+    ],
+    [
+      49.68527719496799,
+      -112.75621960547139
+    ]
+  ],
+  "pivot_tracks": [
+    61.94,
+    124.07,
+    186.61
+  ],
+  "corner_arms": [],
+  "boundary_inner": [],
+  "sprayer_routes_around_inner": true,
+  "bays_through_inner": false,
+  "manual_shelter_pins": [
+    [
+      49.685004744102336,
+      -112.75401214745213
+    ],
+    [
+      49.68503250986552,
+      -112.75453249600102
+    ],
+    [
+      49.6845709019929,
+      -112.75418917324711
+    ],
+    [
+      49.68392186696903,
+      -112.75418380882908
+    ],
+    [
+      49.68497697832329,
+      -112.75553564217259
+    ],
+    [
+      49.68434877333431,
+      -112.75592724468876
+    ]
+  ],
+  "shelter_overrides": {
+    "1": [
+      49.685004744102336,
+      -112.75453249600102
+    ],
+    "2": [
+      49.68452925294672,
+      -112.75417307999302
+    ],
+    "5": [
+      49.68506027561285,
+      -112.75587360050847
+    ]
+  },
+  "shelters_in_outside_pass": "Yes",
+  "acres_manual": false,
+  "adjust_by_combo": {
+    "manual|None=|out=Yes|both=0": {
+      "shelter_overrides": {
+        "1": [
+          49.685004744102336,
+          -112.75453249600102
+        ],
+        "2": [
+          49.68452925294672,
+          -112.75417307999302
+        ],
+        "5": [
+          49.68506027561285,
+          -112.75587360050847
+        ]
+      },
+      "tray_overrides": {}
+    }
+  },
+  "Planting_angle": "",
+  "shelter_rows": "",
+  "PP2_Latitude": "",
+  "PP2_Longitude": "",
+  "Radius2": "",
+  "tire_width_ft": "14",
+  "bay_gap_in": "0",
+  "shelter_at_pivot": false,
+  "spray_both_ways": false,
+  "two_pivots": false,
+  "pass_phase_swap": false
+}

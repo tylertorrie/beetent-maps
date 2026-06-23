@@ -1,5 +1,5 @@
 {
-  "updated": "2026-06-22T22:35:50",
+  "updated": "2026-06-23T08:53:07",
   "fields": [
     {
       "name": "BASF 1st Test Plot",
@@ -24,6 +24,12 @@
       "company": "BASF",
       "year": "2026",
       "file": "BASF__2026__Stolk_NE-12-11-15.geojson"
+    },
+    {
+      "name": "BASF 1st Test Plot",
+      "company": "BASF Test Plots",
+      "year": "2026",
+      "file": "BASF_Test_Plots__2026__BASF_1st_Test_Plot.geojson"
     },
     {
       "name": "Bayer NE 1-20-15 (Big Field)",
