@@ -1864,13 +1864,16 @@ class BeetentApp(ctk.CTk):
                 ctk.CTkLabel(hd, text="depreciates over 1 yr", text_color=UI_MUTED,
                              font=ctk.CTkFont(size=10)).pack(side="right")
             for key, label, default in rows:
-                r = ctk.CTkFrame(card, fg_color="transparent")
-                r.pack(fill="x", padx=16, pady=2)
+                # Each input sits on its own shaded band (like the Files list rows)
+                # so it's obvious which entry lines up with which label.
+                r = ctk.CTkFrame(card, fg_color=UI_HOVER, corner_radius=6)
+                r.pack(fill="x", padx=12, pady=2)
                 ctk.CTkLabel(r, text=label, anchor="w",
                              font=ctk.CTkFont(family=FONT_LABEL, size=12), text_color=UI_TEXT
-                             ).pack(side="left")
+                             ).pack(side="left", padx=(10, 6), pady=6)
                 v = tk.StringVar(value=default)
-                ctk.CTkEntry(r, textvariable=v, width=110, justify="right").pack(side="right")
+                ctk.CTkEntry(r, textvariable=v, width=110, justify="right"
+                             ).pack(side="right", padx=(0, 8), pady=5)
                 self._cost_vars[key] = v
             ctk.CTkFrame(card, fg_color="transparent", height=6).pack()
 
@@ -1947,12 +1950,13 @@ class BeetentApp(ctk.CTk):
                          ).pack(anchor="w", padx=16, pady=2)
             return
         for co in companies:
-            r = ctk.CTkFrame(self._contract_rows_frame, fg_color="transparent")
-            r.pack(fill="x", padx=16, pady=2)
+            r = ctk.CTkFrame(self._contract_rows_frame, fg_color=UI_HOVER, corner_radius=6)
+            r.pack(fill="x", padx=12, pady=2)
             ctk.CTkLabel(r, text=co, anchor="w", font=ctk.CTkFont(family=FONT_LABEL, size=12),
-                         text_color=UI_TEXT).pack(side="left")
+                         text_color=UI_TEXT).pack(side="left", padx=(10, 6), pady=6)
             v = tk.StringVar(value=str(contract_data.get(co, "")))
-            ctk.CTkEntry(r, textvariable=v, width=110, justify="right").pack(side="right")
+            ctk.CTkEntry(r, textvariable=v, width=110, justify="right"
+                         ).pack(side="right", padx=(0, 8), pady=5)
             self._contract_vars[co] = v
 
     def _home_pin_text(self):
@@ -13077,16 +13081,29 @@ class BeetentApp(ctk.CTk):
         if is_single:
             co0, yr0, nm0 = selected[0]
             safe = re.sub(r"[^A-Za-z0-9_\- ]+","",nm0).strip()
-            base_stem = f"{safe} {yr0} Shelter Map" if safe else f"Field {yr0} Shelter Map"
-            default_path, default_name = _versioned_pdf_name(Path.home()/"Downloads", base_stem)
+            dldir = Path.home()/"Downloads"
+            def _role_stem(rd):                  # "Field Name Role Map"
+                return f"{safe} {rd} Map" if safe else f"Field {rd} Map"
+            default_path, _ = _versioned_pdf_name(dldir, _role_stem(role_var.get()))
             save_var = tk.StringVar(value=default_path)
+            # Keep the filename in sync with the chosen role until the user edits it.
+            _auto = {"on": True, "setting": False}
+            def _refresh_name(*_):
+                if not _auto["on"]: return
+                p, _n = _versioned_pdf_name(dldir, _role_stem(role_var.get()))
+                _auto["setting"] = True; save_var.set(p); _auto["setting"] = False
+            def _on_path_edit(*_):
+                if not _auto["setting"]: _auto["on"] = False   # manual edit → stop auto-naming
+            role_var.trace_add("write", _refresh_name)
+            save_var.trace_add("write", _on_path_edit)
             pr = ctk.CTkFrame(pad, fg_color="transparent"); pr.pack(fill="x")
             ctk.CTkEntry(pr, textvariable=save_var, width=310).pack(side="left", padx=(0,6))
             def _browse_file():
+                _, initname = _versioned_pdf_name(dldir, _role_stem(role_var.get()))
                 p = filedialog.asksaveasfilename(
                     defaultextension=".pdf", filetypes=[("PDF files","*.pdf")],
-                    initialfile=default_name,
-                    initialdir=str(Path.home()/"Downloads"),
+                    initialfile=initname,
+                    initialdir=str(dldir),
                     title="Save Field Summary PDF")
                 if p: save_var.set(p)
             ctk.CTkButton(pr, text="Browse…", width=80,
@@ -13127,10 +13144,12 @@ class BeetentApp(ctk.CTk):
             pdf_paths = {(co0,yr0,nm0): save_var.get().strip()}
         else:
             sdir = Path(save_dir_var.get())
+            role_disp = role_var.get()           # "Agronomist" / "Shelter Crew" / …
             pdf_paths = {}
             for co,yr,nm in selected:
                 safe = re.sub(r"[^A-Za-z0-9_\- ]+","",nm).strip()
-                base_stem = f"{safe} {yr} Shelter Map" if safe else f"Field {yr} Shelter Map"
+                # Filename = "Field Name Role Map", e.g. "Stolk NE 12-11-14 Agronomist Map"
+                base_stem = f"{safe} {role_disp} Map" if safe else f"Field {role_disp} Map"
                 path, _ = _versioned_pdf_name(sdir, base_stem)
                 pdf_paths[(co,yr,nm)] = path
 
