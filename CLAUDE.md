@@ -59,7 +59,7 @@ simplekml/            — Vendored for KML export
 fpdf/                 — Vendored PDF generation
 fields/               — Saved field JSON files (git-tracked, auto-synced)
   bay_presets.json    — Saved bay calculator presets
-  cost_prefs.json     — Global Cost Estimator inputs + home/depot pin + contract $/acre (not per-field)
+  cost_prefs.json     — Cost Estimator: by_year{year:{inputs+contract $/acre}} + global home pin (not per-field)
 maps_api_key.txt      — Google Maps API key (gitignored secret; repo is public)
   Corteva/2026/       — Field files per company/year
 .gitignore            — Excludes CSV, ODS, build output, Claude worktrees
@@ -175,17 +175,21 @@ cache key; cleaned up on field switch.
 ## Cost Estimator view
 
 Nav-drawer view (💰) with three `CTkSegmentedButton` tabs:
-- **General Information** — global cost inputs (items + depreciation life, chemical,
-  **fuel**, labour) in `self._cost_vars`, persisted to `fields/cost_prefs.json`
-  (`_load_cost_prefs`/`_save_cost_prefs`, git-synced like `overview_prefs.json`). The
-  Travel card here holds the **Google Maps API key** (stored in gitignored
-  `maps_api_key.txt`, NOT cost_prefs — the repo is public) and shows the global
-  **home/depot pin** (set from the map, persisted as `home_lat`/`home_lon` in
-  cost_prefs via `_set_home_pin`; `_home_pin` is the in-memory copy). A **Contracts**
-  card lists the bid **$/acre per company** (`self._contract_vars`, rebuilt per visit by
-  `_build_contract_rows` so new companies appear; saved under `contract_per_acre` in
-  cost_prefs; read via `_contract_rates()`). "💾 Save settings" → `_save_cost_settings`
-  (key + numeric prefs + contract rates).
+- **General Information** — cost inputs (items + depreciation life, chemical, **fuel**,
+  labour) in `self._cost_vars` and bid **$/acre per company** (`self._contract_vars`,
+  Contracts card). **Everything here is stored PER PRICING YEAR**: a year dropdown
+  (`_cost_year_combo`) switches the whole form. The in-session source of truth is
+  `self._cost_year_cache` `{year: {cost-var keys + contract_per_acre}}`;
+  `_cost_apply_year`/`_cost_capture_year` swap widget values in/out on year change
+  (`_cost_year_changed`), `_resolve_year_data` carries forward from the most recent
+  earlier year when a year has no data, and `_save_cost_prefs` flushes the cache to
+  `cost_prefs.json` under `by_year`. `_load_cost_prefs` (once, at build) rebuilds the
+  cache and **migrates** any old flat top-level format via `_legacy_flat`. Per-year
+  reads for costing: `_cost_inputs_for_year(y)` / `_contract_rates_for_year(y)`. The
+  Travel card holds the **Google Maps API key** (gitignored `maps_api_key.txt`, NOT
+  cost_prefs — the repo is public) and the **global** home/depot pin (`home_lat`/
+  `home_lon`, NOT per-year). "💾 Save settings" → `_save_cost_settings` (key + the year
+  cache). `_build_contract_rows` is rebuilt per visit so new companies appear.
 - **Cost Estimator** — company/year scope picker + per-field checkboxes; `_field_cost(f, c)`
   computes AMORTIZED items (unit cost ÷ life-years × qty; bees = 1-yr full cost) +
   chemical (per acre) + **fuel** + labour. **Labour per task** (setup/bees/removal) =
@@ -205,7 +209,8 @@ Nav-drawer view (💰) with three `CTkSegmentedButton` tabs:
   card (Items = shelters+trays+blocks+flags together). Exports CSV + landscape PDF to
   `~/Downloads`, archived to the output library (`_archive_cost_to_library`).
 - **Profitability** — `_build_cost_profit_tab` + `_profit_compute` (own company/year
-  scope, off-thread) computes per field: revenue = `_contract_rates()[company]` × acres,
+  scope, off-thread) computes per field, each costed with **its own year's** prices/rate
+  (`_cost_inputs_for_year`/`_contract_rates_for_year`): revenue = rate × acres,
   profit = revenue − cost. `_profit_render` shows companies ranked by total profit and
   fields ranked high→low profit, each with margin + cost/ac. A red **❗** (from
   `_field_profit_warnings`) flags fields missing info that skews results (no acreage / no

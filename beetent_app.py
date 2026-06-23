@@ -1837,8 +1837,24 @@ class BeetentApp(ctk.CTk):
 
     def _build_cost_general_tab(self, parent):
         self._cost_vars = {}
-        ctk.CTkLabel(parent, text="Unit costs, depreciation life and labour — entered once "
-                     "and applied to every field.", anchor="w", justify="left",
+        if not hasattr(self, "_cost_year_cache"):
+            self._cost_year_cache = {}        # {year: {cost-var keys + contract_per_acre}}
+        self._cost_shown_year = None
+        # ── Pricing-year selector (all costs + contracts below are per-year) ──
+        top = ctk.CTkFrame(parent, fg_color="transparent")
+        top.pack(fill="x", padx=4, pady=(2, 6))
+        ctk.CTkLabel(top, text="Pricing year", font=ctk.CTkFont(family=FONT_LABEL, size=12),
+                     text_color=UI_TEXT).pack(side="left")
+        self._cost_year_var = tk.StringVar(value=str(datetime.date.today().year))
+        self._cost_year_combo = ctk.CTkComboBox(
+            top, variable=self._cost_year_var, width=100,
+            values=[str(datetime.date.today().year)], command=self._cost_year_changed)
+        self._cost_year_combo.pack(side="left", padx=(6, 10))
+        ctk.CTkLabel(top, text="Every cost and contract below is saved per year — switch "
+                     "the year to enter that season's prices.", text_color=UI_MUTED,
+                     wraplength=420, justify="left", font=ctk.CTkFont(size=10)).pack(side="left")
+        ctk.CTkLabel(parent, text="Unit costs, depreciation life and labour — applied to "
+                     "every field of the selected year.", anchor="w", justify="left",
                      text_color=UI_MUTED, wraplength=560,
                      font=ctk.CTkFont(size=11)).pack(fill="x", padx=4, pady=(2, 6))
         for section, color, rows in self.COST_FIELD_SPEC:
@@ -1918,11 +1934,15 @@ class BeetentApp(ctk.CTk):
         ctk.CTkButton(btn, text="💾  Save settings", width=150, height=36,
                       command=self._save_cost_settings).pack(side="left")
 
-    def _build_contract_rows(self):
-        """(Re)build the per-company $/acre entries, preserving any current edits.
-        Refreshed when companies change so newly added companies appear."""
-        saved = (self._read_cost_prefs_raw().get("contract_per_acre") or {})
-        cur = {co: v.get() for co, v in getattr(self, "_contract_vars", {}).items()}
+    def _build_contract_rows(self, contract_data=None):
+        """(Re)build the per-company $/acre entries for the shown year. With explicit
+        `contract_data` (year switch) use those values; otherwise preserve current edits
+        and fill any newly added company from the shown year's cache."""
+        if contract_data is None:
+            contract_data = {co: v.get() for co, v in getattr(self, "_contract_vars", {}).items()}
+            cached = self._resolve_year_data(getattr(self, "_cost_shown_year", "") or "")
+            for co, val in (cached.get("contract_per_acre") or {}).items():
+                contract_data.setdefault(co, str(val))
         for w in self._contract_rows_frame.winfo_children():
             w.destroy()
         self._contract_vars = {}
@@ -1937,7 +1957,7 @@ class BeetentApp(ctk.CTk):
             r.pack(fill="x", padx=16, pady=2)
             ctk.CTkLabel(r, text=co, anchor="w", font=ctk.CTkFont(family=FONT_LABEL, size=12),
                          text_color=UI_TEXT).pack(side="left")
-            v = tk.StringVar(value=cur.get(co, str(saved.get(co, ""))))
+            v = tk.StringVar(value=str(contract_data.get(co, "")))
             ctk.CTkEntry(r, textvariable=v, width=110, justify="right").pack(side="right")
             self._contract_vars[co] = v
 
@@ -2095,7 +2115,14 @@ class BeetentApp(ctk.CTk):
                     scope.append((cc, y, name))
         if not scope:
             self._status("No fields in that scope."); return
-        c = self._cost_inputs(); rates = self._contract_rates()
+        self._cost_capture_year()        # reflect any unsaved edits in the year cache
+        yc = {}; rc = {}                 # per-pricing-year inputs / contract rates (cached)
+        def inputs_for(y):
+            if y not in yc: yc[y] = self._cost_inputs_for_year(y)
+            return yc[y]
+        def rates_for(y):
+            if y not in rc: rc[y] = self._contract_rates_for_year(y)
+            return rc[y]
         self._status("Computing profitability for %d field(s)…" % len(scope))
         def _work():
             rows = []
@@ -2105,9 +2132,10 @@ class BeetentApp(ctk.CTk):
                 f = load_field(cc, y, name)
                 if not f:
                     continue
-                try: lc = self._field_cost(f, c)
+                fy = str(f.get("year", y))
+                try: lc = self._field_cost(f, inputs_for(fy))
                 except Exception: continue
-                rate = rates.get(cc, 0.0)
+                rate = rates_for(fy).get(cc, 0.0)
                 revenue = rate * lc.get("acres", 0)
                 profit = revenue - lc.get("total", 0)
                 warns = self._field_profit_warnings(cc, lc, rate)
@@ -2221,7 +2249,11 @@ class BeetentApp(ctk.CTk):
         sel = [k for k, v in self._cost_field_checks.items() if v.get()]
         if not sel:
             self._status("Select at least one field to estimate."); return
-        c = self._cost_inputs()
+        self._cost_capture_year()        # reflect any unsaved edits in the year cache
+        yc = {}                          # pricing-year -> parsed inputs (cached)
+        def inputs_for(y):
+            if y not in yc: yc[y] = self._cost_inputs_for_year(y)
+            return yc[y]
         self._status("Computing costs for %d field(s)…" % len(sel))
         def _work():
             rows = []
@@ -2229,6 +2261,7 @@ class BeetentApp(ctk.CTk):
                 f = load_field(co, yr, name)
                 if not f:
                     continue
+                c = inputs_for(str(f.get("year", yr)))   # each field uses its year's prices
                 try: lc = self._field_cost(f, c)
                 except Exception: continue
                 rows.append((co, yr, name, lc))
@@ -2629,7 +2662,8 @@ class BeetentApp(ctk.CTk):
             pdf.ln(3)
 
         # ── Assumptions ──
-        self._pdf_section(pdf, "Cost assumptions", x0, W, INK)
+        self._pdf_section(pdf, "Cost assumptions (pricing year %s)"
+                          % getattr(self, "_cost_shown_year", ""), x0, W, INK)
         labels = [("cost_per_shelter", "Shelter $"), ("shelter_life_yr", "Shelter life yr"),
                   ("cost_per_gal_bee", "Bee $/gal"), ("cost_per_tray", "Tray $"),
                   ("tray_life_yr", "Tray life yr"), ("cost_per_block", "Block $"),
@@ -2708,9 +2742,9 @@ class BeetentApp(ctk.CTk):
         self._cost_estimate_frame.pack_forget()
         self._cost_profit_frame.pack_forget()
         if tab == "general":
-            # surface any companies added since the view was built
+            # surface any companies/years added since the view was built (keeps edits)
+            self._refresh_cost_year_choices()
             self._build_contract_rows()
-            self._load_cost_prefs()
             self._cost_general_frame.pack(fill="both", expand=True, padx=12, pady=(0, 8))
         elif tab == "profit":
             self._cost_profit_frame.pack(fill="both", expand=True, padx=12, pady=(0, 8))
@@ -2802,52 +2836,132 @@ class BeetentApp(ctk.CTk):
             self._log(f"Google distance lookup failed: {e}")
             return None
 
-    def _load_cost_prefs(self):
-        """Load global cost inputs from fields/cost_prefs.json into the StringVars."""
-        d = self._read_cost_prefs_raw()
+    # ── Per-year cost inputs (all costs + contracts are stored per pricing year) ──
+    def _cost_spec_defaults(self):
+        d = {}
+        for (_s, _c, rows) in self.COST_FIELD_SPEC:
+            for (k, _l, dflt) in rows:
+                d[k] = dflt
+        return d
+
+    def _legacy_flat(self, raw):
+        """Old pre-per-year cost inputs sitting at the top level of cost_prefs.json,
+        used to seed the cache on first migration."""
+        out = {}
+        for (_s, _c, rows) in self.COST_FIELD_SPEC:
+            for (k, _l, _d) in rows:
+                if k in raw:
+                    out[k] = raw[k]
+        if isinstance(raw.get("contract_per_acre"), dict):
+            out["contract_per_acre"] = dict(raw["contract_per_acre"])
+        return out
+
+    def _resolve_year_data(self, year):
+        """Saved cost-input dict for `year` (a copy). If that year has no data, carry
+        forward from the most recent earlier year, else the most recent year overall."""
+        year = str(year)
+        cache = getattr(self, "_cost_year_cache", {})
+        if year in cache:
+            return dict(cache[year])
+        yrs = sorted(cache.keys())
+        if yrs:
+            le = [y for y in yrs if y <= year]
+            return dict(cache[le[-1] if le else yrs[-1]])
+        return {}
+
+    def _cost_apply_year(self, year):
+        """Populate the General-tab widgets from the cache for `year`."""
+        year = str(year)
+        self._cost_shown_year = year
+        defaults = self._cost_spec_defaults()
+        data = self._resolve_year_data(year)
         for k, v in self._cost_vars.items():
-            if k in d:
-                v.set(str(d[k]))
-        cr = d.get("contract_per_acre") or {}
-        for co, v in getattr(self, "_contract_vars", {}).items():
-            if co in cr:
-                v.set(str(cr[co]))
+            v.set(str(data.get(k, defaults.get(k, ""))))
+        self._build_contract_rows(contract_data=data.get("contract_per_acre") or {})
+
+    def _cost_capture_year(self):
+        """Stash the current General-tab widget values into the cache under the shown year."""
+        yr = getattr(self, "_cost_shown_year", None)
+        if not yr:
+            return
+        data = {k: v.get().strip() for k, v in self._cost_vars.items()}
+        data["contract_per_acre"] = {co: v.get().strip()
+                                     for co, v in getattr(self, "_contract_vars", {}).items()}
+        self._cost_year_cache[yr] = data
+
+    def _cost_year_changed(self, value):
+        self._cost_capture_year()        # keep edits for the year we're leaving
+        self._cost_apply_year(value)
+
+    def _refresh_cost_year_choices(self):
+        yrs = set(getattr(self, "_cost_year_cache", {}).keys())
+        for cc in list_companies():
+            for y in list_years(cc):
+                yrs.add(str(y))
+        yrs.add(str(datetime.date.today().year))
+        if getattr(self, "_cost_year_combo", None) is not None:
+            self._cost_year_combo.configure(values=sorted(yrs, reverse=True))
+
+    def _load_cost_prefs(self):
+        """Build the per-year cache from cost_prefs.json (migrating any old flat format)
+        and show the current year. Called once at view build."""
+        raw = self._read_cost_prefs_raw()
+        self._cost_year_cache = {}
+        by = raw.get("by_year")
+        if isinstance(by, dict):
+            for y, data in by.items():
+                if isinstance(data, dict):
+                    self._cost_year_cache[str(y)] = dict(data)
+        else:
+            legacy = self._legacy_flat(raw)        # migrate old single-bucket format
+            if legacy:
+                self._cost_year_cache[str(datetime.date.today().year)] = legacy
         self._home_pin = self._read_home_pin()
         if getattr(self, "_maps_key_var", None) is not None:
             self._maps_key_var.set(self._read_maps_key())
+        yr = getattr(self, "_cost_shown_year", None) or str(datetime.date.today().year)
+        self._refresh_cost_year_choices()
+        self._cost_year_var.set(yr)
+        self._cost_apply_year(yr)
 
     def _save_cost_prefs(self):
         try:
-            d = self._read_cost_prefs_raw()          # preserve home_lat/home_lon etc.
-            d.update({k: v.get().strip() for k, v in self._cost_vars.items()})
-            # merge contract rates (keep rates for companies not currently shown)
-            cr = dict(d.get("contract_per_acre") or {})
-            for co, v in getattr(self, "_contract_vars", {}).items():
-                cr[co] = v.get().strip()
-            d["contract_per_acre"] = cr
+            self._cost_capture_year()              # flush current widgets to the cache
+            d = self._read_cost_prefs_raw()        # preserve home_lat/home_lon, maps off
+            # drop any legacy flat keys, write the whole per-year cache
+            for (_s, _c, rows) in self.COST_FIELD_SPEC:
+                for (k, _l, _x) in rows:
+                    d.pop(k, None)
+            d.pop("contract_per_acre", None)
+            d["by_year"] = {y: data for y, data in self._cost_year_cache.items()}
             self._write_cost_prefs_raw(d)
-            self._status("Cost settings saved.")
+            self._status("Cost settings saved (year %s)." % self._cost_shown_year)
             self._git_push("sync cost estimator settings")
         except Exception as ex:
             tkinter.messagebox.showerror("Cost settings", str(ex))
 
-    def _contract_rates(self):
-        """{company: $/acre float} from the live entries if built, else from disk."""
+    def _contract_rates_for_year(self, year):
+        """{company: $/acre float} for a pricing year (from the cache)."""
+        cr = self._resolve_year_data(year).get("contract_per_acre") or {}
         out = {}
-        vars_ = getattr(self, "_contract_vars", None)
-        if vars_:
-            for co, v in vars_.items():
-                try: out[co] = float(str(v.get()).strip() or 0)
-                except (ValueError, TypeError): out[co] = 0.0
-        cr = self._read_cost_prefs_raw().get("contract_per_acre") or {}
         for co, val in cr.items():
-            if co not in out:
-                try: out[co] = float(str(val).strip() or 0)
-                except (ValueError, TypeError): out[co] = 0.0
+            try: out[co] = float(str(val).strip() or 0)
+            except (ValueError, TypeError): out[co] = 0.0
+        return out
+
+    def _cost_inputs_for_year(self, year):
+        """Parse the cost inputs for a pricing year (carry-forward + spec defaults)."""
+        data = self._resolve_year_data(year)
+        defaults = self._cost_spec_defaults()
+        out = {}
+        for (_s, _c, rows) in self.COST_FIELD_SPEC:
+            for (k, _l, _x) in rows:
+                try: out[k] = float(str(data.get(k, defaults.get(k, 0))).strip() or 0)
+                except (ValueError, TypeError): out[k] = 0.0
         return out
 
     def _cost_inputs(self):
-        """Parse the General-Information StringVars into a {key: float} dict."""
+        """Parse the currently shown General-tab StringVars (for the assumptions table)."""
         d = {}
         for k, v in self._cost_vars.items():
             try: d[k] = float(str(v.get()).strip() or 0)
