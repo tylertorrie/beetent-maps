@@ -32,6 +32,7 @@
       "time_removal_min": "4",
       "contract_per_acre": {
         "BASF": "625",
+        "BASF Test Plots": "625",
         "Bayer": "550",
         "Corteva": "639",
         "Hytech": "675",
