@@ -1951,5 +1951,11 @@
   "jd_client": "Riverview Ranch",
   "jd_farm": "Stolk",
   "pass_phase_swap": false,
-  "spray_both_ways": true
+  "spray_both_ways": false,
+  "adjust_by_combo": {
+    "trays_2|None=|out=No|both=1": {
+      "shelter_overrides": {},
+      "tray_overrides": {}
+    }
+  }
 }
