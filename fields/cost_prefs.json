@@ -31,11 +31,11 @@
       "emp_per_crew_removal": "3",
       "time_removal_min": "4",
       "contract_per_acre": {
-        "BASF": "$625",
-        "Bayer": "$550",
-        "Corteva": "$639",
-        "Hytech": "$675",
-        "Proven Seeds": "$646",
+        "BASF": "625",
+        "Bayer": "550",
+        "Corteva": "639",
+        "Hytech": "675",
+        "Proven Seeds": "646",
         "RVR": ""
       }
     }
