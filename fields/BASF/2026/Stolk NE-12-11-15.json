@@ -1956,6 +1956,10 @@
     "trays_2|None=|out=No|both=1": {
       "shelter_overrides": {},
       "tray_overrides": {}
+    },
+    "trays_2|None=|out=No|both=0": {
+      "shelter_overrides": {},
+      "tray_overrides": {}
     }
   }
 }
