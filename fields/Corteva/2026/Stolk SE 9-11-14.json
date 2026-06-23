@@ -62538,5 +62538,17 @@
   "PP2_Latitude": "",
   "PP2_Longitude": "",
   "Radius2": "",
-  "two_pivots": false
+  "two_pivots": false,
+  "adjust_by_combo": {
+    "per_acre|shelters_per_acre=0.909090|out=Yes|both=0": {
+      "shelter_overrides": {},
+      "tray_overrides": {}
+    }
+  },
+  "spray_both_ways": false,
+  "pass_phase_swap": false,
+  "parking_pin": [
+    49.89503605068109,
+    -111.85719234711456
+  ]
 }
