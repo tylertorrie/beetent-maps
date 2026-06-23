@@ -202,19 +202,25 @@ Nav-drawer view (💰) with three `CTkSegmentedButton` tabs:
   **"↻ Update travel times"** button (`_cost_update_travel`, off-thread) and cached on
   each field as `home_to_parking_km`/`home_to_parking_min`/`home_coords_used`;
   `_field_cost` only READS that cache. `_field_cost` returns `cost_per_acre` (= total ÷
-  acres), shown as a hero pill + per-field line + CSV/PDF column. The field picker is
-  **collapsible** (`_cost_toggle_field_list`) to free up room for the numbers. The
-  breakdown groups in a fixed `_COST_CAT_ORDER` (Items, Bees, Chemical, Fuel, Labour);
-  the `lines` list keeps all same-group rows contiguous so each group renders as ONE
-  card (Items = shelters+trays+blocks+flags together). Exports CSV + landscape PDF to
-  `~/Downloads`, archived to the output library (`_archive_cost_to_library`).
-- **Profitability** — `_build_cost_profit_tab` + `_profit_compute` (own company/year
-  scope, off-thread) computes per field, each costed with **its own year's** prices/rate
-  (`_cost_inputs_for_year`/`_contract_rates_for_year`): revenue = rate × acres,
-  profit = revenue − cost. `_profit_render` shows companies ranked by total profit and
-  fields ranked high→low profit, each with margin + cost/ac. A red **❗** (from
-  `_field_profit_warnings`) flags fields missing info that skews results (no acreage / no
-  shelters / no contract rate / travel time not set), with the reasons listed inline.
+  acres); `_cost_compute` also attaches `contract_rate`/`contract_value`/`net_profit`
+  per field (revenue = the field-year's contract rate × acres; net profit = contract
+  value − total cost). Hero shows Cost/ac plus a **Contract value / Total cost / Net
+  profit** trio (when a rate is set); per-field cards + CSV + PDF carry all three. The
+  field picker is **collapsible** (`_cost_toggle_field_list`). The breakdown groups in a
+  fixed `_COST_CAT_ORDER` (Items, Bees, Chemical, Fuel, Labour); the `lines` list keeps
+  same-group rows contiguous so each group renders as ONE card (Items =
+  shelters+trays+blocks+flags together). Exports CSV + landscape PDF to `~/Downloads`,
+  archived to the output library (`_archive_cost_to_library`).
+- **Profitability** — a **live ranking** (no compute button). `_cost_switch_tab` calls
+  `_profit_open` on entry: it reuses cached `_profit_rows` and just re-derives revenue/
+  profit from the CURRENT contract rates (`_profit_apply_rates`, cheap — so rate edits
+  show on return without re-costing), or auto-runs `_profit_compute` once if empty.
+  `_profit_compute` (off-thread, own company/year scope) costs each field with **its own
+  year's** prices/rate (`_cost_inputs_for_year`/`_contract_rates_for_year`); the ↻ Refresh
+  button + scope combos re-run it. `_profit_render` ranks companies by total profit and
+  fields high→low profit (margin + cost/ac). A red **❗** (`_field_profit_warnings`) flags
+  fields missing info that skews results (no acreage / shelters / contract rate / travel),
+  reasons listed inline.
 
 ### Home pin (global depot)
 
