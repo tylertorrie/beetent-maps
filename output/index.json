@@ -1895,5 +1895,27 @@
     "role": null,
     "generated": "2026-06-20T13:16:10",
     "size": 37349
+  },
+  {
+    "id": "pdfs/Cost Estimate 2026-06-22.pdf",
+    "kind": "cost",
+    "name": "Cost Estimate 2026-06-22.pdf",
+    "relpath": "pdfs/Cost Estimate 2026-06-22.pdf",
+    "is_dir": false,
+    "companies": [
+      "BASF"
+    ],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "Giesbricht NW 35-10-16"
+    ],
+    "types": [
+      "Cost PDF"
+    ],
+    "role": null,
+    "generated": "2026-06-22T21:45:52",
+    "size": 1748
   }
 ]
