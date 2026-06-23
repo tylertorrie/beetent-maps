@@ -29,7 +29,7 @@
   "use_imported_passes": false,
   "sprayer_passes": null,
   "gals_per_acre": "2.5",
-  "acres": "123.62",
+  "acres": "129.38",
   "gals_per_tray": "2",
   "tray_distribution": "even",
   "boundary_polygon": [
@@ -286,5 +286,6 @@
   "PP2_Latitude": "",
   "PP2_Longitude": "",
   "Radius2": "",
-  "two_pivots": false
+  "two_pivots": false,
+  "acres_manual": false
 }

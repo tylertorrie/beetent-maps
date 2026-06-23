@@ -3241,7 +3241,7 @@
   ],
   "shelter_overrides": {},
   "gals_per_acre": "3",
-  "acres": "111.43",
+  "acres": "111.42",
   "gals_per_tray": "2",
   "tray_distribution": "even",
   "shelter_mode": "trays_2",
@@ -4157,5 +4157,6 @@
   "PP2_Longitude": "",
   "Radius2": "",
   "two_pivots": false,
-  "pass_phase_swap": false
+  "pass_phase_swap": false,
+  "acres_manual": false
 }

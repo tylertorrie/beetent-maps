@@ -838,7 +838,7 @@ def blank_field(company="",year=""):
                 planter_passes=None,           # [[(lat,lon), ...], ...]  imported from JD
                 use_imported_passes=True,      # when False or no data, use synthetic grid
                 sprayer_passes=None,           # [[(lat,lon), ...], ...]  uploaded GPS sprayer tracks
-                gals_per_acre="3",acres="",gals_per_tray="2",tray_distribution="even",
+                gals_per_acre="3",acres="",acres_manual=False,gals_per_tray="2",tray_distribution="even",
                 boundary_polygon=None,pivot_tracks=[],corner_arms=[],
                 two_pivots=False,             # rare: one field served by TWO pivots
                 PP2_Latitude="",PP2_Longitude="",   # second pivot point (when two_pivots)
@@ -4547,6 +4547,37 @@ class BeetentApp(ctk.CTk):
         # Custom-mask writes feed into the bay redraw too (debounced via
         # _on_bay_change → _calc_bays → resolve mask label + redraw shelters).
         self.custom_mask_var.trace_add("write", self._on_bay_change)
+        # Acres: typing a value marks it MANUAL (sticks); clearing it reverts to
+        # the boundary estimate.
+        if "acres" in self.fv:
+            self.fv["acres"].trace_add("write", self._on_acres_edit)
+
+    def _on_acres_edit(self, *_):
+        """User edited the Acres entry. Empty → revert to the boundary estimate
+        (auto); any value → flag as a manual override that the auto-fill won't
+        touch. Programmatic auto-fills set _setting_acres so they're ignored."""
+        if getattr(self, "_setting_acres", False) or getattr(self, "_loading_field", False):
+            return
+        if (self.fv["acres"].get() or "").strip() == "":
+            self.current_field["acres_manual"] = False
+            self._autofill_acres()
+        else:
+            self.current_field["acres_manual"] = True
+
+    def _autofill_acres(self):
+        """Set the Acres entry to the boundary's estimated area UNLESS the user
+        has manually overridden it. Guarded so it never trips the manual flag."""
+        if self.current_field.get("acres_manual"):
+            return
+        bp = self.current_field.get("boundary_polygon") or []
+        if len(bp) < 3:
+            return
+        acres = polygon_area_m2([(p[0], p[1]) for p in bp]) * ACRES_PER_M2
+        if acres > 0:
+            self._setting_acres = True
+            try: self.fv["acres"].set(f"{acres:.2f}")
+            except Exception: pass
+            finally: self._setting_acres = False
 
     def _on_bay_change(self, *_):
         rid=getattr(self, "_bay_refresh_id", None)
@@ -5973,6 +6004,9 @@ class BeetentApp(ctk.CTk):
         # tracker first so this registers as the initial combo.
         self._current_combo = None
         self._sync_combo_adjustments()
+        # Acres default = boundary estimate (unless the field carries a manual
+        # override). Refreshes stale/auto values on every load.
+        self._autofill_acres()
         # Baseline the auto-saver to the freshly loaded state so it only writes
         # once the user actually changes something (and never re-saves on load).
         self._autosave_last = self._field_snapshot()
@@ -7222,9 +7256,7 @@ class BeetentApp(ctk.CTk):
             self.show_boundary.set(True)
             area_m2=polygon_area_m2([(p[0],p[1]) for p in pts])
             acres=area_m2*ACRES_PER_M2
-            if acres>0:
-                try: self.fv["acres"].set(f"{acres:.2f}")
-                except Exception: pass
+            self._autofill_acres()              # auto-fill unless manually overridden
             self._redraw_boundary(); self._redraw_passes()
             if self.show_bays.get():     self._redraw_bays()
             if self.show_tracks.get():   self._redraw_tracks(skip_shelters=True)
@@ -7339,15 +7371,16 @@ class BeetentApp(ctk.CTk):
         self.click_mode=None
         self._hide_context_btn()
         self._clear_boundary_markers(); self._redraw_boundary()
-        # Auto-fill acres from the drawn polygon. The user can still type their
-        # own number into the Acres entry afterward to override the calculated
-        # value (e.g. for known surveyed acreage that differs from the rough
-        # outline). The next time they save a boundary, this will recompute.
+        # Auto-fill acres from the drawn polygon — UNLESS the user has manually
+        # typed an acreage (that override sticks; clear the Acres entry to revert
+        # to the boundary estimate).
         area_m2 = polygon_area_m2([(p[0], p[1]) for p in self.boundary_pts])
         acres = area_m2 * ACRES_PER_M2
-        if acres > 0:
-            try: self.fv["acres"].set(f"{acres:.2f}")
-            except Exception: pass
+        self._autofill_acres()
+        if self.current_field.get("acres_manual"):
+            self._status(f"Boundary set ({len(self.boundary_pts)} vertices). "
+                         f"Acres kept at your manual value ({self.fv['acres'].get()}).")
+        elif acres > 0:
             self._status(f"Boundary set ({len(self.boundary_pts)} vertices) — {acres:.2f} acres.")
         else:
             self._status(f"Boundary set ({len(self.boundary_pts)} vertices).")

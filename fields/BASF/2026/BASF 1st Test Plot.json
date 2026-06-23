@@ -127,5 +127,6 @@
       -112.75587360050847
     ]
   },
-  "shelters_in_outside_pass": "Yes"
+  "shelters_in_outside_pass": "Yes",
+  "acres_manual": false
 }

@@ -1961,5 +1961,6 @@
       "shelter_overrides": {},
       "tray_overrides": {}
     }
-  }
+  },
+  "acres_manual": true
 }

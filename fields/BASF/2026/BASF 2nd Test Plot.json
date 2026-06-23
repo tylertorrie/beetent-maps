@@ -172,5 +172,6 @@
   "Planting_angle": "",
   "shelter_rows": "",
   "bay_gap_in": "0",
-  "shelters_in_outside_pass": "Yes"
+  "shelters_in_outside_pass": "Yes",
+  "acres_manual": false
 }

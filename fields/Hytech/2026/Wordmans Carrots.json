@@ -262,5 +262,6 @@
   "bay_gap_in": "33",
   "shelters_in_outside_pass": "Yes",
   "tire_width_ft": "14",
-  "shelter_at_pivot": false
+  "shelter_at_pivot": false,
+  "acres_manual": false
 }

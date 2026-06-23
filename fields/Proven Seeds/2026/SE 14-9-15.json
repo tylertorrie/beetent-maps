@@ -288,5 +288,6 @@
   "Radius2": "",
   "two_pivots": false,
   "pass_phase_swap": false,
-  "spray_both_ways": false
+  "spray_both_ways": false,
+  "acres_manual": false
 }

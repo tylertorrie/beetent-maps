@@ -32,7 +32,7 @@
   "use_imported_passes": false,
   "sprayer_passes": null,
   "gals_per_acre": "2",
-  "acres": "123.62",
+  "acres": "105.81",
   "gals_per_tray": "2",
   "tray_distribution": "even",
   "boundary_polygon": [
@@ -362,5 +362,6 @@
   "two_pivots": false,
   "pass_phase_swap": false,
   "jd_client": "TNT Pollination",
-  "jd_farm": "Bayer"
+  "jd_farm": "Bayer",
+  "acres_manual": false
 }
