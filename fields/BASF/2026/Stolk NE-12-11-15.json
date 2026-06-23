@@ -1962,5 +1962,9 @@
       "tray_overrides": {}
     }
   },
-  "acres_manual": true
+  "acres_manual": true,
+  "parking_pin": [
+    49.90229553735031,
+    -111.92649797338879
+  ]
 }
