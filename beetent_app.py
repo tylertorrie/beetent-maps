@@ -849,6 +849,7 @@ def blank_field(company="",year=""):
                 wet_zones=[],                 # informational wet-spot polygons (NOT exclusions) — shown to crews
                 entrance_pin=None,            # [lat,lon] where the crew should enter the field
                 parking_pin=None,             # [lat,lon] where to park the trucks
+                crew_route_override=None,     # [[lat,lon],...] manually-edited crew travel line (else computed)
                 sprayer_routes_around_inner=True,   # sprayer pass lines break around inner boundaries when True
                 bays_through_inner=False,     # when True, planter bays draw through inner boundaries instead of clipping
                 shelter_at_pivot=False,
@@ -1391,6 +1392,10 @@ class BeetentApp(ctk.CTk):
         self.crews_visible_var  = tk.BooleanVar(value=False)
         self.crew_line_overlays = []
         self._crew_route_km     = 0.0
+        self._last_crew_route   = []     # last drawn route [(lat,lon),...] (for the editor)
+        self.crew_route_pts     = []     # working points while editing
+        self.crew_route_markers = []
+        self._selected_crewpt   = None
         # Boundary visibility (was always drawn; now togglable via toolbar checkbox)
         self.show_boundary      = tk.BooleanVar(value=True)
         # Master checkbox BooleanVars for each toolbar menu button
@@ -2151,8 +2156,13 @@ class BeetentApp(ctk.CTk):
         gpt = _ff("gals_per_tray", 2.0) or 2.0
         gallons = gpa * acres
         trays = max(int(math.ceil(gallons / gpt)) if gpt else 0, n)
-        try: route_km = (maketentgrid.crew_route(f, use_metric=False, shelters=pos)[1] / 1000.0) if pos else 0.0
-        except Exception: route_km = 0.0
+        ov = f.get("crew_route_override")
+        if ov and len(ov) >= 2:
+            route_km = sum(haversine_m(ov[i - 1][0], ov[i - 1][1], ov[i][0], ov[i][1])
+                           for i in range(1, len(ov))) / 1000.0
+        else:
+            try: route_km = (maketentgrid.crew_route(f, use_metric=False, shelters=pos)[1] / 1000.0) if pos else 0.0
+            except Exception: route_km = 0.0
         def life(k):
             v = c.get(k, 0.0)
             return v if v > 0 else 1.0
@@ -4061,6 +4071,8 @@ class BeetentApp(ctk.CTk):
 
         self._crews_btn = self._make_menu_btn(bb, "🚜 Crews", [
             ("Show driving distance",        self._crew_distance_status),
+            ("Edit Crew Route",              self._mode_edit_crew_route),
+            ("Reset Crew Route",             self._reset_crew_route),
         ], color="#3a2a5a",
            toggle_var=self.crews_visible_var, toggle_fn=self._set_crews_visible)
         self._crews_btn.pack(side="left", padx=(0,4))
@@ -7226,6 +7238,11 @@ class BeetentApp(ctk.CTk):
             if not self._try_insert_bnd_vertex(lat,lon):
                 self._deselect_bnd_vertex()
 
+        elif mode=="crew_edit":
+            # Clicking the map adds a crew-route point (joins the nearest segment
+            # or extends an end).
+            self._try_insert_crewpt(lat,lon)
+
         elif isinstance(mode,tuple) and mode[0]=="move_boundary_vertex":
             idx=mode[1]
             self.boundary_pts[idx]=(lat,lon)
@@ -7497,9 +7514,28 @@ class BeetentApp(ctk.CTk):
     def _redraw_crews(self):
         """Draw the estimated crew travel line — a snake down the male-bay centres
         nearest the shelters — and stash the total km for the status readout and
-        the Cost Estimator. Uses the cached planned shelters (off-thread)."""
+        the Cost Estimator. Uses the cached planned shelters (off-thread). A saved
+        manual override (crew_route_override) is drawn as-is."""
         self._clear_crews()
         if not self.show_crews.get():
+            return
+        if self.click_mode == "crew_edit":
+            return                          # the editor manages its own preview
+        # Manually edited route wins.
+        ov = self.current_field.get("crew_route_override")
+        if ov and len(ov) >= 2:
+            route = [(float(p[0]), float(p[1])) for p in ov]
+            total_m = sum(haversine_m(route[i - 1][0], route[i - 1][1], route[i][0], route[i][1])
+                          for i in range(1, len(route)))
+            self._crew_route_km = total_m / 1000.0
+            self._last_crew_route = route
+            try:
+                p = self.map_widget.set_path(route, color="#A855F7", width=3)
+                self.crew_line_overlays.append(p)
+            except Exception:
+                pass
+            self._status("Crew travel (edited): %.2f km (%.1f mi)"
+                         % (self._crew_route_km, self._crew_route_km * 0.621371))
             return
         f = self._field_from_form()
         use_m = self.unit_var.get() == "Metric"
@@ -7518,6 +7554,7 @@ class BeetentApp(ctk.CTk):
         except Exception as e:
             self._log(f"crew route failed: {e}"); return
         self._crew_route_km = total_m / 1000.0
+        self._last_crew_route = [(la, lo) for la, lo in route]
         if len(route) >= 2:
             try:
                 p = self.map_widget.set_path(
@@ -7533,6 +7570,157 @@ class BeetentApp(ctk.CTk):
             self._set_crews_visible(True)
         self._status("Estimated crew travel: %.2f km (%.1f mi)"
                      % (self._crew_route_km, self._crew_route_km * 0.621371))
+
+    # ── Crew-route manual editing (drag vertices, add/delete points) ──────────
+    def _mode_edit_crew_route(self):
+        self._close_all_popups()
+        if not self.show_crews.get():
+            self._set_crews_visible(True)
+        ov = self.current_field.get("crew_route_override")
+        pts = [tuple(p) for p in (ov if (ov and len(ov) >= 2) else self._last_crew_route)]
+        if len(pts) < 2:
+            self._status("No crew route to edit yet — toggle Crews on a field with shelters first.")
+            return
+        self.crew_route_pts = [(float(a), float(b)) for a, b in pts]
+        self._clear_crews()
+        self._clear_crew_markers()
+        for i, (lat, lon) in enumerate(self.crew_route_pts):
+            self._add_crewpt_marker(i, lat, lon, selected=False)
+        self._update_crew_preview()
+        self.click_mode = "crew_edit"
+        self._selected_crewpt = None
+        self._show_context_btn("✔ Save Crew Route", self._save_crew_route_edit)
+        self._status("Editing crew route: drag a point to move; click a point then 🗑 to "
+                     "delete; click the map to add a point. ✔ Save when done.")
+
+    def _add_crewpt_marker(self, i, lat, lon, selected=False):
+        cc = "#00E0FF" if selected else "#A855F7"
+        oc = "#0077AA" if selected else "#6B21A8"
+        m = self.map_widget.set_marker(lat, lon, text=str(i + 1),
+                                       marker_color_circle=cc, marker_color_outside=oc,
+                                       command=self._make_crewpt_cb(i))
+        if i < len(self.crew_route_markers):
+            self.crew_route_markers[i] = m
+        else:
+            self.crew_route_markers.append(m)
+        self._register_drag(f"crewpt_{i}", lat, lon, str(i + 1), cc, oc,
+                            lambda la, lo, i=i: self._on_crewpt_drag(i, la, lo), marker=m)
+
+    def _make_crewpt_cb(self, idx):
+        def cb():
+            if self._just_dragged:
+                self._just_dragged = False; return
+            self._select_crewpt(idx)
+        return cb
+
+    def _select_crewpt(self, idx):
+        if self._selected_crewpt == idx:
+            self._deselect_crewpt(); return
+        if self._selected_crewpt is not None:
+            self._redraw_crewpt(self._selected_crewpt, selected=False)
+        self._selected_crewpt = idx
+        self._redraw_crewpt(idx, selected=True)
+        self._show_context_btn("🗑 Delete Point", self._delete_selected_crewpt)
+        self._status(f"Point {idx + 1} selected — drag to move, 🗑 Delete to remove.")
+
+    def _deselect_crewpt(self):
+        if self._selected_crewpt is not None:
+            self._redraw_crewpt(self._selected_crewpt, selected=False)
+        self._selected_crewpt = None
+        self._show_context_btn("✔ Save Crew Route", self._save_crew_route_edit)
+
+    def _redraw_crewpt(self, idx, selected=False):
+        if idx >= len(self.crew_route_pts) or idx >= len(self.crew_route_markers):
+            return
+        lat, lon = self.crew_route_pts[idx]
+        try: self.crew_route_markers[idx].delete()
+        except Exception: pass
+        self._add_crewpt_marker(idx, lat, lon, selected=selected)
+
+    def _on_crewpt_drag(self, idx, lat, lon):
+        if self._selected_crewpt == idx:
+            self._selected_crewpt = None
+            self._show_context_btn("✔ Save Crew Route", self._save_crew_route_edit)
+        self.crew_route_pts[idx] = (lat, lon)
+        try: self.crew_route_markers[idx].delete()
+        except Exception: pass
+        self._add_crewpt_marker(idx, lat, lon, selected=False)
+        self._update_crew_preview()
+
+    def _delete_selected_crewpt(self):
+        idx = self._selected_crewpt
+        if idx is None: return
+        if len(self.crew_route_pts) <= 2:
+            self._status("A route needs at least 2 points."); return
+        self.crew_route_pts.pop(idx)
+        self._selected_crewpt = None
+        self._rebuild_crewpt_markers()
+        self._status(f"Point deleted. {len(self.crew_route_pts)} remain.")
+
+    def _try_insert_crewpt(self, lat, lon):
+        pts = self.crew_route_pts
+        if len(pts) < 2:
+            pts.append((lat, lon)); self._rebuild_crewpt_markers(); return
+        best_i = 0; best_cost = float("inf")
+        for i in range(len(pts) - 1):
+            a = pts[i]; b = pts[i + 1]
+            cost = (haversine_m(lat, lon, a[0], a[1]) + haversine_m(lat, lon, b[0], b[1])
+                    - haversine_m(a[0], a[1], b[0], b[1]))
+            if cost < best_cost:
+                best_cost = cost; best_i = i
+        end0 = haversine_m(lat, lon, pts[0][0], pts[0][1])
+        endN = haversine_m(lat, lon, pts[-1][0], pts[-1][1])
+        if end0 < best_cost and end0 <= endN:
+            pts.insert(0, (lat, lon))
+        elif endN < best_cost:
+            pts.append((lat, lon))
+        else:
+            pts.insert(best_i + 1, (lat, lon))
+        self._rebuild_crewpt_markers()
+
+    def _rebuild_crewpt_markers(self):
+        self._clear_crew_markers()
+        for i, (lat, lon) in enumerate(self.crew_route_pts):
+            self._add_crewpt_marker(i, lat, lon, selected=False)
+        self._update_crew_preview()
+
+    def _update_crew_preview(self):
+        self._clear_crews()
+        if len(self.crew_route_pts) >= 2:
+            try:
+                p = self.map_widget.set_path(
+                    [(la, lo) for la, lo in self.crew_route_pts], color="#A855F7", width=3)
+                self.crew_line_overlays.append(p)
+            except Exception:
+                pass
+
+    def _clear_crew_markers(self):
+        self._unregister_drag_prefix("crewpt_")
+        for m in self.crew_route_markers:
+            try: m.delete()
+            except Exception: pass
+        self.crew_route_markers = []
+
+    def _save_crew_route_edit(self):
+        if len(self.crew_route_pts) < 2:
+            self._status("Need at least 2 points."); return
+        self.current_field["crew_route_override"] = [list(p) for p in self.crew_route_pts]
+        self._selected_crewpt = None
+        self.click_mode = None
+        self._hide_context_btn()
+        self._clear_crew_markers()
+        self._redraw_crews()
+        self._status("Crew route saved. Save Field to keep.")
+
+    def _reset_crew_route(self):
+        self.current_field.pop("crew_route_override", None)
+        if self.click_mode == "crew_edit":
+            self.click_mode = None
+            self._hide_context_btn()
+            self._clear_crew_markers()
+        self._status("Crew route reset to the calculated path.")
+        if self.show_crews.get():
+            self._redraw_crews()
 
     def _redraw_pivot(self):
         """Draw or clear the pivot marker based on show_pivot."""
@@ -9440,7 +9628,8 @@ class BeetentApp(ctk.CTk):
         fields (shelter/tray overrides are applied to the RESULT, never read by
         get_tent_positions) so dragging a pin doesn't force a recompute."""
         fk = {k: v for k, v in f.items()
-              if k not in ("shelter_overrides", "tray_overrides", "adjust_by_combo")}
+              if k not in ("shelter_overrides", "tray_overrides", "adjust_by_combo",
+                           "crew_route_override")}
         return (json.dumps(fk, sort_keys=True, default=str), bool(use_m))
 
     def _ensure_tents(self, f, use_m):
@@ -10532,6 +10721,11 @@ class BeetentApp(ctk.CTk):
         self._clear_shelters()
         self._clear_shelter_lines()
         self._clear_crews()
+        # Abort any in-progress crew-route edit when overlays are wiped (field switch).
+        self._clear_crew_markers()
+        if self.click_mode == "crew_edit":
+            self.click_mode = None
+            self._selected_crewpt = None
 
     # ── Pivot drag handler ─────────────────────────────────────────────────────
     def _on_pivot_drag(self,lat,lon):

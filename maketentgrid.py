@@ -1386,7 +1386,24 @@ def crew_route(field_dict, use_metric=True, shelters=None):
             fwd = collect(1); bwd = collect(-1)
             return fwd if plen(fwd) <= plen(bwd) else bwd
 
+        def _nearest_bnd(pt):
+            # Closest point on the boundary to pt + the edge it's on.
+            px, py = pt; best = None; best_d = None; best_e = 0
+            for k in range(m):
+                x1, y1 = bnd_la[k]; x2, y2 = bnd_la[(k + 1) % m]
+                dx = x2 - x1; dy = y2 - y1; seg = dx * dx + dy * dy
+                if seg > 0:
+                    t = max(0.0, min(1.0, ((px - x1) * dx + (py - y1) * dy) / seg))
+                    cx_, cy_ = x1 + t * dx, y1 + t * dy
+                else:
+                    cx_, cy_ = x1, y1
+                d = (px - cx_) ** 2 + (py - cy_) ** 2
+                if best_d is None or d < best_d:
+                    best_d = d; best = (cx_, cy_); best_e = k
+            return best, best_e
+
         prev = None; prev_e = None       # last column's exit point + its edge
+        first_entry = None; first_e = None
         direction = 1
         for cx in used:
             cr = _clip_col(cx)
@@ -1399,10 +1416,29 @@ def crew_route(field_dict, use_metric=True, shelters=None):
                 entry, e_en, exit_, e_ex = (cx, a_hi), e_hi, (cx, a_lo), e_lo
             if prev is not None:
                 route_la.extend(_arc(prev, prev_e, entry, e_en))   # along the headland
+            if first_entry is None:
+                first_entry = entry; first_e = e_en
             route_la.append(entry)
             route_la.append(exit_)
             prev, prev_e = exit_, e_ex
             direction = -direction
+
+        # If a parking pin is placed, the crew starts AND ends there: drive from
+        # parking to the boundary, ALONG the boundary to the first pass, work the
+        # field, then back along the boundary to parking (still never crossing
+        # the crop).
+        park = field_dict.get('parking_pin')
+        if park and route_la and first_entry is not None:
+            try:
+                pe2, pn2 = latlon_list_to_enu(
+                    [(float(park[0]), float(park[1]))], plon, plat)[0]
+                park_la = (pe2 * ldx + pn2 * ldy, pe2 * tdx + pn2 * tdy)
+                pb, e_pb = _nearest_bnd(park_la)
+                pre = [park_la, pb] + _arc(pb, e_pb, first_entry, first_e)
+                suf = _arc(prev, prev_e, pb, e_pb) + [pb, park_la]
+                route_la = pre + route_la + suf
+            except Exception:
+                pass
 
     if not route_la:
         # No boundary (or clip failed): straight-connector snake over the shelter
