@@ -1,0 +1,21 @@
+{
+  "cost_per_shelter": "",
+  "shelter_life_yr": "10",
+  "cost_per_gal_bee": "",
+  "cost_per_tray": "",
+  "tray_life_yr": "5",
+  "cost_per_block": "",
+  "block_life_yr": "5",
+  "blocks_per_shelter": "1",
+  "cost_per_flag": "",
+  "flag_life_yr": "3",
+  "chem_cost_per_acre": "",
+  "pay_per_hour": "28",
+  "drive_speed_kmh": "15",
+  "emp_setup": "3",
+  "time_setup_min": "6",
+  "emp_bees": "1",
+  "time_bees_min": "1",
+  "emp_removal": "3",
+  "time_removal_min": "4"
+}
