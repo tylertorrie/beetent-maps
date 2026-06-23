@@ -1815,20 +1815,23 @@ class BeetentApp(ctk.CTk):
         ctk.CTkLabel(hdr, text="Cost Estimator", text_color=UI_TEXT,
                      font=ctk.CTkFont(family=FONT_HEADING, size=18)).pack(side="left")
         self._cost_tab_seg = ctk.CTkSegmentedButton(
-            hdr, values=["General Information", "Cost Estimator"],
+            hdr, values=["General Information", "Cost Estimator", "Profitability"],
             command=self._cost_on_tab_select)
         self._cost_tab_seg.set("General Information")
         self._cost_tab_seg.pack(side="right")
         ctk.CTkFrame(self.cost_estimator_view, height=1, fg_color=UI_BORDER).pack(
             fill="x", padx=12, pady=(0, 4))
 
-        # Two content frames toggled by the segmented button.
+        # Three content frames toggled by the segmented button.
         self._cost_general_frame = ctk.CTkScrollableFrame(
             self.cost_estimator_view, fg_color="transparent")
         self._cost_estimate_frame = ctk.CTkFrame(
             self.cost_estimator_view, fg_color="transparent")
+        self._cost_profit_frame = ctk.CTkFrame(
+            self.cost_estimator_view, fg_color="transparent")
         self._build_cost_general_tab(self._cost_general_frame)
         self._build_cost_estimate_tab(self._cost_estimate_frame)
+        self._build_cost_profit_tab(self._cost_profit_frame)
         self._load_cost_prefs()                      # fill the StringVars from disk
         self._cost_switch_tab("general")
 
@@ -1889,10 +1892,54 @@ class BeetentApp(ctk.CTk):
                      ).pack(side="right")
         ctk.CTkFrame(tcard, fg_color="transparent", height=6).pack()
 
+        # ── Contracts (revenue) — bid rate per company, $/acre ──
+        ccard = ctk.CTkFrame(parent, fg_color=UI_CARD, corner_radius=10,
+                             border_width=1, border_color=UI_BORDER)
+        ccard.pack(fill="x", padx=2, pady=(0, 10))
+        ch = ctk.CTkFrame(ccard, fg_color="transparent"); ch.pack(fill="x", padx=14, pady=(10, 6))
+        ctk.CTkFrame(ch, width=4, height=16, fg_color="#16A34A", corner_radius=2
+                     ).pack(side="left", padx=(0, 8))
+        ctk.CTkLabel(ch, text="Contracts", font=ctk.CTkFont(family=FONT_HEADING, size=13),
+                     text_color=UI_TEXT).pack(side="left")
+        ctk.CTkLabel(ch, text="revenue, $/acre", text_color=UI_MUTED,
+                     font=ctk.CTkFont(size=10)).pack(side="right")
+        ctk.CTkLabel(ccard, text="What each company pays you per acre — used to compute "
+                     "profit on the Profitability tab.", anchor="w", justify="left",
+                     text_color=UI_MUTED, wraplength=520, font=ctk.CTkFont(size=10)
+                     ).pack(fill="x", padx=16, pady=(0, 4))
+        self._contract_rows_frame = ctk.CTkFrame(ccard, fg_color="transparent")
+        self._contract_rows_frame.pack(fill="x")
+        self._contract_vars = {}
+        self._build_contract_rows()
+        ctk.CTkFrame(ccard, fg_color="transparent", height=6).pack()
+
         btn = ctk.CTkFrame(parent, fg_color="transparent")
         btn.pack(fill="x", pady=(6, 10))
         ctk.CTkButton(btn, text="💾  Save settings", width=150, height=36,
                       command=self._save_cost_settings).pack(side="left")
+
+    def _build_contract_rows(self):
+        """(Re)build the per-company $/acre entries, preserving any current edits.
+        Refreshed when companies change so newly added companies appear."""
+        saved = (self._read_cost_prefs_raw().get("contract_per_acre") or {})
+        cur = {co: v.get() for co, v in getattr(self, "_contract_vars", {}).items()}
+        for w in self._contract_rows_frame.winfo_children():
+            w.destroy()
+        self._contract_vars = {}
+        companies = list_companies()
+        if not companies:
+            ctk.CTkLabel(self._contract_rows_frame, text="No companies yet.",
+                         text_color=UI_MUTED, font=ctk.CTkFont(size=11)
+                         ).pack(anchor="w", padx=16, pady=2)
+            return
+        for co in companies:
+            r = ctk.CTkFrame(self._contract_rows_frame, fg_color="transparent")
+            r.pack(fill="x", padx=16, pady=2)
+            ctk.CTkLabel(r, text=co, anchor="w", font=ctk.CTkFont(family=FONT_LABEL, size=12),
+                         text_color=UI_TEXT).pack(side="left")
+            v = tk.StringVar(value=cur.get(co, str(saved.get(co, ""))))
+            ctk.CTkEntry(r, textvariable=v, width=110, justify="right").pack(side="right")
+            self._contract_vars[co] = v
 
     def _home_pin_text(self):
         if self._home_pin:
@@ -1914,7 +1961,14 @@ class BeetentApp(ctk.CTk):
                      ).pack(side="left", padx=(0, 8))
         ctk.CTkLabel(hd, text="Fields to estimate", font=ctk.CTkFont(family=FONT_HEADING, size=13),
                      text_color=UI_TEXT).pack(side="left")
+        self._cost_list_collapsed = False
+        self._cost_collapse_btn = ctk.CTkButton(
+            hd, text="▾ Hide list", width=90, height=24, fg_color=UI_HOVER,
+            text_color=UI_TEXT, hover_color="#E2E5EA",
+            font=ctk.CTkFont(size=11), command=self._cost_toggle_field_list)
+        self._cost_collapse_btn.pack(side="right")
         flt = ctk.CTkFrame(pick, fg_color="transparent"); flt.pack(fill="x", padx=14, pady=(2, 4))
+        self._cost_filter_row = flt
         ctk.CTkLabel(flt, text="Company").pack(side="left")
         self._cost_co = tk.StringVar(value=ALL_COMPANIES)
         ctk.CTkComboBox(flt, variable=self._cost_co, width=150,
@@ -1970,6 +2024,198 @@ class BeetentApp(ctk.CTk):
     def _cost_check_all(self, on):
         for v in self._cost_field_checks.values():
             v.set(on)
+
+    def _cost_toggle_field_list(self):
+        """Collapse/expand the field picker so the results have more room."""
+        self._cost_list_collapsed = not self._cost_list_collapsed
+        if self._cost_list_collapsed:
+            self._cost_fields_frame.pack_forget()
+            self._cost_filter_row.pack_forget()
+            n = sum(1 for v in self._cost_field_checks.values() if v.get())
+            self._cost_collapse_btn.configure(text="▸ Show list (%d)" % n)
+        else:
+            # header is the only sibling above these two, so plain re-pack keeps order
+            self._cost_filter_row.pack(fill="x", padx=14, pady=(2, 4))
+            self._cost_fields_frame.pack(fill="x", padx=10, pady=(0, 10))
+            self._cost_collapse_btn.configure(text="▾ Hide list")
+
+    # ── Profitability tab ────────────────────────────────────────────────────
+    def _build_cost_profit_tab(self, parent):
+        pick = ctk.CTkFrame(parent, fg_color=UI_CARD, corner_radius=10,
+                            border_width=1, border_color=UI_BORDER)
+        pick.pack(fill="x", padx=2, pady=(4, 8))
+        hd = ctk.CTkFrame(pick, fg_color="transparent"); hd.pack(fill="x", padx=14, pady=(10, 4))
+        ctk.CTkFrame(hd, width=4, height=16, fg_color="#16A34A", corner_radius=2
+                     ).pack(side="left", padx=(0, 8))
+        ctk.CTkLabel(hd, text="Profitability — contract revenue vs. cost",
+                     font=ctk.CTkFont(family=FONT_HEADING, size=13),
+                     text_color=UI_TEXT).pack(side="left")
+        flt = ctk.CTkFrame(pick, fg_color="transparent"); flt.pack(fill="x", padx=14, pady=(2, 10))
+        ctk.CTkLabel(flt, text="Company").pack(side="left")
+        self._profit_co = tk.StringVar(value=ALL_COMPANIES)
+        ctk.CTkComboBox(flt, variable=self._profit_co, width=150,
+                        values=[ALL_COMPANIES] + list_companies()).pack(side="left", padx=(4, 12))
+        ctk.CTkLabel(flt, text="Year").pack(side="left")
+        _years = sorted({y for cc in list_companies() for y in list_years(cc)}, reverse=True)
+        self._profit_yr = tk.StringVar(value=str(datetime.date.today().year))
+        ctk.CTkComboBox(flt, variable=self._profit_yr, width=90,
+                        values=[ALL_YEARS] + _years).pack(side="left", padx=(4, 12))
+        ctk.CTkButton(flt, text="Compute profitability", height=32,
+                      command=self._profit_compute).pack(side="left", padx=(4, 0))
+        self._profit_results_frame = ctk.CTkScrollableFrame(parent, fg_color="transparent")
+        self._profit_results_frame.pack(fill="both", expand=True, pady=(2, 4))
+        self._profit_rows = []
+        ctk.CTkLabel(self._profit_results_frame,
+                     text="Set contract $/acre per company on the General Information tab, "
+                     "then press “Compute profitability”.",
+                     text_color=UI_MUTED, font=ctk.CTkFont(size=12)).pack(anchor="w", padx=6, pady=10)
+
+    @staticmethod
+    def _field_profit_warnings(co, lc, rate):
+        """Reasons a field's profit number may be unreliable (drives the red ❗)."""
+        w = []
+        if lc.get("acres", 0) <= 0:
+            w.append("no acreage (draw a boundary or set acres)")
+        if lc.get("shelters", 0) <= 0:
+            w.append("no shelters placed")
+        if rate <= 0:
+            w.append("no contract $/acre set for %s" % co)
+        if lc.get("travel_min", 0) <= 0:
+            w.append("travel time not set (cost understated)")
+        return w
+
+    def _profit_compute(self):
+        co = self._profit_co.get(); yr = self._profit_yr.get()
+        companies = list_companies() if co == ALL_COMPANIES else [co]
+        scope = []
+        for cc in companies:
+            years = list_years(cc) if yr == ALL_YEARS else [yr]
+            for y in years:
+                for name in list_fields(cc, y):
+                    scope.append((cc, y, name))
+        if not scope:
+            self._status("No fields in that scope."); return
+        c = self._cost_inputs(); rates = self._contract_rates()
+        self._status("Computing profitability for %d field(s)…" % len(scope))
+        def _work():
+            rows = []
+            for i, (cc, y, name) in enumerate(scope):
+                self.after(0, lambda i=i: self._status(
+                    "Computing profitability… %d/%d" % (i + 1, len(scope))))
+                f = load_field(cc, y, name)
+                if not f:
+                    continue
+                try: lc = self._field_cost(f, c)
+                except Exception: continue
+                rate = rates.get(cc, 0.0)
+                revenue = rate * lc.get("acres", 0)
+                profit = revenue - lc.get("total", 0)
+                warns = self._field_profit_warnings(cc, lc, rate)
+                rows.append({"co": cc, "yr": y, "name": name, "lc": lc, "rate": rate,
+                             "revenue": revenue, "cost": lc.get("total", 0),
+                             "profit": profit, "warns": warns})
+            self.after(0, lambda: self._profit_done(rows))
+        threading.Thread(target=_work, daemon=True).start()
+
+    def _profit_done(self, rows):
+        self._profit_rows = rows
+        self._profit_render()
+        self._status("Profitability ready: %d field(s)." % len(rows))
+
+    def _profit_render(self):
+        for w in self._profit_results_frame.winfo_children():
+            w.destroy()
+        P = self._profit_results_frame
+        rows = self._profit_rows
+        money = self._cost_money
+        if not rows:
+            ctk.CTkLabel(P, text="No results.", text_color=UI_MUTED,
+                         font=ctk.CTkFont(size=12)).pack(anchor="w", padx=6, pady=10)
+            return
+        tot_rev = sum(r["revenue"] for r in rows)
+        tot_cost = sum(r["cost"] for r in rows)
+        tot_profit = tot_rev - tot_cost
+        margin = (tot_profit / tot_rev * 100) if tot_rev > 0 else 0.0
+        pos, neg = "#16A34A", "#DC2626"
+
+        # ── Hero ──
+        hero = ctk.CTkFrame(P, fg_color=UI_CARD, corner_radius=12,
+                            border_width=1, border_color=UI_BORDER)
+        hero.pack(fill="x", padx=2, pady=(2, 8))
+        hi = ctk.CTkFrame(hero, fg_color="transparent"); hi.pack(fill="x", padx=18, pady=14)
+        ctk.CTkLabel(hi, text="ESTIMATED PROFIT", text_color=UI_MUTED,
+                     font=ctk.CTkFont(family=FONT_LABEL, size=11)).pack(anchor="w")
+        ctk.CTkLabel(hi, text=money(tot_profit),
+                     text_color=(pos if tot_profit >= 0 else neg),
+                     font=ctk.CTkFont(family=FONT_HEADING, size=38)).pack(anchor="w")
+        ctk.CTkLabel(hi, text="revenue %s  −  cost %s   ·   %.0f%% margin   ·   %d fields"
+                     % (money(tot_rev), money(tot_cost), margin, len(rows)),
+                     text_color=UI_MUTED, font=ctk.CTkFont(size=11)).pack(anchor="w", pady=(0, 2))
+        nbad = sum(1 for r in rows if r["warns"])
+        if nbad:
+            ctk.CTkLabel(hi, text="❗ %d field%s missing info — results may be off"
+                         % (nbad, "" if nbad == 1 else "s"), text_color=neg,
+                         font=ctk.CTkFont(size=11)).pack(anchor="w")
+
+        # ── By company (ranked by profit) ──
+        comp = {}
+        for r in rows:
+            d = comp.setdefault(r["co"], {"rev": 0.0, "cost": 0.0, "acres": 0.0, "n": 0, "bad": 0})
+            d["rev"] += r["revenue"]; d["cost"] += r["cost"]
+            d["acres"] += r["lc"].get("acres", 0); d["n"] += 1
+            d["bad"] += 1 if r["warns"] else 0
+        comp_rank = sorted(comp.items(), key=lambda kv: -(kv[1]["rev"] - kv[1]["cost"]))
+        self._cost_section(P, "Most profitable companies")
+        for co, d in comp_rank:
+            pft = d["rev"] - d["cost"]
+            mg = (pft / d["rev"] * 100) if d["rev"] > 0 else 0.0
+            card = ctk.CTkFrame(P, fg_color=UI_CARD, corner_radius=10,
+                                border_width=1, border_color=UI_BORDER)
+            card.pack(fill="x", padx=2, pady=(0, 6))
+            tp = ctk.CTkFrame(card, fg_color="transparent"); tp.pack(fill="x", padx=14, pady=(8, 1))
+            nm = ctk.CTkLabel(tp, text=co, anchor="w",
+                              font=ctk.CTkFont(family=FONT_HEADING, size=12), text_color=UI_TEXT)
+            nm.pack(side="left")
+            if d["bad"]:
+                ctk.CTkLabel(tp, text="  ❗", text_color="#DC2626",
+                             font=ctk.CTkFont(size=12)).pack(side="left")
+            ctk.CTkLabel(tp, text=money(pft), anchor="e",
+                         font=ctk.CTkFont(family=FONT_HEADING, size=13),
+                         text_color=(pos if pft >= 0 else neg)).pack(side="right")
+            ctk.CTkLabel(card, text="%d field%s · %.0f ac · revenue %s · cost %s · %.0f%% margin"
+                         % (d["n"], "" if d["n"] == 1 else "s", d["acres"],
+                            money(d["rev"]), money(d["cost"]), mg),
+                         anchor="w", font=ctk.CTkFont(size=10), text_color=UI_MUTED
+                         ).pack(fill="x", padx=14, pady=(0, 8))
+
+        # ── By field (ranked by profit, highest → lowest) ──
+        self._cost_section(P, "Fields ranked by profit")
+        for r in sorted(rows, key=lambda r: -r["profit"]):
+            lc = r["lc"]
+            card = ctk.CTkFrame(P, fg_color=UI_CARD, corner_radius=10,
+                                border_width=1, border_color=UI_BORDER)
+            card.pack(fill="x", padx=2, pady=(0, 6))
+            tp = ctk.CTkFrame(card, fg_color="transparent"); tp.pack(fill="x", padx=14, pady=(8, 1))
+            if r["warns"]:
+                ctk.CTkLabel(tp, text="❗ ", text_color="#DC2626",
+                             font=ctk.CTkFont(size=13)).pack(side="left")
+            ctk.CTkLabel(tp, text="%s · %s" % (r["name"], r["co"]), anchor="w",
+                         font=ctk.CTkFont(family=FONT_HEADING, size=12),
+                         text_color=UI_TEXT).pack(side="left")
+            ctk.CTkLabel(tp, text=money(r["profit"]), anchor="e",
+                         font=ctk.CTkFont(family=FONT_HEADING, size=13),
+                         text_color=(pos if r["profit"] >= 0 else neg)).pack(side="right")
+            ctk.CTkLabel(card, text="%.0f ac · contract $%.2f/ac · revenue %s · cost %s "
+                         "($%.0f/ac) · %.0f%% margin"
+                         % (lc.get("acres", 0), r["rate"], money(r["revenue"]),
+                            money(r["cost"]), lc.get("cost_per_acre", 0),
+                            (r["profit"] / r["revenue"] * 100) if r["revenue"] > 0 else 0.0),
+                         anchor="w", font=ctk.CTkFont(size=10), text_color=UI_MUTED
+                         ).pack(fill="x", padx=14, pady=(0, 2 if r["warns"] else 8))
+            if r["warns"]:
+                ctk.CTkLabel(card, text="❗ " + " · ".join(r["warns"]), anchor="w",
+                             font=ctk.CTkFont(size=10), text_color="#DC2626",
+                             wraplength=560, justify="left").pack(fill="x", padx=14, pady=(0, 8))
 
     def _cost_compute(self):
         sel = [k for k, v in self._cost_field_checks.items() if v.get()]
@@ -2061,6 +2307,7 @@ class BeetentApp(ctk.CTk):
             for g, v in lc.get("groups", {}).items():
                 gt[g] = gt.get(g, 0.0) + v
         t["groups"] = gt
+        t["cost_per_acre"] = (t["total"] / t["acres"]) if t["acres"] > 0 else 0.0
         return t
 
     _COST_CAT_COLORS = {"Items": "#0E9384", "Bees": "#EAB308",
@@ -2134,6 +2381,7 @@ class BeetentApp(ctk.CTk):
                      text_color=UI_MUTED, font=ctk.CTkFont(size=11)).pack(anchor="w", pady=(0, 8))
         pills = ctk.CTkFrame(hi, fg_color="transparent"); pills.pack(fill="x")
         for lab, val in (("Acres", "%.0f" % t["acres"]), ("Shelters", "%d" % t["shelters"]),
+                         ("Cost / ac", money(t["total"] / t["acres"]) if t["acres"] > 0 else "—"),
                          ("Trays", "%d" % t["trays"]), ("Bee gal", "%.0f" % t["gallons"]),
                          ("Crew km", "%.1f" % t["route_km"])):
             self._cost_pill(pills, lab, val)
@@ -2205,8 +2453,9 @@ class BeetentApp(ctk.CTk):
                 ctk.CTkLabel(tp, text=money(lc["total"]), anchor="e",
                              font=ctk.CTkFont(family=FONT_HEADING, size=13),
                              text_color=UI_ACCENT).pack(side="right")
-                ctk.CTkLabel(fc, text="%s · %.0f ac · %d shelters · %d trays · %.1f crew km"
-                             % (co, lc["acres"], lc["shelters"], lc["trays"], lc["route_km"]),
+                ctk.CTkLabel(fc, text="%s · %.0f ac · %d shelters · %d trays · %.1f crew km · %s/ac"
+                             % (co, lc["acres"], lc["shelters"], lc["trays"], lc["route_km"],
+                                self._cost_money(lc.get("cost_per_acre", 0))),
                              anchor="w", font=ctk.CTkFont(size=10), text_color=UI_MUTED
                              ).pack(fill="x", padx=14, pady=(0, 1))
                 ctk.CTkLabel(fc, text=self._cost_schedule_text(lc),
@@ -2225,7 +2474,7 @@ class BeetentApp(ctk.CTk):
         ("Chemical $", "chemical"), ("Labour Setup $", "labour_setup"),
         ("Labour Bees $", "labour_bees"), ("Labour Removal $", "labour_removal"),
         ("Labour $", "labour"), ("Travel $", "travel"), ("Travel km", "travel_km"),
-        ("Fuel $", "fuel"), ("Total $", "total"),
+        ("Fuel $", "fuel"), ("Total $", "total"), ("Cost/ac $", "cost_per_acre"),
     ]
 
     def _cost_export_csv(self):
@@ -2296,6 +2545,7 @@ class BeetentApp(ctk.CTk):
         pdf.set_x(x0); pdf.set_text_color(*TEAL); pdf.set_font("Helvetica", "B", 26)
         pdf.cell(0, 11, money(t["total"]), ln=1); pdf.ln(1)
         stats = [("Acres", "%.0f" % t["acres"]), ("Shelters", "%d" % t["shelters"]),
+                 ("Cost / ac", money(t.get("cost_per_acre", 0))),
                  ("Trays", "%d" % t["trays"]), ("Bee gal", "%.0f" % t["gallons"]),
                  ("Crew km", "%.1f" % t["route_km"])]
         pw = W / len(stats); y = pdf.get_y()
@@ -2364,8 +2614,9 @@ class BeetentApp(ctk.CTk):
             pdf.set_text_color(*TEAL); pdf.set_font("Helvetica", "B", 11)
             pdf.cell(W * 0.38 - 2, 5, money(lc["total"]), align="R", ln=1)
             pdf.set_x(x0); pdf.set_text_color(*MUT); pdf.set_font("Helvetica", "", 8)
-            pdf.cell(0, 5, "%.0f ac · %d shelters · %d trays · %.0f bee gal · %.1f crew km"
-                     % (lc["acres"], lc["shelters"], lc["trays"], lc["gallons"], lc["route_km"]), ln=1)
+            pdf.cell(0, 5, "%.0f ac · %d shelters · %d trays · %.0f bee gal · %.1f crew km · %s/ac"
+                     % (lc["acres"], lc["shelters"], lc["trays"], lc["gallons"],
+                        lc["route_km"], money(lc.get("cost_per_acre", 0))), ln=1)
             for (g, l, calc, amt) in lc["lines"]:
                 ry = pdf.get_y()
                 pdf.set_fill_color(*RGB.get(g, INK)); pdf.rect(x0 + 3, ry + 1.4, 2, 2, "F")
@@ -2447,14 +2698,22 @@ class BeetentApp(ctk.CTk):
             pass
 
     def _cost_on_tab_select(self, value):
-        self._cost_switch_tab("general" if value.startswith("General") else "estimate")
+        tab = ("general" if value.startswith("General")
+               else "profit" if value.startswith("Profit") else "estimate")
+        self._cost_switch_tab(tab)
 
     def _cost_switch_tab(self, tab):
         self._cost_tab = tab
         self._cost_general_frame.pack_forget()
         self._cost_estimate_frame.pack_forget()
+        self._cost_profit_frame.pack_forget()
         if tab == "general":
+            # surface any companies added since the view was built
+            self._build_contract_rows()
+            self._load_cost_prefs()
             self._cost_general_frame.pack(fill="both", expand=True, padx=12, pady=(0, 8))
+        elif tab == "profit":
+            self._cost_profit_frame.pack(fill="both", expand=True, padx=12, pady=(0, 8))
         else:
             self._cost_estimate_frame.pack(fill="both", expand=True, padx=12, pady=(0, 8))
 
@@ -2549,6 +2808,10 @@ class BeetentApp(ctk.CTk):
         for k, v in self._cost_vars.items():
             if k in d:
                 v.set(str(d[k]))
+        cr = d.get("contract_per_acre") or {}
+        for co, v in getattr(self, "_contract_vars", {}).items():
+            if co in cr:
+                v.set(str(cr[co]))
         self._home_pin = self._read_home_pin()
         if getattr(self, "_maps_key_var", None) is not None:
             self._maps_key_var.set(self._read_maps_key())
@@ -2557,11 +2820,31 @@ class BeetentApp(ctk.CTk):
         try:
             d = self._read_cost_prefs_raw()          # preserve home_lat/home_lon etc.
             d.update({k: v.get().strip() for k, v in self._cost_vars.items()})
+            # merge contract rates (keep rates for companies not currently shown)
+            cr = dict(d.get("contract_per_acre") or {})
+            for co, v in getattr(self, "_contract_vars", {}).items():
+                cr[co] = v.get().strip()
+            d["contract_per_acre"] = cr
             self._write_cost_prefs_raw(d)
             self._status("Cost settings saved.")
             self._git_push("sync cost estimator settings")
         except Exception as ex:
             tkinter.messagebox.showerror("Cost settings", str(ex))
+
+    def _contract_rates(self):
+        """{company: $/acre float} from the live entries if built, else from disk."""
+        out = {}
+        vars_ = getattr(self, "_contract_vars", None)
+        if vars_:
+            for co, v in vars_.items():
+                try: out[co] = float(str(v.get()).strip() or 0)
+                except (ValueError, TypeError): out[co] = 0.0
+        cr = self._read_cost_prefs_raw().get("contract_per_acre") or {}
+        for co, val in cr.items():
+            if co not in out:
+                try: out[co] = float(str(val).strip() or 0)
+                except (ValueError, TypeError): out[co] = 0.0
+        return out
 
     def _cost_inputs(self):
         """Parse the General-Information StringVars into a {key: float} dict."""
@@ -2661,14 +2944,14 @@ class BeetentApp(ctk.CTk):
         lines = [
             ("Items", "Shelters", "%d shelters × $%.2f ÷ %gyr life"
              % (n, c.get("cost_per_shelter", 0), life("shelter_life_yr")), shelter),
-            ("Bees", "Bees", "%.0f gal × $%.2f  (1-yr)"
-             % (gallons, c.get("cost_per_gal_bee", 0)), bee),
             ("Items", "Incubation trays", "%d trays × $%.2f ÷ %gyr life"
              % (trays, c.get("cost_per_tray", 0), life("tray_life_yr")), tray),
             ("Items", "Nesting blocks", "%d × %g/shelter × $%.2f ÷ %gyr life"
              % (n, c.get("blocks_per_shelter", 0), c.get("cost_per_block", 0), life("block_life_yr")), block),
             ("Items", "Flags", "%d flags × $%.2f ÷ %gyr life"
              % (n, c.get("cost_per_flag", 0), life("flag_life_yr")), flag),
+            ("Bees", "Bees", "%.0f gal × $%.2f  (1-yr)"
+             % (gallons, c.get("cost_per_gal_bee", 0)), bee),
             ("Chemical", "Chemical", "%.1f ac × $%.2f/ac"
              % (acres, c.get("chem_cost_per_acre", 0)), chemical),
             ("Labour", "Setup — work", _work_calc(ts), ts["work"]),
@@ -2684,6 +2967,7 @@ class BeetentApp(ctk.CTk):
         groups = {}
         for (g, _l, _calc, amt) in lines:
             groups[g] = groups.get(g, 0.0) + amt
+        total = items + chemical + labour_total + fuel_total
         return {
             "acres": acres, "shelters": n, "gallons": gallons, "trays": trays,
             "route_km": route_km, "shelter": shelter, "bee": bee, "tray": tray,
@@ -2693,7 +2977,7 @@ class BeetentApp(ctk.CTk):
             "fuel": fuel_total, "travel": travel_total,
             "travel_km": rt_km, "travel_min": rt_min,
             "dur_setup": ts["dur_h"], "dur_bees": tb["dur_h"], "dur_removal": tr["dur_h"],
-            "total": items + chemical + labour_total + fuel_total,
+            "total": total, "cost_per_acre": (total / acres) if acres > 0 else 0.0,
             "lines": lines, "groups": groups,
         }
 
