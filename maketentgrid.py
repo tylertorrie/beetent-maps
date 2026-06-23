@@ -1322,7 +1322,7 @@ def crew_route(field_dict, use_metric=True, shelters=None):
         return ([], 0.0)
 
     import bisect
-    cols = {}        # bay-centre lateral -> [along positions of its shelters]
+    cols = {}        # bay-centre lateral -> [(shelter lateral, along), ...]
     for (e, n) in sh_enu:
         lat_v = e * ldx + n * ldy
         along = e * tdx + n * tdy
@@ -1333,7 +1333,7 @@ def crew_route(field_dict, use_metric=True, shelters=None):
                 d = abs(centres[k] - lat_v)
                 if best_d is None or d < best_d:
                     best_d = d; best = centres[k]
-        cols.setdefault(best, []).append(along)
+        cols.setdefault(best, []).append((lat_v, along))
 
     used = sorted(cols)        # bay-centre laterals that have shelters
 
@@ -1406,14 +1406,32 @@ def crew_route(field_dict, use_metric=True, shelters=None):
         first_entry = None; first_e = None
         direction = 1
         for cx in used:
+            members = cols[cx]
+            alongs = [a for (_lv, a) in members]
+            s_lo, s_hi = min(alongs), max(alongs)
+            # Bracket the pass with the boundary crossings just below the lowest
+            # and just above the highest shelter, so the pass spans the WHOLE row
+            # past the shelters. If the bay centre falls outside the boundary at
+            # this column (an edge column whose gap is off the field), its clip
+            # can't reach the shelters — fall back to the shelter lateral, which
+            # is always inside, so the pass never turns around mid-row.
             cr = _clip_col(cx)
-            if len(cr) < 2:
-                continue
-            a_lo, e_lo = cr[0]; a_hi, e_hi = cr[-1]
-            if direction > 0:
-                entry, e_en, exit_, e_ex = (cx, a_lo), e_lo, (cx, a_hi), e_hi
+            below = [c for c in cr if c[0] <= s_lo + 2.0]
+            above = [c for c in cr if c[0] >= s_hi - 2.0]
+            if below and above:
+                cx_draw = cx
+                a_lo, e_lo = max(below, key=lambda c: c[0])
+                a_hi, e_hi = min(above, key=lambda c: c[0])
             else:
-                entry, e_en, exit_, e_ex = (cx, a_hi), e_hi, (cx, a_lo), e_lo
+                cx_draw = sum(lv for (lv, _a) in members) / len(members)
+                cr2 = _clip_col(cx_draw)
+                if len(cr2) < 2:
+                    continue
+                a_lo, e_lo = cr2[0]; a_hi, e_hi = cr2[-1]
+            if direction > 0:
+                entry, e_en, exit_, e_ex = (cx_draw, a_lo), e_lo, (cx_draw, a_hi), e_hi
+            else:
+                entry, e_en, exit_, e_ex = (cx_draw, a_hi), e_hi, (cx_draw, a_lo), e_lo
             if prev is not None:
                 route_la.extend(_arc(prev, prev_e, entry, e_en))   # along the headland
             if first_entry is None:
@@ -1445,7 +1463,7 @@ def crew_route(field_dict, use_metric=True, shelters=None):
         # extent of each column (best effort when there's nothing to clip to).
         direction = 1
         for cx in used:
-            alos = sorted(cols[cx]); a0, a1 = alos[0] - rs_m, alos[-1] + rs_m
+            alos = sorted(a for (_lv, a) in cols[cx]); a0, a1 = alos[0] - rs_m, alos[-1] + rs_m
             route_la.extend([(cx, a0), (cx, a1)] if direction > 0 else [(cx, a1), (cx, a0)])
             direction = -direction
 
