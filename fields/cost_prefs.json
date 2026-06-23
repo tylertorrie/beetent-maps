@@ -19,13 +19,13 @@
   "emp_removal": "3",
   "time_removal_min": "4",
   "fuel_l_per_km": "0.35",
-  "fuel_cost_per_l": "",
-  "crews_setup": "1",
-  "emp_per_crew_setup": "1",
-  "crews_bees": "1",
+  "fuel_cost_per_l": "1.56",
+  "crews_setup": "2",
+  "emp_per_crew_setup": "3",
+  "crews_bees": "2",
   "emp_per_crew_bees": "1",
   "crews_removal": "1",
-  "emp_per_crew_removal": "1",
+  "emp_per_crew_removal": "3",
   "home_lat": "49.8741351",
   "home_lon": "-111.7429342"
 }
