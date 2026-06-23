@@ -8,7 +8,7 @@
   "blocks_per_shelter": "3",
   "cost_per_flag": "0.09",
   "flag_life_yr": "3",
-  "cost_per_gal_bee": "40",
+  "cost_per_gal_bee": "115",
   "chem_cost_per_acre": "0.08",
   "pay_per_hour": "28",
   "drive_speed_kmh": "15",
