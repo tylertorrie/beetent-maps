@@ -1917,5 +1917,49 @@
     "role": null,
     "generated": "2026-06-22T23:05:31",
     "size": 2859
+  },
+  {
+    "id": "pdfs/BASF 1st Test Plot 2026 Shelter Map.pdf",
+    "kind": "pdf",
+    "name": "BASF 1st Test Plot 2026 Shelter Map.pdf",
+    "relpath": "pdfs/BASF 1st Test Plot 2026 Shelter Map.pdf",
+    "is_dir": false,
+    "companies": [
+      "BASF Test Plots"
+    ],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "BASF 1st Test Plot"
+    ],
+    "types": [
+      "PDF"
+    ],
+    "role": "shelter",
+    "generated": "2026-06-24T09:54:10",
+    "size": 484647
+  },
+  {
+    "id": "pdfs/BASF 2nd Test Plot 2026 Shelter Map.pdf",
+    "kind": "pdf",
+    "name": "BASF 2nd Test Plot 2026 Shelter Map.pdf",
+    "relpath": "pdfs/BASF 2nd Test Plot 2026 Shelter Map.pdf",
+    "is_dir": false,
+    "companies": [
+      "BASF Test Plots"
+    ],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "BASF 2nd Test Plot"
+    ],
+    "types": [
+      "PDF"
+    ],
+    "role": "shelter",
+    "generated": "2026-06-24T09:54:12",
+    "size": 605681
   }
 ]
