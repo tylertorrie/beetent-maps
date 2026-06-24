@@ -10162,26 +10162,39 @@ class BeetentApp(ctk.CTk):
         self.shelter_line_overlays = []
 
     def _redraw_shelter_lines(self):
-        """Draw the IDEAL alignment grid: a regular triangular mesh (rows
-        perpendicular to the planter + both diagonals) of straight full-span
-        lines showing what the grid WOULD look like with no pivot-track /
-        boundary adjustments. It is a guide, so it does NOT thread every pin —
-        it spans the whole field (crossing boundaries) so a crew can keep flags
-        as close to straight as possible even where a shelter can't sit exactly
-        on a line.
-
-        Method: derive the lattice basis (within-row vector a, next-row vector b)
-        from the nearest-neighbour displacement histogram of the planned pins —
-        robust because most pins still sit on the ideal lattice — then regenerate
-        a clean lattice over the field's bounding box and draw the three line
-        families as straight lines."""
+        """Draw the IDEAL alignment grid (see _shelter_line_segments). Thin
+        wrapper: honour the toggle, then draw the shared computed segments."""
         self._clear_shelter_lines()
         if not self.show_shelter_lines.get():
             return
         try:
+            segs = self._shelter_line_segments(self._field_from_form())
+        except Exception as e:
+            self._log(f"alignment lines failed: {e}"); return
+        for a, b in (segs or []):
+            try:
+                p = self.map_widget.set_path([a, b], color="#101010", width=2)
+                self.shelter_line_overlays.append(p)
+            except Exception:
+                pass
+
+    def _shelter_line_segments(self, f, allow_sync=False):
+        """The IDEAL alignment grid as a list of [(lat,lon),(lat,lon)] segments
+        (toggle-independent — used by the desktop draw AND the tablet export).
+        A regular triangular mesh (rows perpendicular to the planter + both
+        diagonals) of straight full-span lines showing what the grid WOULD look
+        like with no pivot-track / boundary adjustments. It spans the whole field
+        (crossing boundaries) so a crew can keep flags as straight as possible.
+
+        Method: derive the lattice basis (within-row vector a, next-row vector b)
+        from the nearest-neighbour displacement histogram of the planned pins —
+        robust because most pins still sit on the ideal lattice — then regenerate
+        a clean lattice over the field's bounding box and emit the three line
+        families as straight lines."""
+        segs = []
+        if True:
             import math
             from collections import Counter, defaultdict
-            f = self._field_from_form()
             plat = float(f.get("PP_Latitude") or 0)
             plon = float(f.get("PP_Longitude") or 0)
             if not (plat and plon):
@@ -10189,8 +10202,14 @@ class BeetentApp(ctk.CTk):
             use_m = self.unit_var.get() == "Metric"
             _res = self._ensure_tents(f, use_m)
             if _res is None:
-                return                       # background compute → redrawn when ready
-            positions = list(_res[0])
+                if not allow_sync:
+                    return segs              # desktop draw: redrawn when async compute lands
+                try:                         # export: block to compute so the overlay isn't dropped
+                    positions = list(maketentgrid.get_tent_positions(f, use_metric=use_m))
+                except Exception:
+                    return segs
+            else:
+                positions = list(_res[0])
             # Honour the same combined shift applied to the pins so the guide
             # grid sits under the shelters.
             sse, ssn = self._field_combined_shift(self.current_field)
@@ -10314,7 +10333,6 @@ class BeetentApp(ctk.CTk):
                     if umin <= u <= umax and vmin <= v <= vmax:
                         nodes[(ii, jj)] = (u, v)
 
-            COL = "#101010"   # near-black reference grid
             def _family(key_fn, order_fn):
                 # Each family member set is perfectly collinear (ideal lattice),
                 # so one straight line from the two extreme nodes spans it. Order
@@ -10327,18 +10345,21 @@ class BeetentApp(ctk.CTk):
                     if len(mem) < 2:
                         continue
                     mem.sort(key=lambda t: t[0])
-                    try:
-                        p = self.map_widget.set_path(
-                            [to_ll(*mem[0][1]), to_ll(*mem[-1][1])], color=COL, width=2)
-                        self.shelter_line_overlays.append(p)
-                    except Exception:
-                        pass
+                    segs.append((to_ll(*mem[0][1]), to_ll(*mem[-1][1])))
 
             _family(lambda i, j: ("row", j), lambda i, j: i)        # rows ⟂ planter, order by column
             _family(lambda i, j: ("d1", i),  lambda i, j: j)        # diagonal (next-row dir), order by row
             _family(lambda i, j: ("d2", i + j), lambda i, j: j)     # other diagonal, order by row
-        except Exception as e:
-            self._log(f"alignment lines failed: {e}")
+        return segs
+
+    def _tablet_alignment_features(self, f):
+        """Ideal alignment-grid lines as GeoJSON LineStrings. type='alignment'."""
+        feats = []
+        for (a, b) in (self._shelter_line_segments(f, allow_sync=True) or []):
+            feats.append({"type": "Feature", "properties": {"type": "alignment"},
+                          "geometry": {"type": "LineString",
+                                       "coordinates": [[a[1], a[0]], [b[1], b[0]]]}})
+        return feats
 
     def _clear_shelters(self):
         self._unregister_drag_prefix("shelter_")
@@ -12527,8 +12548,186 @@ class BeetentApp(ctk.CTk):
         boundary = f.get("boundary_polygon") or None
         trays = self._final_shelter_trays(f, metric)
         tracks = self._field_track_circles(f)
+        overlays = self._tablet_overlay_features(f)
         field_geojson.write_field(f, shelters, boundary,
-                                  shelter_trays=trays, tracks=tracks)
+                                  shelter_trays=trays, tracks=tracks,
+                                  extra_features=overlays)
+
+    # ── Toggleable tablet overlays (geometry export) ────────────────────────
+    # Each helper returns GeoJSON Features (with a distinguishing properties.type)
+    # for an overlay the tablet PWA can toggle. They mirror the desktop _redraw_*
+    # geometry but are TOGGLE-INDEPENDENT (always computed) — the tablet decides
+    # what to show. Runs only for the open field (export is on save), so reusing
+    # the form-state helpers (self.fv / self.current_field) is valid.
+    def _tablet_overlay_features(self, f):
+        feats = []
+        for fn in (self._tablet_bay_features,
+                   self._tablet_alignment_features,
+                   self._tablet_sprayer_features):
+            try:
+                feats.extend(fn(f) or [])
+            except Exception as e:
+                self._log(f"tablet overlay {fn.__name__}: {e}")
+        return feats
+
+    @staticmethod
+    def _ll_ring(latlon_pts):
+        """[lat,lon] points -> a closed [lon,lat] GeoJSON ring."""
+        ring = [[float(lon), float(lat)] for (lat, lon) in latlon_pts]
+        if ring and ring[0] != ring[-1]:
+            ring.append(ring[0])
+        return ring
+
+    def _tablet_bay_features(self, f):
+        """Male-bay band polygons (mirrors _redraw_bays). type='male_bay'."""
+        if not f.get("use_bays", True):
+            return []
+        try:
+            rs = float(self.fv["row_spacing_in"].get() or 22)
+            nf = int(self.fv["num_female_rows"].get() or 8)
+            nm = int(self.fv["num_male_rows"].get() or 2)
+            total_rows = int(self.fv["total_rows"].get() or (nf + nm))
+            _ml = self._custom_mask_len()
+            if _ml:
+                total_rows = _ml
+            gap_in = float(self.fv["bay_gap_in"].get() or 0)
+        except (ValueError, TypeError):
+            return []
+        gap_m = max(0.0, gap_in) * 0.0254
+        bse, bsn = self._bay_shift()
+        layout = self._row_layout_labels.get(self.row_layout_var.get(), "centered")
+        feats = []
+
+        # Imported-planter-passes path (curved bands following the actual passes).
+        planter_passes = f.get("planter_passes") or []
+        if planter_passes and bool(f.get("use_imported_passes", True)):
+            mask = self._resolve_row_mask(nf, nm, layout, self.custom_mask_var.get(),
+                                          total_rows=total_rows)
+            m_blocks = maketentgrid.mask_runs(mask, 'M') if mask else []
+            if not m_blocks:
+                return []
+            rs_m = rs * 0.0254
+            edge_pairs = [((s - total_rows / 2.0) * rs_m, (e - total_rows / 2.0) * rs_m)
+                          for s, e in m_blocks]
+            shifted = self._translate_latlon(planter_passes, bse, bsn)
+            for poly in shifted:
+                poly_ll = [(float(pt[0]), float(pt[1])) for pt in poly if pt and len(pt) >= 2]
+                if len(poly_ll) < 2:
+                    continue
+                for left_m, right_m in edge_pairs:
+                    lp = maketentgrid._offset_polyline_latlon(poly_ll, left_m)
+                    rp = maketentgrid._offset_polyline_latlon(poly_ll, right_m)
+                    if len(lp) < 2 or len(rp) < 2:
+                        continue
+                    band = list(lp) + list(reversed(rp))
+                    feats.append({"type": "Feature", "properties": {"type": "male_bay"},
+                                  "geometry": {"type": "Polygon", "coordinates": [self._ll_ring(band)]}})
+            return feats
+
+        # Synthetic angle-grid path (the common case).
+        g = self._planter_pass_geometry()
+        if not g:
+            return []
+        inner_polys_enu = []
+        if not bool(f.get("bays_through_inner", False)):
+            for inner in self._all_exclusion_rings():
+                if not inner or len(inner) < 3:
+                    continue
+                inner_polys_enu.append(
+                    [latlon_to_enu(pt[0], pt[1], g["plat"], g["plon"]) for pt in inner])
+        mask = self._resolve_row_mask(g["nf"], g["nm"], layout, self.custom_mask_var.get(),
+                                      total_rows=g["total_rows"])
+        runs_fwd = maketentgrid.mask_runs(mask, 'M') if mask else []
+        runs_rev = maketentgrid.mask_runs(mask[::-1], 'M') if mask else []
+        if not runs_fwd:
+            return []
+        rs_m = g["rs_m"]; half = g["total_rows"] / 2.0; pass_w = g["pass_w"]
+        phase = 1 if f.get("pass_phase_swap") else 0
+        for i in range(-g["n_pass"], g["n_pass"] + 1):
+            xc = (i + 0.5) * pass_w + g["lat_shift"]
+            runs = runs_fwd if ((i + phase) % 2 == 0) else runs_rev
+            for (s, e) in runs:
+                x1 = xc + (s - half) * rs_m + gap_m
+                x2 = xc + (e - half) * rs_m - gap_m
+                if x2 - x1 <= 0:
+                    continue
+                for band in self._band_polygon_enu(x1, x2, g["tdx"], g["tdy"], g["ldx"], g["ldy"],
+                                                   g["poly_enu"], inner_polys_enu=inner_polys_enu):
+                    lpts = [enu_to_latlon(en, no, g["plat"], g["plon"]) for en, no in band]
+                    feats.append({"type": "Feature", "properties": {"type": "male_bay"},
+                                  "geometry": {"type": "Polygon", "coordinates": [self._ll_ring(lpts)]}})
+        return feats
+
+    def _tablet_sprayer_features(self, f):
+        """Sprayer pass lines + the outer sprayer limit (mirrors _redraw_passes).
+        types: 'sprayer_pass' (LineString per pass segment), 'sprayer_limit'."""
+        try:
+            plat = float(self.fv["PP_Latitude"].get()); plon = float(self.fv["PP_Longitude"].get())
+            angle = float(self.fv["Spray_angle"].get().strip()
+                          or self.fv["Planting_angle"].get().strip() or 0)
+            width_m = float(self.fv["Sprayer_width"].get() or 133) * 0.3048
+            bp = f.get("boundary_polygon")
+        except (ValueError, TypeError):
+            return []
+        if not bp or len(bp) < 3 or width_m <= 0:
+            return []
+        feats = []
+        poly_enu = [latlon_to_enu(lat, lon, plat, plon) for lat, lon in bp]
+        max_r = max(math.sqrt(e * e + n * n) for e, n in poly_enu) * 1.1
+
+        # Outer sprayer limit (one sprayer width inside the boundary).
+        line = perimeter_offset_line(poly_enu, width_m)
+        if len(line) >= 2:
+            lpts = [enu_to_latlon(e, n, plat, plon) for e, n in line]
+            feats.append({"type": "Feature", "properties": {"type": "sprayer_limit"},
+                          "geometry": {"type": "LineString",
+                                       "coordinates": [[lo, la] for (la, lo) in lpts]}})
+
+        rot = math.radians((0 - angle + 180) % 360 - 180)
+        cos_r, sin_r = math.cos(rot), math.sin(rot)
+        tdx, tdy = -sin_r, cos_r
+        ldx, ldy = cos_r, sin_r
+        sse, ssn = self._sprayer_shift()
+        inner_polys_enu = []
+        if bool(f.get("sprayer_routes_around_inner", True)):
+            for inner in self._all_exclusion_rings():
+                if inner and len(inner) >= 3:
+                    inner_polys_enu.append([latlon_to_enu(pt[0], pt[1], plat, plon) for pt in inner])
+        outside_round_inner = inset_polygon_enu(poly_enu, width_m)
+        max_rows = int(max_r / width_m) + 2
+        for r in range(-max_rows, max_rows + 1):
+            lat_e = r * width_m
+            pe = lat_e * cos_r; pn = lat_e * sin_r
+            if len(outside_round_inner) >= 3:
+                covers = False
+                for i in range(13):
+                    cx = lat_e - width_m + (2.0 * width_m) * i / 12.0
+                    if clip_line_to_polygon_intervals(cx * ldx, cx * ldy, tdx, tdy, outside_round_inner):
+                        covers = True; break
+                if not covers:
+                    continue
+            pe += sse; pn += ssn
+            t_intervals = clip_line_to_polygon_intervals(pe, pn, tdx, tdy, poly_enu)
+            if not t_intervals:
+                continue
+            for inner_enu in inner_polys_enu:
+                for (ti1, ti2) in clip_line_to_polygon_intervals(pe, pn, tdx, tdy, inner_enu):
+                    new_intervals = []
+                    for (a, b) in t_intervals:
+                        if ti2 <= a or ti1 >= b:
+                            new_intervals.append((a, b))
+                        else:
+                            if ti1 > a: new_intervals.append((a, ti1))
+                            if ti2 < b: new_intervals.append((ti2, b))
+                    t_intervals = new_intervals
+            for (t1, t2) in t_intervals:
+                if t2 - t1 < 0.01:
+                    continue
+                la1, lo1 = enu_to_latlon(pe + t1 * tdx, pn + t1 * tdy, plat, plon)
+                la2, lo2 = enu_to_latlon(pe + t2 * tdx, pn + t2 * tdy, plat, plon)
+                feats.append({"type": "Feature", "properties": {"type": "sprayer_pass"},
+                              "geometry": {"type": "LineString", "coordinates": [[lo1, la1], [lo2, la2]]}})
+        return feats
 
     def _final_shelter_trays(self, f, metric):
         """Per-shelter tray counts aligned 1:1 with _final_shelter_positions

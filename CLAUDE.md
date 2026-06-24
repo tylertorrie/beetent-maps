@@ -183,6 +183,25 @@ toolbar). There is no "Export all to tablet" button — every field write (manua
 **and** the `_autosave_tick`) calls `_export_tablet_geojson(f)`, so any edit syncs to the
 field tablet live.
 
+## Tablet overlay export
+
+`_export_tablet_geojson(f)` also writes the **toggleable overlays** the tablet PWA draws
+in Work mode, via `_tablet_overlay_features(f)` → `field_geojson.build_feature_collection(
+…, extra_features=…)`. Each helper returns GeoJSON Features with a distinguishing
+`properties.type`, computed **toggle-independently** (always exported; the tablet decides
+visibility) but reusing the desktop geometry helpers (so they run only for the OPEN field
+on save, where `self.fv`/`self.current_field` are valid). Implemented so far:
+`_tablet_bay_features` (type `male_bay`, mirrors `_redraw_bays`), `_tablet_alignment_features`
+(type `alignment` — `_redraw_shelter_lines` was split into the shared
+`_shelter_line_segments(f, allow_sync=True)` so export can block on the tent compute), and
+`_tablet_sprayer_features` (types `sprayer_pass` / `sprayer_limit`, mirrors `_redraw_passes`).
+The tablet (`tablet/app.js`) filters the `field` source by `type` into one layer per overlay
+and a `LAYER_TOGGLES` row each (Phase-2 overlays default OFF). Existing field files only gain
+overlays when re-saved (or via a one-off regen that activates each field and re-exports).
+**Roadmap (remaining toggles):** sprayer tire/edge zones (`_redraw_pass_buffer_overlay`),
+crew route (`maketentgrid.crew_route`), planter passes + numbers, wet zones, pivot-track
+buffer band.
+
 ## Financial View (cost estimator)
 
 Nav-drawer view (💰, labelled "Financial View"; internals still use the

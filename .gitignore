@@ -65,3 +65,7 @@ maps_api_key.txt
 
 # Compiled/installed dependencies that ship with the source
 # (shapefile.py, simplekml, utm, fpdf are vendored — DO track them)
+
+# Transient test/run logs
+_err.log
+_out.log

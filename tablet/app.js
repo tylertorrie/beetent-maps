@@ -102,6 +102,30 @@ function initMap() {
       source: "field",
       paint: { "line-color": "#FF6600", "line-width": 1.5, "line-opacity": 0.85 } });
 
+    // Phase-2 toggleable overlays (exported by the desktop into the field GeoJSON).
+    // Drawn UNDER the shelters so the pins stay on top. Hidden by default; the
+    // Layers drawer turns them on.
+    map.addLayer({ id: "male-bays-fill", type: "fill",
+      filter: ["==", ["get", "type"], "male_bay"], source: "field",
+      layout: { visibility: "none" },
+      paint: { "fill-color": "#1faa59", "fill-opacity": 0.22 } });
+    map.addLayer({ id: "male-bays-line", type: "line",
+      filter: ["==", ["get", "type"], "male_bay"], source: "field",
+      layout: { visibility: "none" },
+      paint: { "line-color": "#1faa59", "line-width": 1, "line-opacity": 0.7 } });
+    map.addLayer({ id: "alignment-line", type: "line",
+      filter: ["==", ["get", "type"], "alignment"], source: "field",
+      layout: { visibility: "none" },
+      paint: { "line-color": "#e8f0ff", "line-width": 1, "line-opacity": 0.55 } });
+    map.addLayer({ id: "sprayer-pass-line", type: "line",
+      filter: ["==", ["get", "type"], "sprayer_pass"], source: "field",
+      layout: { visibility: "none" },
+      paint: { "line-color": "#33FF66", "line-width": 1, "line-opacity": 0.8 } });
+    map.addLayer({ id: "sprayer-limit-line", type: "line",
+      filter: ["==", ["get", "type"], "sprayer_limit"], source: "field",
+      layout: { visibility: "none" },
+      paint: { "line-color": "#33FF66", "line-width": 2 } });
+
     map.addLayer({ id: "shelters", type: "circle",
       filter: ["==", ["get", "type"], "shelter"],
       source: "field",
@@ -449,7 +473,9 @@ function commitPoint() {
 }
 
 // ---- View switching ---------------------------------------------------------
-const FIELD_LAYERS = ["boundary-line", "tracks-line", "shelters", "shelter-labels", "scan-pins"];
+const FIELD_LAYERS = ["boundary-line", "tracks-line", "male-bays-fill", "male-bays-line",
+  "alignment-line", "sprayer-pass-line", "sprayer-limit-line",
+  "shelters", "shelter-labels", "scan-pins"];
 const MAP_LAYERS = ["allfields-fill", "allfields-line", "allfields-label"];
 
 // Per-overlay toggles for Work mode. Each crew member can switch overlays on/off
@@ -457,9 +483,12 @@ const MAP_LAYERS = ["allfields-fill", "allfields-line", "allfields-label"];
 // rows here (male bays, alignment lines, sprayer passes, …) once they're exported
 // into the field GeoJSON. "scan-pins" is intentionally not toggleable — always on.
 const LAYER_TOGGLES = [
-  { key: "boundary", label: "Boundaries",   layers: ["boundary-line"] },
-  { key: "tracks",   label: "Pivot tracks", layers: ["tracks-line"] },
-  { key: "shelters", label: "Shelters",     layers: ["shelters", "shelter-labels"] },
+  { key: "boundary",  label: "Boundaries",      layers: ["boundary-line"], def: true },
+  { key: "tracks",    label: "Pivot tracks",    layers: ["tracks-line"], def: true },
+  { key: "shelters",  label: "Shelters",        layers: ["shelters", "shelter-labels"], def: true },
+  { key: "male_bays", label: "Male bays",       layers: ["male-bays-fill", "male-bays-line"], def: false },
+  { key: "alignment", label: "Alignment lines", layers: ["alignment-line"], def: false },
+  { key: "sprayer",   label: "Sprayer passes",  layers: ["sprayer-pass-line", "sprayer-limit-line"], def: false },
 ];
 
 let layerState = loadLayerState();   // { key: bool }
@@ -468,7 +497,7 @@ function loadLayerState() {
   let saved = {};
   try { saved = JSON.parse(localStorage.getItem("beeLayerState") || "{}") || {}; } catch (e) {}
   const st = {};
-  for (const t of LAYER_TOGGLES) st[t.key] = (t.key in saved) ? !!saved[t.key] : true;
+  for (const t of LAYER_TOGGLES) st[t.key] = (t.key in saved) ? !!saved[t.key] : (t.def !== false);
   return st;
 }
 function saveLayerState() {

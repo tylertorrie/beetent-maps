@@ -41,13 +41,16 @@ def field_filename(company: str, year: str, name: str) -> str:
 
 
 def build_feature_collection(field: dict, shelter_latlons, boundary_latlon=None,
-                             shelter_trays=None, tracks=None) -> dict:
+                             shelter_trays=None, tracks=None, extra_features=None) -> dict:
     """field: the current_field dict. shelter_latlons: [(lat, lon), ...] as drawn.
     boundary_latlon: [[lat, lon], ...] or None.
     shelter_trays: [int, ...] aligned 1:1 with shelter_latlons (tray count per
         shelter), or None.
     tracks: [(center_lat, center_lon, radius_m), ...] pivot wheel-track circles,
         or None.
+    extra_features: a list of ready-made GeoJSON Feature dicts for the optional
+        overlays the tablet toggles (male bays, alignment lines, sprayer passes,
+        …). Each must carry a distinguishing properties.type. Appended as-is.
     Returns a GeoJSON dict."""
     features = []
 
@@ -85,6 +88,10 @@ def build_feature_collection(field: dict, shelter_latlons, boundary_latlon=None,
             "geometry": {"type": "Point", "coordinates": [float(lon), float(lat)]},
         })
 
+    for feat in (extra_features or []):
+        if isinstance(feat, dict) and feat.get("geometry"):
+            features.append(feat)
+
     pivot = None
     try:
         pivot = [float(field["PP_Longitude"]), float(field["PP_Latitude"])]
@@ -104,7 +111,7 @@ def build_feature_collection(field: dict, shelter_latlons, boundary_latlon=None,
 
 
 def write_field(field: dict, shelter_latlons, boundary_latlon=None,
-                shelter_trays=None, tracks=None,
+                shelter_trays=None, tracks=None, extra_features=None,
                 fields_dir: Path = TABLET_FIELDS_DIR) -> Path:
     """Write one field's GeoJSON and refresh index.json. Returns the file path."""
     fields_dir.mkdir(parents=True, exist_ok=True)
@@ -113,7 +120,8 @@ def write_field(field: dict, shelter_latlons, boundary_latlon=None,
     name = field.get("Name", "")
     fname = field_filename(company, year, name)
     fc = build_feature_collection(field, shelter_latlons, boundary_latlon,
-                                  shelter_trays=shelter_trays, tracks=tracks)
+                                  shelter_trays=shelter_trays, tracks=tracks,
+                                  extra_features=extra_features)
     (fields_dir / fname).write_text(json.dumps(fc, indent=2), encoding="utf-8")
     _update_index(fields_dir, company, year, name, fname)
     return fields_dir / fname
