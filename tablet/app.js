@@ -78,7 +78,7 @@ function initMap() {
   el.className = "me-arrow";
   meMarker = new maplibregl.Marker({ element: el, rotationAlignment: "map" });
 
-  map.on("load", () => {
+  map.on("load", async () => {
     map.addSource("field", { type: "geojson", data: emptyFC() });
 
     map.addLayer({ id: "boundary-line", type: "line",
@@ -139,9 +139,11 @@ function initMap() {
       setMode("work");
     });
 
-    loadFieldList();
     applyLabelMode();
-    setMode("work");
+    // Open on the all-fields Map view (every field shown, fitted to view); fall
+    // back to single-field Work mode only when no fields are synced yet (sample).
+    const fieldCount = await loadFieldList();
+    setMode(fieldCount > 0 ? "map" : "work");
   });
 }
 
@@ -274,6 +276,7 @@ async function loadFieldList() {
     li.onclick = () => { loadField("fields/" + it.file, it.name); closeSheet("fieldsheet"); };
     ul.appendChild(li);
   }
+  return items.length;
 }
 
 // Download the index + every field's GeoJSON into IndexedDB so the whole set is
