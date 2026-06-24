@@ -29,9 +29,23 @@
     <div id="fixbadge" class="fix-none">NO FIX</div>
   </div>
 
-  <!-- Work-view tools: switch shelter pin labels between numbers and trays. -->
+  <!-- Work-view tools: guidance camera + overlay layers + label mode. -->
   <div id="worktools" class="hidden">
+    <button id="btn-tilt">Top-down</button>
+    <button id="btn-layers">Layers</button>
     <button id="btn-labelmode">Show trays</button>
+    <button id="btn-zoomin" class="wt-zoom">+</button>
+    <button id="btn-zoomout" class="wt-zoom">&minus;</button>
+    <button id="btn-recenter" class="hidden">&#9678; Recenter</button>
+  </div>
+
+  <!-- Work-mode layers drawer: independent overlay toggles (multiple at once). -->
+  <div id="layerspanel" class="hidden">
+    <div class="sheet-head">
+      <span>Layers</span>
+      <button id="btn-close-layers">&times;</button>
+    </div>
+    <div id="layers-body"></div>
   </div>
 
   <!-- Arrival banner: shown when within 10 ft of a shelter. -->

@@ -25,10 +25,13 @@ html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; }
            background: #7a4a00; color: #ffd9a0; letter-spacing: .5px; }
 
 #worktools { position: absolute; top: 56px; left: 0; right: 0; z-index: 5;
-             display: flex; justify-content: center; pointer-events: none; }
+             display: flex; justify-content: center; flex-wrap: wrap; gap: 6px;
+             padding: 0 8px; pointer-events: none; }
 #worktools button { pointer-events: auto; background: rgba(17,17,17,.85); color: #fff;
                     border: 1px solid #555; border-radius: 18px; padding: 7px 16px;
                     font-size: 14px; font-weight: 600; }
+#worktools button.wt-zoom { width: 42px; padding: 7px 0; font-size: 20px; line-height: 1; }
+#btn-recenter { background: #1faa59 !important; border-color: #1faa59 !important; }
 
 #arrival { position: absolute; top: 40%; left: 50%; transform: translate(-50%,-50%);
            z-index: 20; background: #1faa59; color: #fff; padding: 18px 28px;
@@ -67,11 +70,12 @@ html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; }
 .sheet-head span { flex: 1; }
 .sheet-head button { background: #333; color: #fff; border: 0; border-radius: 6px; padding: 6px 10px; }
 
-#fieldsheet, #pointsheet, #checklistsheet, #scansheet {
+#fieldsheet, #pointsheet, #checklistsheet, #scansheet, #layerspanel {
   position: absolute; left: 0; right: 0; bottom: 56px; max-height: 72%;
   overflow-y: auto; background: rgba(20,20,20,.96); color: #fff; z-index: 6;
   border-top-left-radius: 14px; border-top-right-radius: 14px;
 }
+#layers-body { padding: 6px 4px 14px; }
 .hidden { display: none !important; }
 
 /* Scan button stands out in the control bar */

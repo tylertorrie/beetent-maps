@@ -56,6 +56,13 @@ let labelMode = "number"; // shelter pin labels: "number" | "trays"
 let proxShelter = null;   // label of the shelter we're currently within 10 ft of
 const visited = {};       // label -> {visited, note}  (local only for now)
 
+// Work-mode camera: a John-Deere-style guidance view. viewTilt 45 = 3D angled,
+// 0 = bird's-eye (top-down). followCam keeps the camera locked on the crew,
+// heading-up; a user pan/rotate detaches it until they tap Recenter.
+let viewTilt = 45;
+let followCam = true;
+const WORK_ZOOM = 18;     // default close zoom when entering Work mode
+
 // Position source: prefer the globe (ESP32/sim over WebSocket); fall back to the
 // tablet's own GPS when the globe goes quiet. The top-bar pill shows which.
 let posSource = "none";          // "globe" | "tablet" | "none"
@@ -77,6 +84,11 @@ function initMap() {
   const el = document.createElement("div");
   el.className = "me-arrow";
   meMarker = new maplibregl.Marker({ element: el, rotationAlignment: "map" });
+
+  // A user pan (not a programmatic camera move — those have no originalEvent)
+  // detaches the guidance follow-cam until they tap Recenter. Zoom/rotate keep
+  // following so pinch-zoom doesn't fight the lock.
+  map.on("dragstart", (e) => { if (e && e.originalEvent) detachFollow(); });
 
   map.on("load", async () => {
     map.addSource("field", { type: "geojson", data: emptyFC() });
@@ -200,6 +212,13 @@ function onPosition(p, source) {
   meMarker.setLngLat([p.lon, p.lat]);
   if (typeof p.course === "number" && !isNaN(p.course)) meMarker.setRotation(p.course);
   if (!meMarker._map) meMarker.addTo(map);
+
+  // Guidance follow-cam: keep the crew centred, direction-of-travel up. easeTo
+  // with no `zoom` preserves the user's pinch zoom.
+  if (mode === "work" && followCam && map.isStyleLoaded()) {
+    const hdg = (typeof p.course === "number" && !isNaN(p.course)) ? p.course : map.getBearing();
+    map.easeTo({ center: [p.lon, p.lat], bearing: hdg, pitch: viewTilt, duration: 450 });
+  }
 
   updateStatus(p, source);
   if (window.beePublish) window.beePublish.setPos(p);
@@ -433,8 +452,38 @@ function commitPoint() {
 const FIELD_LAYERS = ["boundary-line", "tracks-line", "shelters", "shelter-labels", "scan-pins"];
 const MAP_LAYERS = ["allfields-fill", "allfields-line", "allfields-label"];
 
+// Per-overlay toggles for Work mode. Each crew member can switch overlays on/off
+// independently (multiple at once); the choice persists per device. Phase 2 appends
+// rows here (male bays, alignment lines, sprayer passes, …) once they're exported
+// into the field GeoJSON. "scan-pins" is intentionally not toggleable — always on.
+const LAYER_TOGGLES = [
+  { key: "boundary", label: "Boundaries",   layers: ["boundary-line"] },
+  { key: "tracks",   label: "Pivot tracks", layers: ["tracks-line"] },
+  { key: "shelters", label: "Shelters",     layers: ["shelters", "shelter-labels"] },
+];
+
+let layerState = loadLayerState();   // { key: bool }
+
+function loadLayerState() {
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem("beeLayerState") || "{}") || {}; } catch (e) {}
+  const st = {};
+  for (const t of LAYER_TOGGLES) st[t.key] = (t.key in saved) ? !!saved[t.key] : true;
+  return st;
+}
+function saveLayerState() {
+  try { localStorage.setItem("beeLayerState", JSON.stringify(layerState)); } catch (e) {}
+}
+
 function setLayers(ids, vis) {
   for (const id of ids) if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", vis);
+}
+
+// Apply each overlay's individual on/off state (Work mode only).
+function applyLayerVisibility() {
+  if (mode !== "work") return;
+  for (const t of LAYER_TOGGLES) setLayers(t.layers, layerState[t.key] ? "visible" : "none");
+  setLayers(["scan-pins"], "visible");          // scanned pins always shown
 }
 
 function setMode(m) {
@@ -442,14 +491,80 @@ function setMode(m) {
   document.getElementById("btn-work").classList.toggle("active", m === "work");
   document.getElementById("btn-map").classList.toggle("active", m === "map");
   document.getElementById("worktools").classList.toggle("hidden", m !== "work");
+  if (m !== "work") closeSheet("layerspanel");
   if (m === "work") {
-    setLayers(MAP_LAYERS, "none"); setLayers(FIELD_LAYERS, "visible");
-    fitToField();
+    setLayers(MAP_LAYERS, "none");
+    applyLayerVisibility();                      // honour per-overlay toggles
+    startWorkCam();
   } else {
     setLayers(FIELD_LAYERS, "none"); setLayers(MAP_LAYERS, "visible");
     hideArrival();
     showAllFields();
   }
+}
+
+// ---- Work-mode guidance camera ----------------------------------------------
+// Enter the tilted, crew-centred, heading-up view. Falls back to fitting the
+// whole field when there's no live position yet.
+function startWorkCam() {
+  followCam = true;
+  updateRecenterBtn();
+  if (pos) {
+    const hdg = (typeof pos.course === "number" && !isNaN(pos.course)) ? pos.course : map.getBearing();
+    map.easeTo({ center: [pos.lon, pos.lat], zoom: Math.max(map.getZoom(), WORK_ZOOM),
+                 bearing: hdg, pitch: viewTilt, duration: 600 });
+  } else {
+    map.easeTo({ pitch: viewTilt, duration: 400 });
+    fitToField();
+  }
+}
+
+// Flip between 3D angled (45°) and bird's-eye (top-down, 0°).
+function toggleViewTilt() {
+  viewTilt = viewTilt > 0 ? 0 : 45;
+  map.easeTo({ pitch: viewTilt, duration: 400 });
+  const btn = document.getElementById("btn-tilt");
+  if (btn) btn.textContent = viewTilt > 0 ? "Top-down" : "3D view";
+}
+
+// A manual pan/rotate/pitch detaches follow until the user taps Recenter.
+function detachFollow() {
+  if (mode === "work" && followCam) { followCam = false; updateRecenterBtn(); }
+}
+function recenter() {
+  followCam = true;
+  updateRecenterBtn();
+  if (pos) {
+    const hdg = (typeof pos.course === "number" && !isNaN(pos.course)) ? pos.course : map.getBearing();
+    map.easeTo({ center: [pos.lon, pos.lat], bearing: hdg, pitch: viewTilt, duration: 500 });
+  }
+}
+function updateRecenterBtn() {
+  const btn = document.getElementById("btn-recenter");
+  if (btn) btn.classList.toggle("hidden", followCam || mode !== "work");
+}
+function zoomBy(d) { map.easeTo({ zoom: map.getZoom() + d, duration: 250 }); }
+
+// ---- Work-mode layers drawer ------------------------------------------------
+function buildLayersPanel() {
+  const body = document.getElementById("layers-body");
+  if (!body) return;
+  body.innerHTML = "";
+  for (const t of LAYER_TOGGLES) {
+    const lab = document.createElement("label");
+    lab.className = "chk";
+    const cb = document.createElement("input");
+    cb.type = "checkbox"; cb.checked = !!layerState[t.key];
+    cb.onchange = () => { layerState[t.key] = cb.checked; saveLayerState(); applyLayerVisibility(); };
+    lab.appendChild(cb);
+    lab.appendChild(document.createTextNode(" " + t.label));
+    body.appendChild(lab);
+  }
+}
+function toggleLayersPanel() {
+  const el = document.getElementById("layerspanel");
+  if (el.classList.contains("hidden")) { buildLayersPanel(); show("layerspanel"); }
+  else closeSheet("layerspanel");
 }
 
 // Shelter pin labels: numbers vs tray counts.
@@ -979,6 +1094,13 @@ window.addEventListener("DOMContentLoaded", () => {
   document.getElementById("btn-work").onclick = () => setMode("work");
   document.getElementById("btn-map").onclick = () => setMode("map");
   document.getElementById("btn-labelmode").onclick = toggleLabelMode;
+  // Work-mode guidance camera + layers controls
+  document.getElementById("btn-tilt").onclick = toggleViewTilt;
+  document.getElementById("btn-recenter").onclick = recenter;
+  document.getElementById("btn-layers").onclick = toggleLayersPanel;
+  document.getElementById("btn-zoomin").onclick = () => zoomBy(1);
+  document.getElementById("btn-zoomout").onclick = () => zoomBy(-1);
+  document.getElementById("btn-close-layers").onclick = () => closeSheet("layerspanel");
   document.getElementById("btn-fields").onclick = () => { loadFieldList(); show("fieldsheet"); };
   document.getElementById("btn-close-fields").onclick = () => closeSheet("fieldsheet");
   document.getElementById("btn-checklist").onclick = openChecklist;
