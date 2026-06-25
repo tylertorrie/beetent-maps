@@ -12799,6 +12799,32 @@ class BeetentApp(ctk.CTk):
                     for band in self._band_polygon_enu(x1, x2, tdx, tdy, ldx, ldy, safe_poly,
                                                        inner_polys_enu=cuts, off_e=sse, off_n=ssn):
                         feats.append(poly_feat(band, "edge_zone"))
+        # ── Outside-round perimeter bands (follow the boundary all the way around) ──
+        if out_band > 0:
+            # Continuous outer edge band against the boundary (good-zone, not broken
+            # at row ends — the round is driven once and the operator turns at the edge).
+            for q in perimeter_band_quads(poly_enu, 0.0, out_band):
+                feats.append(poly_feat(q, "edge_zone"))
+            # Inner edge band of the outside round at depth [width-band, width]; kept
+            # only where the quad sits in a green pass-edge band (skip the driven
+            # middles) and not inside an inner boundary.
+            ib_src = _subdivide_ring(poly_enu, max(1.0, out_band * 0.5))
+            for q in perimeter_band_quads(ib_src, max(0.0, width_m - out_band), width_m):
+                lats = [(px - sse) * ldx + (py - ssn) * ldy for px, py in q]
+                edge = round((sum(lats) / 4.0) / width_m) * width_m
+                if max(abs(min(lats) - edge), abs(max(lats) - edge)) > out_band:
+                    continue
+                cx = (q[0][0] + q[1][0] + q[2][0] + q[3][0]) / 4.0
+                cy = (q[0][1] + q[1][1] + q[2][1] + q[3][1]) / 4.0
+                if any(any(a <= 0.0 <= b for (a, b) in
+                           clip_line_to_polygon_intervals(cx, cy, tdx, tdy, ring))
+                       for ring in inner_polys_enu):
+                    continue
+                feats.append(poly_feat(q, "edge_zone"))
+        # Outside-round red tire ring (the perimeter pass's machine drive zone).
+        hw = width_m / 2.0
+        for q in perimeter_band_quads(poly_enu, max(0.0, hw - TIRE_HALF), hw + TIRE_HALF):
+            feats.append(poly_feat(q, "tire_zone"))
         return feats
 
     def _tablet_crew_route_features(self, f):
