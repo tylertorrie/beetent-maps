@@ -190,17 +190,19 @@ in Work mode, via `_tablet_overlay_features(f)` → `field_geojson.build_feature
 …, extra_features=…)`. Each helper returns GeoJSON Features with a distinguishing
 `properties.type`, computed **toggle-independently** (always exported; the tablet decides
 visibility) but reusing the desktop geometry helpers (so they run only for the OPEN field
-on save, where `self.fv`/`self.current_field` are valid). Implemented so far:
-`_tablet_bay_features` (type `male_bay`, mirrors `_redraw_bays`), `_tablet_alignment_features`
-(type `alignment` — `_redraw_shelter_lines` was split into the shared
-`_shelter_line_segments(f, allow_sync=True)` so export can block on the tent compute), and
-`_tablet_sprayer_features` (types `sprayer_pass` / `sprayer_limit`, mirrors `_redraw_passes`).
-The tablet (`tablet/app.js`) filters the `field` source by `type` into one layer per overlay
-and a `LAYER_TOGGLES` row each (Phase-2 overlays default OFF). Existing field files only gain
-overlays when re-saved (or via a one-off regen that activates each field and re-exports).
-**Roadmap (remaining toggles):** sprayer tire/edge zones (`_redraw_pass_buffer_overlay`),
-crew route (`maketentgrid.crew_route`), planter passes + numbers, wet zones, pivot-track
-buffer band.
+on save, where `self.fv`/`self.current_field` are valid; `_export_tablet_geojson` skips
+unnamed/blank fields). **All nine overlays are implemented** (one `_tablet_*_features` helper
+each, registered in `_tablet_overlay_features`): `male_bay` (`_redraw_bays`), `alignment`
+(`_redraw_shelter_lines` was split into the shared `_shelter_line_segments(f, allow_sync=True)`
+so export can block on the tent compute), `sprayer_pass`/`sprayer_limit` (`_redraw_passes`),
+`tire_zone`/`edge_zone` (interior core of `_redraw_pass_buffer_overlay` — perimeter
+special-cases omitted), `crew_route` (`maketentgrid.crew_route` / `crew_route_override`),
+`planter_pass`+`planter_number` (`_redraw_planter_pass_numbers` + imported passes), `wet_zone`
+(`wet_zones`), and `track_buffer` (track radius ± `track_exclusion_ft`). The tablet
+(`tablet/app.js`) filters the `field` source by `type` into one layer per overlay with a
+`LAYER_TOGGLES` row each (all overlays default OFF; boundary/tracks/shelters default ON).
+Existing field files only gain overlays when re-saved (or via a one-off regen that activates
+each field and re-exports).
 
 ## Financial View (cost estimator)
 

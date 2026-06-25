@@ -126,6 +126,41 @@ function initMap() {
       layout: { visibility: "none" },
       paint: { "line-color": "#33FF66", "line-width": 2 } });
 
+    // Tire / edge zones, wet zones (fills first so they sit under everything).
+    map.addLayer({ id: "tire-zone-fill", type: "fill",
+      filter: ["==", ["get", "type"], "tire_zone"], source: "field",
+      layout: { visibility: "none" },
+      paint: { "fill-color": "#FF2A2A", "fill-opacity": 0.35 } });
+    map.addLayer({ id: "edge-zone-fill", type: "fill",
+      filter: ["==", ["get", "type"], "edge_zone"], source: "field",
+      layout: { visibility: "none" },
+      paint: { "fill-color": "#22E048", "fill-opacity": 0.25 } });
+    map.addLayer({ id: "wet-zone-fill", type: "fill",
+      filter: ["==", ["get", "type"], "wet_zone"], source: "field",
+      layout: { visibility: "none" },
+      paint: { "fill-color": "#1E90FF", "fill-opacity": 0.3 } });
+    map.addLayer({ id: "wet-zone-line", type: "line",
+      filter: ["==", ["get", "type"], "wet_zone"], source: "field",
+      layout: { visibility: "none" },
+      paint: { "line-color": "#0A3D7A", "line-width": 2 } });
+    map.addLayer({ id: "track-buffer-line", type: "line",
+      filter: ["==", ["get", "type"], "track_buffer"], source: "field",
+      layout: { visibility: "none" },
+      paint: { "line-color": "#FF2A2A", "line-width": 1.5, "line-dasharray": [2, 2], "line-opacity": 0.85 } });
+    map.addLayer({ id: "planter-pass-line", type: "line",
+      filter: ["==", ["get", "type"], "planter_pass"], source: "field",
+      layout: { visibility: "none" },
+      paint: { "line-color": "#FFB000", "line-width": 1, "line-opacity": 0.8 } });
+    map.addLayer({ id: "crew-route-line", type: "line",
+      filter: ["==", ["get", "type"], "crew_route"], source: "field",
+      layout: { visibility: "none" },
+      paint: { "line-color": "#A855F7", "line-width": 3, "line-opacity": 0.9 } });
+    map.addLayer({ id: "planter-number-label", type: "symbol",
+      filter: ["==", ["get", "type"], "planter_number"], source: "field",
+      layout: { visibility: "none", "text-field": ["get", "label"],
+                "text-font": ["OpenSans"], "text-size": 12, "text-allow-overlap": true },
+      paint: { "text-color": "#FFB000", "text-halo-color": "#000", "text-halo-width": 1.2 } });
+
     map.addLayer({ id: "shelters", type: "circle",
       filter: ["==", ["get", "type"], "shelter"],
       source: "field",
@@ -475,6 +510,8 @@ function commitPoint() {
 // ---- View switching ---------------------------------------------------------
 const FIELD_LAYERS = ["boundary-line", "tracks-line", "male-bays-fill", "male-bays-line",
   "alignment-line", "sprayer-pass-line", "sprayer-limit-line",
+  "tire-zone-fill", "edge-zone-fill", "wet-zone-fill", "wet-zone-line",
+  "track-buffer-line", "planter-pass-line", "crew-route-line", "planter-number-label",
   "shelters", "shelter-labels", "scan-pins"];
 const MAP_LAYERS = ["allfields-fill", "allfields-line", "allfields-label"];
 
@@ -489,6 +526,11 @@ const LAYER_TOGGLES = [
   { key: "male_bays", label: "Male bays",       layers: ["male-bays-fill", "male-bays-line"], def: false },
   { key: "alignment", label: "Alignment lines", layers: ["alignment-line"], def: false },
   { key: "sprayer",   label: "Sprayer passes",  layers: ["sprayer-pass-line", "sprayer-limit-line"], def: false },
+  { key: "tire_edge", label: "Tire & edge zones", layers: ["tire-zone-fill", "edge-zone-fill"], def: false },
+  { key: "wet",       label: "Wet zones",       layers: ["wet-zone-fill", "wet-zone-line"], def: false },
+  { key: "track_buf", label: "Track buffer",    layers: ["track-buffer-line"], def: false },
+  { key: "planter",   label: "Planter passes",  layers: ["planter-pass-line", "planter-number-label"], def: false },
+  { key: "crew",      label: "Crew route",      layers: ["crew-route-line"], def: false },
 ];
 
 let layerState = loadLayerState();   // { key: bool }

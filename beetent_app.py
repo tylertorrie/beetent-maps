@@ -12538,6 +12538,8 @@ class BeetentApp(ctk.CTk):
         """Write this field's GeoJSON for the field-tablet PWA (tablet/fields/),
         using the same shelter positions drawn on the map. Best-effort — any
         failure is caught by the caller and never blocks a save."""
+        if not (f.get("Name") or "").strip():
+            return                       # never export the blank/startup field
         import sys
         tablet_dir = Path(__file__).resolve().parent / "tablet"
         if str(tablet_dir) not in sys.path:
@@ -12563,7 +12565,12 @@ class BeetentApp(ctk.CTk):
         feats = []
         for fn in (self._tablet_bay_features,
                    self._tablet_alignment_features,
-                   self._tablet_sprayer_features):
+                   self._tablet_sprayer_features,
+                   self._tablet_tire_features,
+                   self._tablet_crew_route_features,
+                   self._tablet_planter_features,
+                   self._tablet_wet_features,
+                   self._tablet_track_buffer_features):
             try:
                 feats.extend(fn(f) or [])
             except Exception as e:
@@ -12727,6 +12734,159 @@ class BeetentApp(ctk.CTk):
                 la2, lo2 = enu_to_latlon(pe + t2 * tdx, pn + t2 * tdy, plat, plon)
                 feats.append({"type": "Feature", "properties": {"type": "sprayer_pass"},
                               "geometry": {"type": "LineString", "coordinates": [[lo1, la1], [lo2, la2]]}})
+        return feats
+
+    def _tablet_tire_features(self, f):
+        """Sprayer TIRE band (red) + good-zone EDGE band (green) — the interior
+        core of _redraw_pass_buffer_overlay (the perimeter-round special cases are
+        omitted). types: 'tire_zone', 'edge_zone'."""
+        try:
+            plat = float(self.fv["PP_Latitude"].get()); plon = float(self.fv["PP_Longitude"].get())
+            angle = float(self.fv["Spray_angle"].get().strip()
+                          or self.fv["Planting_angle"].get().strip() or 0)
+            width_m = float(self.fv["Sprayer_width"].get() or 133) * 0.3048
+            buffer_m = float(self.fv["pass_edge_buffer_ft"].get() or 0) * 0.3048
+            tire_m = max(0.0, float(self.fv["tire_width_ft"].get() or 14)) * 0.3048
+            bp = f.get("boundary_polygon")
+        except (ValueError, TypeError):
+            return []
+        if not bp or len(bp) < 3 or width_m <= 0:
+            return []
+        feats = []
+        poly_enu = [latlon_to_enu(lat, lon, plat, plon) for lat, lon in bp]
+        max_r = max(math.sqrt(e * e + n * n) for e, n in poly_enu) * 1.1
+        rot = math.radians((0 - angle + 180) % 360 - 180)
+        cos_r, sin_r = math.cos(rot), math.sin(rot)
+        tdx, tdy = -sin_r, cos_r
+        ldx, ldy = cos_r, sin_r
+        sse, ssn = self._sprayer_shift()
+        TIRE_HALF = tire_m / 2.0
+        out_band = min(buffer_m, max(0.0, width_m / 2.0 - TIRE_HALF))
+        safe_poly = (inset_polygon_enu(poly_enu, max(0.0, width_m - out_band), remove_spikes=False)
+                     if out_band > 0 else poly_enu)
+        if not safe_poly or len(safe_poly) < 3:
+            safe_poly = poly_enu
+        inner_polys_enu = []
+        for inner in self._all_exclusion_rings():
+            if inner and len(inner) >= 3:
+                inner_polys_enu.append([latlon_to_enu(p[0], p[1], plat, plon) for p in inner])
+        outside_round_inner = inset_polygon_enu(poly_enu, width_m, remove_spikes=False)
+        def covers(x_lo, x_hi):
+            if len(outside_round_inner) < 3:
+                return True
+            for i in range(7):
+                cx = x_lo + (x_hi - x_lo) * i / 6.0
+                if clip_line_to_polygon_intervals(cx * ldx + sse, cx * ldy + ssn,
+                                                  tdx, tdy, outside_round_inner):
+                    return True
+            return False
+        def poly_feat(band, typ):
+            lpts = [enu_to_latlon(e, n, plat, plon) for e, n in band]
+            return {"type": "Feature", "properties": {"type": typ},
+                    "geometry": {"type": "Polygon", "coordinates": [self._ll_ring(lpts)]}}
+        cuts = inner_polys_enu or None
+        max_rows = int(max_r / width_m) + 2
+        for r in range(-max_rows, max_rows + 1):
+            if not covers(r * width_m, (r + 1) * width_m):
+                continue
+            cx = (r + 0.5) * width_m
+            for band in self._band_polygon_enu(cx - TIRE_HALF, cx + TIRE_HALF, tdx, tdy, ldx, ldy,
+                                               poly_enu, inner_polys_enu=cuts, off_e=sse, off_n=ssn):
+                feats.append(poly_feat(band, "tire_zone"))
+            if out_band > 0:
+                le = r * width_m; re_ = (r + 1) * width_m
+                for (x1, x2) in ((le, le + out_band), (re_ - out_band, re_)):
+                    for band in self._band_polygon_enu(x1, x2, tdx, tdy, ldx, ldy, safe_poly,
+                                                       inner_polys_enu=cuts, off_e=sse, off_n=ssn):
+                        feats.append(poly_feat(band, "edge_zone"))
+        return feats
+
+    def _tablet_crew_route_features(self, f):
+        """Estimated crew driving route polyline. type='crew_route'."""
+        ov = f.get("crew_route_override")
+        if ov and len(ov) >= 2:
+            route = [(float(p[0]), float(p[1])) for p in ov]
+        else:
+            try:
+                route = maketentgrid.crew_route(f, use_metric=(self.unit_var.get() == "Metric"))[0]
+            except Exception:
+                return []
+        if not route or len(route) < 2:
+            return []
+        return [{"type": "Feature", "properties": {"type": "crew_route"},
+                 "geometry": {"type": "LineString",
+                              "coordinates": [[float(lo), float(la)] for (la, lo) in route]}}]
+
+    def _tablet_planter_features(self, f):
+        """Numbered planter passes (amber pass-edge lines + a number per pass) plus
+        any imported planter passes. types: 'planter_pass', 'planter_number'."""
+        feats = []
+        passes = f.get("planter_passes") or []
+        if passes:
+            bse, bsn = self._bay_shift()
+            for poly in self._translate_latlon(passes, bse, bsn):
+                if poly and len(poly) >= 2:
+                    feats.append({"type": "Feature", "properties": {"type": "planter_pass"},
+                                  "geometry": {"type": "LineString",
+                                               "coordinates": [[float(p[1]), float(p[0])] for p in poly]}})
+        g = self._planter_pass_geometry()
+        if not g:
+            return feats
+        plat, plon = g["plat"], g["plon"]
+        tdx, tdy, ldx, ldy = g["tdx"], g["tdy"], g["ldx"], g["ldy"]
+        pass_w, lat_shift, poly_enu, n_pass = g["pass_w"], g["lat_shift"], g["poly_enu"], g["n_pass"]
+        for i in range(-n_pass, n_pass + 2):
+            x = i * pass_w + lat_shift
+            pe, pn = x * ldx, x * ldy
+            for (t1, t2) in clip_line_to_polygon_intervals(pe, pn, tdx, tdy, poly_enu):
+                if t2 - t1 < 0.01:
+                    continue
+                la1, lo1 = enu_to_latlon(pe + t1 * tdx, pn + t1 * tdy, plat, plon)
+                la2, lo2 = enu_to_latlon(pe + t2 * tdx, pn + t2 * tdy, plat, plon)
+                feats.append({"type": "Feature", "properties": {"type": "planter_pass"},
+                              "geometry": {"type": "LineString", "coordinates": [[lo1, la1], [lo2, la2]]}})
+        for i in range(-n_pass, n_pass + 1):
+            xc = (i + 0.5) * pass_w + lat_shift
+            pe, pn = xc * ldx, xc * ldy
+            ivs = clip_line_to_polygon_intervals(pe, pn, tdx, tdy, poly_enu)
+            if not ivs:
+                continue
+            ends = [t for iv in ivs for t in iv]
+            t_n = max(ends, key=lambda t: pn + t * tdy)
+            te = t_n + (1.0 if tdy >= 0 else -1.0) * 0.6 * pass_w
+            mlat, mlon = enu_to_latlon(pe + te * tdx, pn + te * tdy, plat, plon)
+            label = self._pass_label_for_index(i, pass_w, lat_shift)
+            txt = ("+%d" % label) if label > 0 else ("%d" % label)
+            feats.append({"type": "Feature", "properties": {"type": "planter_number", "label": txt},
+                          "geometry": {"type": "Point", "coordinates": [mlon, mlat]}})
+        return feats
+
+    def _tablet_wet_features(self, f):
+        """Informational wet-spot polygons. type='wet_zone'."""
+        feats = []
+        for ring in (f.get("wet_zones") or []):
+            if ring and len(ring) >= 3:
+                feats.append({"type": "Feature", "properties": {"type": "wet_zone"},
+                              "geometry": {"type": "Polygon",
+                                           "coordinates": [self._ll_ring([(p[0], p[1]) for p in ring])]}})
+        return feats
+
+    def _tablet_track_buffer_features(self, f):
+        """Pivot-track ± exclusion-band circles (the no-shelter buffer around each
+        wheel track). type='track_buffer'."""
+        try:
+            excl_m = float(self.fv.get("track_exclusion_ft", self.excl_var).get() or "10") * 0.3048
+        except Exception:
+            excl_m = 10 * 0.3048
+        feats = []
+        for (clat, clon, r_m) in self._field_track_circles(f):
+            for r in (r_m + excl_m, max(1.0, r_m - excl_m)):
+                pts = circle_pts(clat, clon, r, n=120)
+                coords = [[float(lo), float(la)] for (la, lo) in pts]
+                if coords:
+                    coords.append(coords[0])
+                feats.append({"type": "Feature", "properties": {"type": "track_buffer"},
+                              "geometry": {"type": "LineString", "coordinates": coords}})
         return feats
 
     def _final_shelter_trays(self, f, metric):
