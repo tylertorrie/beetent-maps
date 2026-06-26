@@ -2049,5 +2049,27 @@
     "role": "bee",
     "generated": "2026-06-26T10:11:31",
     "size": 748672
+  },
+  {
+    "id": "pdfs/SW 16-9-15 Bee Delivery Map 2.pdf",
+    "kind": "pdf",
+    "name": "SW 16-9-15 Bee Delivery Map 2.pdf",
+    "relpath": "pdfs/SW 16-9-15 Bee Delivery Map 2.pdf",
+    "is_dir": false,
+    "companies": [
+      "Proven Seeds"
+    ],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "SW 16-9-15"
+    ],
+    "types": [
+      "PDF"
+    ],
+    "role": "bee",
+    "generated": "2026-06-26T10:12:35",
+    "size": 749121
   }
 ]
