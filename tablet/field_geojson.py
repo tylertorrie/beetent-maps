@@ -134,10 +134,13 @@ def _update_index(fields_dir: Path, company: str, year: str, name: str, fname: s
     except (FileNotFoundError, json.JSONDecodeError):
         data = {"updated": "", "fields": []}
 
-    entry = {"name": name, "company": company, "year": year, "file": fname}
+    now = datetime.datetime.now().isoformat(timespec="seconds")
+    # Per-field `updated` stamp lets the tablet detect WHICH field changed (and
+    # whether it's the one the crew is actively working) to raise an alert.
+    entry = {"name": name, "company": company, "year": year, "file": fname, "updated": now}
     fields = [e for e in data.get("fields", []) if e.get("file") != fname]
     fields.append(entry)
     fields.sort(key=lambda e: (e.get("company", ""), e.get("year", ""), e.get("name", "")))
     data["fields"] = fields
-    data["updated"] = datetime.datetime.now().isoformat(timespec="seconds")
+    data["updated"] = now
     index_path.write_text(json.dumps(data, indent=2), encoding="utf-8")

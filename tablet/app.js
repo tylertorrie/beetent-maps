@@ -357,6 +357,93 @@ async function loadFieldList() {
   return items.length;
 }
 
+// ---- Field-update alert ------------------------------------------------------
+// The office edits fields on the desktop and pushes to GitHub; this polls the
+// index and alerts the crew when something changed (especially the field they're
+// on), so they can pull the latest without guessing.
+let updateState = { activeChanged: false, changedFiles: [] };
+
+function loadStamps() {
+  try { return JSON.parse(localStorage.getItem("beeFieldStamps") || "null"); } catch (e) { return null; }
+}
+function saveStamps(s) { try { localStorage.setItem("beeFieldStamps", JSON.stringify(s)); } catch (e) {} }
+
+async function checkFieldUpdates() {
+  if (!navigator.onLine) return;
+  let items;
+  try {
+    const r = await fetch(FIELDS_INDEX, { cache: "no-store" });
+    if (!r.ok) return;
+    items = (await r.json()).fields || [];
+  } catch (e) { return; }
+  const stamps = {};
+  for (const it of items) stamps[it.file] = it.updated || it.file;
+  const prev = loadStamps();
+  if (prev === null) { saveStamps(stamps); return; }     // first run → baseline, no alert
+  const changed = Object.keys(stamps).filter((f) => prev[f] !== stamps[f]);
+  if (!changed.length) return;
+  for (const f of changed) if (!updateState.changedFiles.includes(f)) updateState.changedFiles.push(f);
+  if (activeFieldFile && updateState.changedFiles.includes(activeFieldFile)) updateState.activeChanged = true;
+  saveStamps(stamps);                                    // advance baseline (don't re-alert same change)
+  showUpdateBanner();
+  try { if (navigator.vibrate) navigator.vibrate(140); } catch (e) {}
+}
+
+function showUpdateBanner() {
+  const b = document.getElementById("updatebanner");
+  const n = updateState.changedFiles.length;
+  if (updateState.activeChanged) {
+    b.className = "active-field";
+    b.innerHTML = '<span>⟳ This field was updated — tap to reload</span><span class="ub-x">✕</span>';
+  } else {
+    b.className = "";
+    b.innerHTML = '<span>⟳ ' + n + ' field' + (n === 1 ? '' : 's')
+      + ' updated — tap to refresh</span><span class="ub-x">✕</span>';
+  }
+  document.getElementById("btn-fields").classList.add("has-updates");
+}
+
+function dismissUpdateBanner() {
+  updateState = { activeChanged: false, changedFiles: [] };
+  document.getElementById("updatebanner").classList.add("hidden");
+  document.getElementById("btn-fields").classList.remove("has-updates");
+}
+
+async function applyFieldUpdates() {
+  const reloadActive = updateState.activeChanged;
+  dismissUpdateBanner();
+  await loadFieldList();                       // refresh the picker list
+  if (mode === "map") showAllFields();         // refresh the all-fields overview
+  if (reloadActive) await reloadActiveField(); // pull the new geometry into the open field
+}
+
+// Re-fetch the active field and swap in the new geometry WITHOUT moving the
+// camera (keeps the crew's view/zoom/follow) — visited + scan state is restored
+// from IndexedDB, so progress is never lost.
+async function reloadActiveField() {
+  if (!activeFieldFile) return;
+  let fc = null;
+  try {
+    const r = await fetch("fields/" + activeFieldFile, { cache: "no-store" });
+    if (r.ok) { fc = await r.json(); await beeDB.putField(activeFieldFile, fc); }
+  } catch (e) {}
+  if (!fc) return;
+  activeField = fc;
+  const saved = (await beeDB.getState(activeFieldFile).catch(() => null)) || {};
+  Object.keys(visited).forEach((k) => delete visited[k]);
+  Object.assign(visited, saved);
+  for (const f of fc.features) {
+    if (f.properties.type === "shelter") {
+      const v = visited[f.properties.label];
+      if (v) { f.properties.visited = v.visited; f.properties.note = v.note; }
+      else { f.properties.visited = !!f.properties.visited; }
+    }
+  }
+  map.getSource("field").setData(fc);
+  refreshScanLayer(); updateScanProgress();
+  publishFieldState(document.getElementById("fieldname").textContent);
+}
+
 // Download the index + every field's GeoJSON into IndexedDB so the whole set is
 // available offline. Run at the yard before heading out (the "Sync" button).
 async function syncAll() {
@@ -1161,6 +1248,16 @@ window.addEventListener("DOMContentLoaded", () => {
   updateNet();
   window.addEventListener("online", updateNet);
   window.addEventListener("offline", updateNet);
+
+  // Field-update alert: baseline now, then poll while online + on focus/reconnect.
+  document.getElementById("updatebanner").onclick = (e) => {
+    if (e.target.classList.contains("ub-x")) dismissUpdateBanner();
+    else applyFieldUpdates();
+  };
+  checkFieldUpdates();
+  setInterval(checkFieldUpdates, 45000);
+  window.addEventListener("online", checkFieldUpdates);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) checkFieldUpdates(); });
 
   document.getElementById("btn-work").onclick = () => setMode("work");
   document.getElementById("btn-map").onclick = () => setMode("map");

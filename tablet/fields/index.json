@@ -5,103 +5,120 @@
       "name": "BASF 1st Test Plot",
       "company": "BASF",
       "year": "2026",
-      "file": "BASF__2026__BASF_1st_Test_Plot.geojson"
+      "file": "BASF__2026__BASF_1st_Test_Plot.geojson",
+      "updated": "2026-06-25T11:11:16"
     },
     {
       "name": "BASF 2nd Test Plot",
       "company": "BASF",
       "year": "2026",
-      "file": "BASF__2026__BASF_2nd_Test_Plot.geojson"
+      "file": "BASF__2026__BASF_2nd_Test_Plot.geojson",
+      "updated": "2026-06-25T11:11:16"
     },
     {
       "name": "Giesbricht NW 35-10-16",
       "company": "BASF",
       "year": "2026",
-      "file": "BASF__2026__Giesbricht_NW_35-10-16.geojson"
+      "file": "BASF__2026__Giesbricht_NW_35-10-16.geojson",
+      "updated": "2026-06-25T11:11:16"
     },
     {
       "name": "Stolk NE-12-11-15",
       "company": "BASF",
       "year": "2026",
-      "file": "BASF__2026__Stolk_NE-12-11-15.geojson"
+      "file": "BASF__2026__Stolk_NE-12-11-15.geojson",
+      "updated": "2026-06-25T11:11:16"
     },
     {
       "name": "BASF 1st Test Plot",
       "company": "BASF Test Plots",
       "year": "2026",
-      "file": "BASF_Test_Plots__2026__BASF_1st_Test_Plot.geojson"
+      "file": "BASF_Test_Plots__2026__BASF_1st_Test_Plot.geojson",
+      "updated": "2026-06-25T11:11:16"
     },
     {
       "name": "BASF 2nd Test Plot",
       "company": "BASF Test Plots",
       "year": "2026",
-      "file": "BASF_Test_Plots__2026__BASF_2nd_Test_Plot.geojson"
+      "file": "BASF_Test_Plots__2026__BASF_2nd_Test_Plot.geojson",
+      "updated": "2026-06-25T11:11:16"
     },
     {
       "name": "Bayer NE 1-20-15 (Big Field)",
       "company": "Bayer",
       "year": "2026",
-      "file": "Bayer__2026__Bayer_NE_1-20-15_Big_Field.geojson"
+      "file": "Bayer__2026__Bayer_NE_1-20-15_Big_Field.geojson",
+      "updated": "2026-06-25T11:11:16"
     },
     {
       "name": "NW 1-20-15",
       "company": "Bayer",
       "year": "2026",
-      "file": "Bayer__2026__NW_1-20-15.geojson"
+      "file": "Bayer__2026__NW_1-20-15.geojson",
+      "updated": "2026-06-25T11:11:16"
     },
     {
       "name": "Stolk SE 9-11-14",
       "company": "Corteva",
       "year": "2026",
-      "file": "Corteva__2026__Stolk_SE_9-11-14.geojson"
+      "file": "Corteva__2026__Stolk_SE_9-11-14.geojson",
+      "updated": "2026-06-25T11:11:16"
     },
     {
       "name": "Carrots",
       "company": "Hytech",
       "year": "2026",
-      "file": "Hytech__2026__Carrots.geojson"
+      "file": "Hytech__2026__Carrots.geojson",
+      "updated": "2026-06-25T11:11:16"
     },
     {
       "name": "Wordmans Carrots",
       "company": "Hytech",
       "year": "2026",
-      "file": "Hytech__2026__Wordmans_Carrots.geojson"
+      "file": "Hytech__2026__Wordmans_Carrots.geojson",
+      "updated": "2026-06-25T11:11:16"
     },
     {
       "name": "NW 1-10-15",
       "company": "Proven Seeds",
       "year": "2026",
-      "file": "Proven_Seeds__2026__NW_1-10-15.geojson"
+      "file": "Proven_Seeds__2026__NW_1-10-15.geojson",
+      "updated": "2026-06-25T11:11:16"
     },
     {
       "name": "NW 4-10-12",
       "company": "Proven Seeds",
       "year": "2026",
-      "file": "Proven_Seeds__2026__NW_4-10-12.geojson"
+      "file": "Proven_Seeds__2026__NW_4-10-12.geojson",
+      "updated": "2026-06-25T11:11:16"
     },
     {
       "name": "SE 14-9-15",
       "company": "Proven Seeds",
       "year": "2026",
-      "file": "Proven_Seeds__2026__SE_14-9-15.geojson"
+      "file": "Proven_Seeds__2026__SE_14-9-15.geojson",
+      "updated": "2026-06-25T11:11:16"
     },
     {
       "name": "SE 16-9-13",
       "company": "Proven Seeds",
       "year": "2026",
-      "file": "Proven_Seeds__2026__SE_16-9-13.geojson"
+      "file": "Proven_Seeds__2026__SE_16-9-13.geojson",
+      "updated": "2026-06-25T11:11:16"
     },
     {
       "name": "SE 17-9-15",
       "company": "Proven Seeds",
       "year": "2026",
-      "file": "Proven_Seeds__2026__SE_17-9-15.geojson"
+      "file": "Proven_Seeds__2026__SE_17-9-15.geojson",
+      "updated": "2026-06-25T11:11:16"
     },
     {
       "name": "SW 16-9-15",
       "company": "Proven Seeds",
       "year": "2026",
-      "file": "Proven_Seeds__2026__SW_16-9-15.geojson"
+      "file": "Proven_Seeds__2026__SW_16-9-15.geojson",
+      "updated": "2026-06-25T11:11:16"
     }
   ]
 }
