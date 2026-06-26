@@ -287,5 +287,17 @@
   "PP2_Longitude": "",
   "Radius2": "",
   "two_pivots": false,
-  "acres_manual": false
+  "acres_manual": false,
+  "adjust_by_combo": {
+    "trays_2|None=|out=Yes|both=0": {
+      "shelter_overrides": {},
+      "tray_overrides": {}
+    }
+  },
+  "spray_both_ways": false,
+  "pass_phase_swap": false,
+  "parking_pin": [
+    49.72827223208083,
+    -111.70886670053005
+  ]
 }
