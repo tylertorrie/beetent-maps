@@ -1983,5 +1983,71 @@
     "role": "shelter",
     "generated": "2026-06-24T09:55:56",
     "size": 633255
+  },
+  {
+    "id": "pdfs/SE 14-9-15 Bee Delivery Map.pdf",
+    "kind": "pdf",
+    "name": "SE 14-9-15 Bee Delivery Map.pdf",
+    "relpath": "pdfs/SE 14-9-15 Bee Delivery Map.pdf",
+    "is_dir": false,
+    "companies": [
+      "Proven Seeds"
+    ],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "SE 14-9-15"
+    ],
+    "types": [
+      "PDF"
+    ],
+    "role": "bee",
+    "generated": "2026-06-26T10:11:26",
+    "size": 693894
+  },
+  {
+    "id": "pdfs/SE 17-9-15 Bee Delivery Map.pdf",
+    "kind": "pdf",
+    "name": "SE 17-9-15 Bee Delivery Map.pdf",
+    "relpath": "pdfs/SE 17-9-15 Bee Delivery Map.pdf",
+    "is_dir": false,
+    "companies": [
+      "Proven Seeds"
+    ],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "SE 17-9-15"
+    ],
+    "types": [
+      "PDF"
+    ],
+    "role": "bee",
+    "generated": "2026-06-26T10:11:29",
+    "size": 755293
+  },
+  {
+    "id": "pdfs/SW 16-9-15 Bee Delivery Map.pdf",
+    "kind": "pdf",
+    "name": "SW 16-9-15 Bee Delivery Map.pdf",
+    "relpath": "pdfs/SW 16-9-15 Bee Delivery Map.pdf",
+    "is_dir": false,
+    "companies": [
+      "Proven Seeds"
+    ],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "SW 16-9-15"
+    ],
+    "types": [
+      "PDF"
+    ],
+    "role": "bee",
+    "generated": "2026-06-26T10:11:31",
+    "size": 748672
   }
 ]
