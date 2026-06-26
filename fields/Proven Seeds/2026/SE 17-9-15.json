@@ -922,7 +922,10 @@
     ]
   ],
   "entrance_pin": null,
-  "parking_pin": null,
+  "parking_pin": [
+    49.72799526110073,
+    -111.99198662551498
+  ],
   "sprayer_routes_around_inner": true,
   "bays_through_inner": false,
   "shelter_at_pivot": false,
@@ -936,5 +939,12 @@
   "Radius2": "",
   "two_pivots": false,
   "pass_phase_swap": false,
-  "acres_manual": false
+  "acres_manual": false,
+  "adjust_by_combo": {
+    "trays_2|None=|out=Yes|both=0": {
+      "shelter_overrides": {},
+      "tray_overrides": {}
+    }
+  },
+  "spray_both_ways": false
 }
