@@ -300,20 +300,7 @@
   "sprayer_routes_around_inner": true,
   "bays_through_inner": false,
   "manual_shelter_pins": [],
-  "shelter_overrides": {
-    "60": [
-      49.72846611321666,
-      -111.98330476408034
-    ],
-    "21": [
-      49.73433643493273,
-      -111.98836877470046
-    ],
-    "5": [
-      49.7339446399435,
-      -111.98996200685531
-    ]
-  },
+  "shelter_overrides": {},
   "Planting_angle": "0",
   "shelter_rows": "",
   "bay_gap_in": "0",
@@ -439,5 +426,12 @@
   "Radius2": "",
   "two_pivots": false,
   "pass_phase_swap": false,
-  "acres_manual": false
+  "acres_manual": false,
+  "adjust_by_combo": {
+    "trays_2|None=|out=Yes|both=0": {
+      "shelter_overrides": {},
+      "tray_overrides": {}
+    }
+  },
+  "spray_both_ways": false
 }
