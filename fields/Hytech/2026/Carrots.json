@@ -130,5 +130,22 @@
   "shelter_at_pivot": false,
   "sprayer_shift_e_m": -15.544800000000002,
   "sprayer_shift_n_m": 0.0,
-  "acres_manual": false
+  "acres_manual": false,
+  "adjust_by_combo": {
+    "trays_2|None=|out=Yes|both=0": {
+      "shelter_overrides": {},
+      "tray_overrides": {}
+    }
+  },
+  "PP2_Latitude": "",
+  "PP2_Longitude": "",
+  "Radius2": "",
+  "tire_width_ft": "14",
+  "spray_both_ways": false,
+  "two_pivots": false,
+  "pass_phase_swap": false,
+  "parking_pin": [
+    49.9129762238217,
+    -111.80098907911906
+  ]
 }

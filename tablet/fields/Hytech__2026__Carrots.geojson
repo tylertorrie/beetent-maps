@@ -2006,7 +2006,8 @@
         "type": "shelter",
         "label": "S-01",
         "visited": false,
-        "note": ""
+        "note": "",
+        "trays": 2
       },
       "geometry": {
         "type": "Point",
@@ -2022,7 +2023,8 @@
         "type": "shelter",
         "label": "S-02",
         "visited": false,
-        "note": ""
+        "note": "",
+        "trays": 2
       },
       "geometry": {
         "type": "Point",
@@ -2038,7 +2040,8 @@
         "type": "shelter",
         "label": "S-03",
         "visited": false,
-        "note": ""
+        "note": "",
+        "trays": 2
       },
       "geometry": {
         "type": "Point",
@@ -2054,7 +2057,8 @@
         "type": "shelter",
         "label": "S-04",
         "visited": false,
-        "note": ""
+        "note": "",
+        "trays": 2
       },
       "geometry": {
         "type": "Point",
@@ -2070,7 +2074,8 @@
         "type": "shelter",
         "label": "S-05",
         "visited": false,
-        "note": ""
+        "note": "",
+        "trays": 2
       },
       "geometry": {
         "type": "Point",
@@ -2086,7 +2091,8 @@
         "type": "shelter",
         "label": "S-06",
         "visited": false,
-        "note": ""
+        "note": "",
+        "trays": 2
       },
       "geometry": {
         "type": "Point",
@@ -2102,7 +2108,8 @@
         "type": "shelter",
         "label": "S-07",
         "visited": false,
-        "note": ""
+        "note": "",
+        "trays": 2
       },
       "geometry": {
         "type": "Point",
@@ -2118,7 +2125,8 @@
         "type": "shelter",
         "label": "S-08",
         "visited": false,
-        "note": ""
+        "note": "",
+        "trays": 2
       },
       "geometry": {
         "type": "Point",
@@ -2134,7 +2142,8 @@
         "type": "shelter",
         "label": "S-09",
         "visited": false,
-        "note": ""
+        "note": "",
+        "trays": 2
       },
       "geometry": {
         "type": "Point",
@@ -2150,7 +2159,8 @@
         "type": "shelter",
         "label": "S-10",
         "visited": false,
-        "note": ""
+        "note": "",
+        "trays": 2
       },
       "geometry": {
         "type": "Point",
@@ -2166,7 +2176,8 @@
         "type": "shelter",
         "label": "S-11",
         "visited": false,
-        "note": ""
+        "note": "",
+        "trays": 2
       },
       "geometry": {
         "type": "Point",
@@ -2182,7 +2193,8 @@
         "type": "shelter",
         "label": "S-12",
         "visited": false,
-        "note": ""
+        "note": "",
+        "trays": 2
       },
       "geometry": {
         "type": "Point",
@@ -2198,7 +2210,8 @@
         "type": "shelter",
         "label": "S-13",
         "visited": false,
-        "note": ""
+        "note": "",
+        "trays": 2
       },
       "geometry": {
         "type": "Point",
@@ -2214,7 +2227,8 @@
         "type": "shelter",
         "label": "S-14",
         "visited": false,
-        "note": ""
+        "note": "",
+        "trays": 2
       },
       "geometry": {
         "type": "Point",
@@ -2230,7 +2244,8 @@
         "type": "shelter",
         "label": "S-15",
         "visited": false,
-        "note": ""
+        "note": "",
+        "trays": 2
       },
       "geometry": {
         "type": "Point",
@@ -2246,7 +2261,8 @@
         "type": "shelter",
         "label": "S-16",
         "visited": false,
-        "note": ""
+        "note": "",
+        "trays": 2
       },
       "geometry": {
         "type": "Point",
@@ -2262,7 +2278,8 @@
         "type": "shelter",
         "label": "S-17",
         "visited": false,
-        "note": ""
+        "note": "",
+        "trays": 2
       },
       "geometry": {
         "type": "Point",
@@ -2278,7 +2295,8 @@
         "type": "shelter",
         "label": "S-18",
         "visited": false,
-        "note": ""
+        "note": "",
+        "trays": 2
       },
       "geometry": {
         "type": "Point",
@@ -2294,7 +2312,8 @@
         "type": "shelter",
         "label": "S-19",
         "visited": false,
-        "note": ""
+        "note": "",
+        "trays": 2
       },
       "geometry": {
         "type": "Point",
@@ -2310,7 +2329,8 @@
         "type": "shelter",
         "label": "S-20",
         "visited": false,
-        "note": ""
+        "note": "",
+        "trays": 0
       },
       "geometry": {
         "type": "Point",
@@ -7238,6 +7258,26 @@
         "type": "LineString",
         "coordinates": [
           [
+            -111.80098907911878,
+            49.91297622637788
+          ],
+          [
+            -111.80125963764645,
+            49.91302528697112
+          ],
+          [
+            -111.80139679799973,
+            49.9127098655561
+          ],
+          [
+            -111.8015429790141,
+            49.91241278372055
+          ],
+          [
+            -111.80181522299976,
+            49.91205351855592
+          ],
+          [
             -111.80214461966237,
             49.911752573572855
           ],
@@ -7332,6 +7372,54 @@
           [
             -111.80302812754837,
             49.91561100124807
+          ],
+          [
+            -111.80298466599983,
+            49.91563223155692
+          ],
+          [
+            -111.80280136600854,
+            49.915672777864536
+          ],
+          [
+            -111.80268334881188,
+            49.9156071475288
+          ],
+          [
+            -111.80217128612381,
+            49.915022553799666
+          ],
+          [
+            -111.80172402754899,
+            49.91450786714468
+          ],
+          [
+            -111.8012948747293,
+            49.914051032458346
+          ],
+          [
+            -111.80119160928872,
+            49.91392019903974
+          ],
+          [
+            -111.8011527168645,
+            49.91368746218846
+          ],
+          [
+            -111.8011383964192,
+            49.91350347524027
+          ],
+          [
+            -111.80119740501755,
+            49.91316839909607
+          ],
+          [
+            -111.80125963764645,
+            49.91302528697112
+          ],
+          [
+            -111.80098907911878,
+            49.91297622637788
           ]
         ]
       }
