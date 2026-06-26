@@ -433,5 +433,9 @@
       "tray_overrides": {}
     }
   },
-  "spray_both_ways": false
+  "spray_both_ways": false,
+  "parking_pin": [
+    49.728434904647564,
+    -111.98258861427337
+  ]
 }
