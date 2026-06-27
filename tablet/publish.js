@@ -14,6 +14,7 @@ window.beePublish = (function () {
 
   let ref = null;       // firebase db ref for this crew
   let scansRef = null;  // persistent scans/<field>/{shelters,trays}/<qr> tree
+  let calibRef = null;  // calibration/<field> — crew bay-shift corrections
   let enabled = false;
 
   // Firebase keys may not contain . # $ [ ] / — sanitise field ids and QR codes.
@@ -47,6 +48,7 @@ window.beePublish = (function () {
       ref = firebase.database().ref("crews/" + crewId());
       ref.onDisconnect().remove();
       scansRef = firebase.database().ref("scans");   // persistent — NOT removed
+      calibRef = firebase.database().ref("calibration");
       enabled = true;
       setInterval(write, PUSH_MS);
       console.info("Relay publish enabled as", crewId());
@@ -90,6 +92,12 @@ window.beePublish = (function () {
       if (!enabled || !scansRef || !rec || !rec.tray_qr) return null;
       return scansRef.child(fieldKey(rec.field_id)).child("trays")
                      .child(fbKey(rec.tray_qr)).set(rec);
+    },
+    // Crew bay-shift calibration → calibration/<field>. Returns the set() Promise
+    // (so the caller can mark it sent) or null when the relay is down (offline).
+    pushCalibration(fieldId, rec) {
+      if (!enabled || !calibRef || !fieldId || !rec) return null;
+      return calibRef.child(fieldKey(fieldId)).set(rec);
     },
     _init: init,
   };

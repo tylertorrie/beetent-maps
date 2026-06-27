@@ -428,6 +428,7 @@ async function reloadActiveField() {
     if (r.ok) { fc = await r.json(); await beeDB.putField(activeFieldFile, fc); }
   } catch (e) {}
   if (!fc) return;
+  applyLocalCalibIfPending(fc, activeFieldFile);
   activeField = fc;
   const saved = (await beeDB.getState(activeFieldFile).catch(() => null)) || {};
   Object.keys(visited).forEach((k) => delete visited[k]);
@@ -442,6 +443,186 @@ async function reloadActiveField() {
   map.getSource("field").setData(fc);
   refreshScanLayer(); updateScanProgress();
   publishFieldState(document.getElementById("fieldname").textContent);
+}
+
+// ---- Field calibration -------------------------------------------------------
+// Crew drives partway down the most-centred male bay and taps Calibrate; we shift
+// every bay + shelter flag sideways so the estimated grid lands on their real
+// position (sprayer tracks/zones do NOT move), then queue the correction to the
+// office. Works offline — the desktop bakes it into the field file when it can.
+
+// Port of the desktop utmish projection (latlon_to_enu) so the lateral projection
+// matches the frame the exported bay_centers_m are computed in.
+const _UTM = (function () {
+  const K0 = 0.9996, E = 0.00669438, E_P2 = E / (1 - E), R = 6378137;
+  const M1 = 1 - E / 4 - 3 * E * E / 64 - 5 * E * E * E / 256;
+  const M2 = 3 * E / 8 + 3 * E * E / 32 + 45 * E * E * E / 1024;
+  const M3 = 15 * E * E / 256 + 45 * E * E * E / 1024;
+  const M4 = 35 * E * E * E / 3072;
+  function fromLonLat(lon, lat, clon) {
+    const latR = lat * Math.PI / 180, lonR = lon * Math.PI / 180, clonR = clon * Math.PI / 180;
+    const ls = Math.sin(latR), lc = Math.cos(latR), lt = ls / lc, lt2 = lt * lt, lt4 = lt2 * lt2;
+    const n = R / Math.sqrt(1 - E * ls * ls), c = E_P2 * lc * lc;
+    const a = lc * (lonR - clonR), a2 = a * a, a3 = a2 * a, a4 = a3 * a, a5 = a4 * a, a6 = a5 * a;
+    const m = R * (M1 * latR - M2 * Math.sin(2 * latR) + M3 * Math.sin(4 * latR) - M4 * Math.sin(6 * latR));
+    const easting = K0 * n * (a + a3 / 6 * (1 - lt2 + c)
+      + a5 / 120 * (5 - 18 * lt2 + lt4 + 72 * c - 58 * E_P2)) + 500000;
+    let northing = K0 * (m + n * lt * (a2 / 2 + a4 / 24 * (5 - lt2 + 9 * c + 4 * c * c)
+      + a6 / 720 * (61 - 58 * lt2 + lt4 + 600 * c - 330 * E_P2)));
+    if (lat < 0) northing += 10000000;
+    return [easting, northing];
+  }
+  return {
+    enu(lat, lon, plat, plon) {            // ENU metres relative to the pivot
+      const p = fromLonLat(plon, plat, plon), q = fromLonLat(lon, lat, plon);
+      return [q[0] - p[0], q[1] - p[1]];
+    },
+  };
+})();
+
+// Equirectangular translate of one (lat,lon) by (east,north) metres — mirrors the
+// desktop _shift_pt; exact enough for the small calibration delta.
+function shiftLatLon(lat, lon, de, dn) {
+  return [lat + dn / 111111.0, lon + de / (111111.0 * Math.cos(lat * Math.PI / 180))];
+}
+
+const CALIB_SHIFT_TYPES = new Set(
+  ["male_bay", "alignment", "shelter", "planter_pass", "planter_number", "crew_route"]);
+
+// Translate the bay-following overlay features of an FC by (de,dn) metres in place.
+function translateField(fc, de, dn) {
+  if ((!de && !dn) || !fc || !fc.features) return;
+  const shiftPt = (c) => { const s = shiftLatLon(c[1], c[0], de, dn); return [s[1], s[0]]; };
+  const walk = (g) => {
+    if (!g) return;
+    if (g.type === "Point") g.coordinates = shiftPt(g.coordinates);
+    else if (g.type === "LineString") g.coordinates = g.coordinates.map(shiftPt);
+    else if (g.type === "Polygon") g.coordinates = g.coordinates.map((r) => r.map(shiftPt));
+  };
+  for (const f of fc.features) if (CALIB_SHIFT_TYPES.has(f.properties.type)) walk(f.geometry);
+}
+
+function loadCalib(file) {
+  try { return (JSON.parse(localStorage.getItem("beeCalib") || "{}") || {})[file] || null; }
+  catch (e) { return null; }
+}
+function saveCalib(file, rec) {
+  try {
+    const all = JSON.parse(localStorage.getItem("beeCalib") || "{}") || {};
+    if (rec) all[file] = rec; else delete all[file];
+    localStorage.setItem("beeCalib", JSON.stringify(all));
+  } catch (e) {}
+}
+
+// On (re)load: if a local calibration is pending and the GeoJSON hasn't baked it in
+// yet, re-apply it to the fresh features; once baked in (applied_id ≥ our id), drop it.
+function applyLocalCalibIfPending(fc, file) {
+  const rec = loadCalib(file);
+  if (!rec) return;
+  const appliedId = (fc.calibration && fc.calibration.applied_id) || 0;
+  if (appliedId >= rec.id) { saveCalib(file, null); return; }   // desktop caught up
+  translateField(fc, rec.de, rec.dn);
+}
+
+function goodFix() {
+  if (!pos) return false;
+  if (posSource === "globe") return pos.fix === 4 || pos.fix === 5;   // RTK fixed / float
+  if (posSource === "tablet") return pos.acc != null && pos.acc <= 2.0;
+  return false;
+}
+
+function feet(m) { return m / 0.3048; }
+
+// Compute the incremental bay shift to bring the nearest *displayed* male-bay
+// centreline onto the crew. Returns {de,dn,offM,absE,absN,id} or null.
+function calcCalibration() {
+  const cal = activeField && activeField.calibration;
+  if (!cal || !cal.bay_centers_m || !cal.bay_centers_m.length || !cal.pivot) return null;
+  const cur = loadCalib(activeFieldFile) || { de: 0, dn: 0 };
+  const [plat, plon] = cal.pivot;
+  const [ldx, ldy] = cal.lat_axis;
+  const [e, n] = _UTM.enu(pos.lat, pos.lon, plat, plon);
+  const xCrew = e * ldx + n * ldy;
+  const curLat = cur.de * ldx + cur.dn * ldy;       // lateral component already applied
+  let best = Infinity, xBay = 0;
+  for (const c of cal.bay_centers_m) {
+    const disp = c + curLat;                          // where this bay is shown now
+    if (Math.abs(xCrew - disp) < Math.abs(best)) { best = xCrew - disp; xBay = disp; }
+  }
+  const dde = best * ldx, ddn = best * ldy;           // incremental delta
+  const newDe = cur.de + dde, newDn = cur.dn + ddn;   // new total override
+  const base = cal.base_shift || [0, 0];
+  return { dde, ddn, de: newDe, dn: newDn, offM: best,
+           absE: base[0] + newDe, absN: base[1] + newDn };
+}
+
+function startCalibration() {
+  if (!activeField || !(activeField.calibration && activeField.calibration.bay_centers_m)) {
+    toast("No bay calibration data for this field."); return;
+  }
+  if (!goodFix()) { toast("Need a better GPS fix to calibrate."); return; }
+  const c = calcCalibration();
+  if (!c) { toast("Couldn't compute a calibration."); return; }
+  showCalibConfirm(c);
+}
+
+function showCalibConfirm(c) {
+  const el = document.getElementById("calibconfirm");
+  const dist = Math.abs(feet(c.offM));
+  el.innerHTML =
+    '<div class="cc-msg">Shift bays & flags <b>' + dist.toFixed(1) + ' ft</b> to your position?'
+    + '<br><small>Sprayer tracks stay put.</small></div>'
+    + '<div class="cc-row"><button id="cc-cancel">Cancel</button>'
+    + '<button id="cc-apply" class="accent">Apply</button></div>';
+  el.classList.remove("hidden");
+  document.getElementById("cc-cancel").onclick = () => el.classList.add("hidden");
+  document.getElementById("cc-apply").onclick = () => { el.classList.add("hidden"); applyCalibration(c); };
+}
+
+function applyCalibration(c) {
+  // Shift the displayed grid by the incremental delta and persist the new total.
+  translateField(activeField, c.dde, c.ddn);
+  map.getSource("field").setData(activeField);
+  const id = Date.now();
+  saveCalib(activeFieldFile, { id, de: c.de, dn: c.dn });
+  // Queue the ABSOLUTE bay_shift to the office (idempotent, last-write-wins).
+  const rec = { id, e: c.absE, n: c.absN, lat: pos.lat, lon: pos.lon,
+                crew: (window.beePublish ? beePublish.getCrew().name : ""), ts: Date.now() / 1000 };
+  sendCalibration(activeFieldFile, rec);
+  toast("Calibrated ✓  (queued for the office)");
+  try { if (navigator.vibrate) navigator.vibrate(120); } catch (e) {}
+}
+
+// Send to Firebase; if the relay is down, queue in localStorage and flush on reconnect.
+function sendCalibration(file, rec) {
+  const fieldId = file.replace(/\.geojson$/i, "");
+  let p = null;
+  try { p = window.beePublish ? beePublish.pushCalibration(fieldId, rec) : null; } catch (e) {}
+  if (!p) {
+    try {
+      const q = JSON.parse(localStorage.getItem("beeCalibQueue") || "{}") || {};
+      q[fieldId] = rec; localStorage.setItem("beeCalibQueue", JSON.stringify(q));
+    } catch (e) {}
+  }
+}
+function flushCalibQueue() {
+  let q;
+  try { q = JSON.parse(localStorage.getItem("beeCalibQueue") || "{}") || {}; } catch (e) { return; }
+  let changed = false;
+  for (const fieldId of Object.keys(q)) {
+    let p = null;
+    try { p = window.beePublish ? beePublish.pushCalibration(fieldId, q[fieldId]) : null; } catch (e) {}
+    if (p) { delete q[fieldId]; changed = true; }
+  }
+  if (changed) { try { localStorage.setItem("beeCalibQueue", JSON.stringify(q)); } catch (e) {} }
+}
+
+// Lightweight toast reusing the update banner's slot styling.
+function toast(msg) {
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.classList.remove("hidden");
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => t.classList.add("hidden"), 3200);
 }
 
 // Download the index + every field's GeoJSON into IndexedDB so the whole set is
@@ -497,6 +678,7 @@ async function loadField(url, name) {
       return;
     }
   }
+  applyLocalCalibIfPending(fc, activeFieldFile);  // re-apply an un-baked-in crew calibration
   activeField = fc;
   proxShelter = null; hideArrival();              // reset proximity for the new field
   if (window.beeTiles) beeTiles.touchField(fc);   // keep this field's tiles fresh (LRU)
@@ -1266,6 +1448,10 @@ window.addEventListener("DOMContentLoaded", () => {
   document.getElementById("btn-tilt").onclick = toggleViewTilt;
   document.getElementById("btn-recenter").onclick = recenter;
   document.getElementById("btn-layers").onclick = toggleLayersPanel;
+  document.getElementById("btn-calibrate").onclick = startCalibration;
+  flushCalibQueue();
+  window.addEventListener("online", flushCalibQueue);
+  setInterval(flushCalibQueue, 30000);
   document.getElementById("btn-zoomin").onclick = () => zoomBy(1);
   document.getElementById("btn-zoomout").onclick = () => zoomBy(-1);
   document.getElementById("btn-close-layers").onclick = () => closeSheet("layerspanel");

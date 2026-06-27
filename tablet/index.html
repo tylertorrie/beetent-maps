@@ -33,11 +33,16 @@
   <div id="worktools" class="hidden">
     <button id="btn-tilt">Top-down</button>
     <button id="btn-layers">Layers</button>
+    <button id="btn-calibrate">&#9678; Calibrate</button>
     <button id="btn-labelmode">Show trays</button>
     <button id="btn-zoomin" class="wt-zoom">+</button>
     <button id="btn-zoomout" class="wt-zoom">&minus;</button>
     <button id="btn-recenter" class="hidden">&#9678; Recenter</button>
   </div>
+
+  <!-- Calibration confirm dialog + transient toast -->
+  <div id="calibconfirm" class="hidden"></div>
+  <div id="toast" class="hidden"></div>
 
   <!-- Work-mode layers drawer: independent overlay toggles (multiple at once). -->
   <div id="layerspanel" class="hidden">

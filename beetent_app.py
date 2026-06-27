@@ -1478,6 +1478,8 @@ class BeetentApp(ctk.CTk):
         self._autosave_last = None                  # auto-save change-detection baseline
         self._loading_field = False                 # True while _form_from_field repopulates widgets
         self.after(2500, self._autosave_tick)       # quietly persist map/field edits
+        self._calib_feed = None                     # always-on crew-calibration listener
+        self.after(2000, self._calib_start)         # apply crew calibrations from the relay
 
     # ── Window icon / logo ──────────────────────────────────────────────────
     def _set_window_icon(self):
@@ -3476,6 +3478,101 @@ class BeetentApp(ctk.CTk):
                          f"({round(n / planned * 100)}%).")
         else:
             self._status(f"Live scans: {n} shelters placed.")
+
+    # ── Crew calibration ingest (tablet → Firebase → field bay_shift) ────────
+    def _calib_start(self):
+        """Always-on listener for crew calibrations pushed to the Firebase
+        `calibration` tree. Applies each new one to the matching field's bay
+        shift (independent of which field is open)."""
+        url, token = self._firebase_cfg()
+        if not url:
+            return
+        try:
+            import monitor_feed
+            feed = monitor_feed.JsonPathFeed(url, "calibration", token, interval=3.0)
+            feed.on_data = lambda d: self.after(0, self._calib_ingest, d or {})
+            self._calib_feed = feed
+            feed.start()
+        except Exception as e:
+            self._log(f"calibration feed start failed: {e}")
+
+    def _calib_fbkey_map(self):
+        """{firebase field key -> (company, year, name)} for every field on disk."""
+        try:
+            tablet_dir = Path(__file__).resolve().parent / "tablet"
+            if str(tablet_dir) not in sys.path:
+                sys.path.insert(0, str(tablet_dir))
+            import field_geojson
+        except Exception:
+            return {}
+        out = {}
+        for co in list_companies():
+            for yr in list_years(co):
+                for nm in list_fields(co, yr):
+                    fn = field_geojson.field_filename(co, yr, nm)
+                    if fn.endswith(".geojson"):
+                        fn = fn[:-8]
+                    out[self._fb_key(fn)] = (co, yr, nm)
+        return out
+
+    def _calib_ingest(self, data):
+        """data = {fieldKey: {id, de, dn, ...}}. Apply any calibration whose id we
+        haven't already baked into that field."""
+        if not isinstance(data, dict) or not data:
+            return
+        keymap = None
+        for fkey, rec in data.items():
+            if not isinstance(rec, dict):
+                continue
+            try:
+                cid = int(rec.get("id") or 0)
+                e_abs = float(rec.get("e")); n_abs = float(rec.get("n"))
+            except (ValueError, TypeError):
+                continue
+            if not cid:
+                continue
+            if keymap is None:
+                keymap = self._calib_fbkey_map()
+            loc = keymap.get(fkey)
+            if loc:
+                try:
+                    self._calib_apply(loc[0], loc[1], loc[2], cid, e_abs, n_abs)
+                except Exception as e:
+                    self._log(f"calibration apply {loc}: {e}")
+
+    def _calib_apply(self, co, yr, nm, cid, e_abs, n_abs):
+        cf = self.current_field
+        is_open = (str(cf.get("company")) == str(co) and str(cf.get("year")) == str(yr)
+                   and str(cf.get("Name")) == str(nm))
+        f = cf if is_open else load_field(co, yr, nm)
+        if not f:
+            return
+        try:
+            if int(f.get("calib_applied_id") or 0) == cid:
+                return                       # already applied
+        except (ValueError, TypeError):
+            pass
+        # The tablet sends the ABSOLUTE desired bay_shift (idempotent, last-write-wins).
+        f["bay_shift_e_m"] = e_abs
+        f["bay_shift_n_m"] = n_abs
+        f["calib_applied_id"] = cid
+        save_field(f)
+        if is_open:
+            # reflect on the live map + re-bake the tablet overlays, then push.
+            try: self._redraw_all()
+            except Exception: pass
+            try: self._export_tablet_geojson(self._field_from_form())
+            except Exception: pass
+            try:
+                self._autosave_last = json.dumps(self._field_from_form(),
+                                                 sort_keys=True, default=str)
+            except Exception: pass
+            self._status(f"Calibration applied to {nm} — bays/flags shifted.")
+        else:
+            # Field not open: the field file is updated; overlays re-bake next time
+            # it's opened. The calibrating tablet shows the shift via its local copy.
+            self._status(f"Crew calibrated {nm} — open it to republish overlays.")
+        self._git_push(f"calibration: {nm}")
 
     # ── Google Sheets mirror (Phase D) ──────────────────────────────────────
     def _sheets_url(self):
@@ -12551,9 +12648,53 @@ class BeetentApp(ctk.CTk):
         trays = self._final_shelter_trays(f, metric)
         tracks = self._field_track_circles(f)
         overlays = self._tablet_overlay_features(f)
+        calib = None
+        try:
+            calib = self._tablet_calibration_meta(f)
+        except Exception as e:
+            self._log(f"tablet calibration meta: {e}")
         field_geojson.write_field(f, shelters, boundary,
                                   shelter_trays=trays, tracks=tracks,
-                                  extra_features=overlays)
+                                  extra_features=overlays, calibration=calib)
+
+    def _tablet_calibration_meta(self, f):
+        """Data the tablet's Calibration button needs to compute the lateral offset
+        to the nearest male-bay centerline: the pivot, the lateral unit axis, and
+        the lateral coordinates (relative to pivot, metres) of every male-bay
+        centreline — already including the current bay shift. `applied_id` is the
+        last crew calibration the desktop has baked into these positions."""
+        if not f.get("use_bays", True):
+            return None
+        g = self._planter_pass_geometry()
+        if not g:
+            return None
+        layout = self._row_layout_labels.get(self.row_layout_var.get(), "centered")
+        mask = self._resolve_row_mask(g["nf"], g["nm"], layout, self.custom_mask_var.get(),
+                                      total_rows=g["total_rows"])
+        runs_fwd = maketentgrid.mask_runs(mask, 'M') if mask else []
+        runs_rev = maketentgrid.mask_runs(mask[::-1], 'M') if mask else []
+        if not runs_fwd:
+            return None
+        rs_m = g["rs_m"]; half = g["total_rows"] / 2.0; pass_w = g["pass_w"]
+        phase = 1 if f.get("pass_phase_swap") else 0
+        centers = set()
+        for i in range(-g["n_pass"], g["n_pass"] + 1):
+            xc = (i + 0.5) * pass_w + g["lat_shift"]
+            runs = runs_fwd if ((i + phase) % 2 == 0) else runs_rev
+            for (s, e) in runs:
+                centers.add(round(xc + ((s + e) / 2.0 - half) * rs_m, 3))
+        try:
+            applied_id = int(f.get("calib_applied_id") or 0)
+        except (ValueError, TypeError):
+            applied_id = 0
+        be, bn = self._bay_shift()
+        return {
+            "pivot": [g["plat"], g["plon"]],
+            "lat_axis": [g["ldx"], g["ldy"]],
+            "bay_centers_m": sorted(centers),
+            "base_shift": [be, bn],          # field's current bay_shift (east, north m)
+            "applied_id": applied_id,
+        }
 
     # ── Toggleable tablet overlays (geometry export) ────────────────────────
     # Each helper returns GeoJSON Features (with a distinguishing properties.type)

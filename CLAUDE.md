@@ -204,6 +204,29 @@ special-cases omitted), `crew_route` (`maketentgrid.crew_route` / `crew_route_ov
 Existing field files only gain overlays when re-saved (or via a one-off regen that activates
 each field and re-exports).
 
+## Field calibration (tablet → bay_shift)
+
+A crew drives partway down the most-centred male bay and taps **Calibrate**; the tablet
+shifts every bay + shelter flag laterally so the estimated grid lands on their real GPS
+position, and the correction flows back to the desktop. Only `bay_shift_e_m/n_m` changes
+(bays + flags follow it); `sprayer_shift` is untouched, so tracks/tire/edge stay put.
+- **Desktop** exports a `calibration` block in each field GeoJSON (`_tablet_calibration_meta`:
+  `pivot`, unit `lat_axis`, `bay_centers_m` (male-bay centreline lateral coords incl. current
+  shift), `base_shift`, `applied_id`). An always-on Firebase listener (`_calib_start` →
+  `JsonPathFeed("calibration")` → `_calib_ingest`/`_calib_apply`) SETS `bay_shift` to the
+  ABSOLUTE value the tablet sends (idempotent, last-write-wins), stamps `calib_applied_id`,
+  re-saves + pushes; full overlay re-bake happens for the open field (else next open).
+- **Tablet** (`app.js`): the `_UTM` port of `utmish` projects the crew point into the bay-center
+  frame; `calcCalibration` finds the nearest *displayed* bay centre → incremental delta →
+  new absolute bay_shift; `translateField` shifts only `male_bay`/`alignment`/`shelter`/
+  `planter_pass`/`planter_number`/`crew_route` features; persists `beeCalib[file]={id,de,dn}`;
+  `applyLocalCalibIfPending` re-applies it on reload until the GeoJSON's `applied_id ≥ id`,
+  then drops it (no double-shift). Queued to Firebase via `beePublish.pushCalibration`
+  (`calibration/<key>`), with a localStorage retry queue (`flushCalibQueue`). Requires a good
+  GPS fix (`goodFix`), and a confirm dialog. **NOTE:** the relay needs `tablet/firebase-config.js`
+  (gitignored → 404 on GitHub Pages), so the write-back only works where Firebase is configured;
+  the local shift works regardless.
+
 ## Financial View (cost estimator)
 
 Nav-drawer view (💰, labelled "Financial View"; internals still use the

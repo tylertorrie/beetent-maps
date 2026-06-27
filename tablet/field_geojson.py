@@ -41,7 +41,8 @@ def field_filename(company: str, year: str, name: str) -> str:
 
 
 def build_feature_collection(field: dict, shelter_latlons, boundary_latlon=None,
-                             shelter_trays=None, tracks=None, extra_features=None) -> dict:
+                             shelter_trays=None, tracks=None, extra_features=None,
+                             calibration=None) -> dict:
     """field: the current_field dict. shelter_latlons: [(lat, lon), ...] as drawn.
     boundary_latlon: [[lat, lon], ...] or None.
     shelter_trays: [int, ...] aligned 1:1 with shelter_latlons (tray count per
@@ -51,6 +52,8 @@ def build_feature_collection(field: dict, shelter_latlons, boundary_latlon=None,
     extra_features: a list of ready-made GeoJSON Feature dicts for the optional
         overlays the tablet toggles (male bays, alignment lines, sprayer passes,
         …). Each must carry a distinguishing properties.type. Appended as-is.
+    calibration: {pivot, lat_axis, bay_centers_m, applied_id} the tablet uses to
+        compute the lateral offset for the Calibration button, or None.
     Returns a GeoJSON dict."""
     features = []
 
@@ -98,7 +101,7 @@ def build_feature_collection(field: dict, shelter_latlons, boundary_latlon=None,
     except (KeyError, TypeError, ValueError):
         pass
 
-    return {
+    out = {
         "type": "FeatureCollection",
         "name": field.get("Name", ""),
         "field": {
@@ -108,11 +111,14 @@ def build_feature_collection(field: dict, shelter_latlons, boundary_latlon=None,
         },
         "features": features,
     }
+    if calibration:
+        out["calibration"] = calibration
+    return out
 
 
 def write_field(field: dict, shelter_latlons, boundary_latlon=None,
                 shelter_trays=None, tracks=None, extra_features=None,
-                fields_dir: Path = TABLET_FIELDS_DIR) -> Path:
+                calibration=None, fields_dir: Path = TABLET_FIELDS_DIR) -> Path:
     """Write one field's GeoJSON and refresh index.json. Returns the file path."""
     fields_dir.mkdir(parents=True, exist_ok=True)
     company = field.get("company", "")
@@ -121,7 +127,7 @@ def write_field(field: dict, shelter_latlons, boundary_latlon=None,
     fname = field_filename(company, year, name)
     fc = build_feature_collection(field, shelter_latlons, boundary_latlon,
                                   shelter_trays=shelter_trays, tracks=tracks,
-                                  extra_features=extra_features)
+                                  extra_features=extra_features, calibration=calibration)
     (fields_dir / fname).write_text(json.dumps(fc, indent=2), encoding="utf-8")
     _update_index(fields_dir, company, year, name, fname)
     return fields_dir / fname

@@ -1530,8 +1530,7 @@
         "type": "shelter",
         "label": "S-01",
         "visited": false,
-        "note": "",
-        "trays": 2
+        "note": ""
       },
       "geometry": {
         "type": "Point",
@@ -1547,8 +1546,7 @@
         "type": "shelter",
         "label": "S-02",
         "visited": false,
-        "note": "",
-        "trays": 2
+        "note": ""
       },
       "geometry": {
         "type": "Point",
@@ -1564,8 +1562,7 @@
         "type": "shelter",
         "label": "S-03",
         "visited": false,
-        "note": "",
-        "trays": 2
+        "note": ""
       },
       "geometry": {
         "type": "Point",
@@ -1581,8 +1578,7 @@
         "type": "shelter",
         "label": "S-04",
         "visited": false,
-        "note": "",
-        "trays": 2
+        "note": ""
       },
       "geometry": {
         "type": "Point",
@@ -1598,8 +1594,7 @@
         "type": "shelter",
         "label": "S-05",
         "visited": false,
-        "note": "",
-        "trays": 2
+        "note": ""
       },
       "geometry": {
         "type": "Point",
@@ -1615,8 +1610,7 @@
         "type": "shelter",
         "label": "S-06",
         "visited": false,
-        "note": "",
-        "trays": 2
+        "note": ""
       },
       "geometry": {
         "type": "Point",
@@ -1632,8 +1626,7 @@
         "type": "shelter",
         "label": "S-07",
         "visited": false,
-        "note": "",
-        "trays": 2
+        "note": ""
       },
       "geometry": {
         "type": "Point",
@@ -1649,8 +1642,7 @@
         "type": "shelter",
         "label": "S-08",
         "visited": false,
-        "note": "",
-        "trays": 2
+        "note": ""
       },
       "geometry": {
         "type": "Point",
@@ -1666,8 +1658,7 @@
         "type": "shelter",
         "label": "S-09",
         "visited": false,
-        "note": "",
-        "trays": 2
+        "note": ""
       },
       "geometry": {
         "type": "Point",
@@ -1683,8 +1674,7 @@
         "type": "shelter",
         "label": "S-10",
         "visited": false,
-        "note": "",
-        "trays": 2
+        "note": ""
       },
       "geometry": {
         "type": "Point",
@@ -1700,8 +1690,7 @@
         "type": "shelter",
         "label": "S-11",
         "visited": false,
-        "note": "",
-        "trays": 2
+        "note": ""
       },
       "geometry": {
         "type": "Point",
@@ -1717,8 +1706,7 @@
         "type": "shelter",
         "label": "S-12",
         "visited": false,
-        "note": "",
-        "trays": 2
+        "note": ""
       },
       "geometry": {
         "type": "Point",
@@ -1734,8 +1722,7 @@
         "type": "shelter",
         "label": "S-13",
         "visited": false,
-        "note": "",
-        "trays": 2
+        "note": ""
       },
       "geometry": {
         "type": "Point",
@@ -1751,8 +1738,7 @@
         "type": "shelter",
         "label": "S-14",
         "visited": false,
-        "note": "",
-        "trays": 2
+        "note": ""
       },
       "geometry": {
         "type": "Point",
@@ -1768,8 +1754,7 @@
         "type": "shelter",
         "label": "S-15",
         "visited": false,
-        "note": "",
-        "trays": 2
+        "note": ""
       },
       "geometry": {
         "type": "Point",
@@ -1785,8 +1770,7 @@
         "type": "shelter",
         "label": "S-16",
         "visited": false,
-        "note": "",
-        "trays": 2
+        "note": ""
       },
       "geometry": {
         "type": "Point",
@@ -1802,8 +1786,7 @@
         "type": "shelter",
         "label": "S-17",
         "visited": false,
-        "note": "",
-        "trays": 0
+        "note": ""
       },
       "geometry": {
         "type": "Point",
@@ -24569,5 +24552,152 @@
         ]
       }
     }
-  ]
+  ],
+  "calibration": {
+    "pivot": [
+      49.7827835,
+      -112.2011202
+    ],
+    "lat_axis": [
+      1.0,
+      0.0
+    ],
+    "bay_centers_m": [
+      -355.117,
+      -350.088,
+      -342.824,
+      -337.795,
+      -332.765,
+      -327.736,
+      -320.472,
+      -315.443,
+      -310.413,
+      -305.384,
+      -298.12,
+      -293.091,
+      -288.061,
+      -283.032,
+      -275.768,
+      -270.739,
+      -265.709,
+      -260.68,
+      -253.416,
+      -248.387,
+      -243.357,
+      -238.328,
+      -231.064,
+      -226.035,
+      -221.005,
+      -215.976,
+      -208.712,
+      -203.683,
+      -198.653,
+      -193.624,
+      -186.36,
+      -181.331,
+      -176.301,
+      -171.272,
+      -164.008,
+      -158.979,
+      -153.949,
+      -148.92,
+      -141.656,
+      -136.627,
+      -131.597,
+      -126.568,
+      -119.304,
+      -114.275,
+      -109.245,
+      -104.216,
+      -96.952,
+      -91.923,
+      -86.893,
+      -81.864,
+      -74.6,
+      -69.571,
+      -64.541,
+      -59.512,
+      -52.248,
+      -47.219,
+      -42.189,
+      -37.16,
+      -29.896,
+      -24.867,
+      -19.837,
+      -14.808,
+      -7.544,
+      -2.515,
+      2.515,
+      7.544,
+      14.808,
+      19.837,
+      24.867,
+      29.896,
+      37.16,
+      42.189,
+      47.219,
+      52.248,
+      59.512,
+      64.541,
+      69.571,
+      74.6,
+      81.864,
+      86.893,
+      91.923,
+      96.952,
+      104.216,
+      109.245,
+      114.275,
+      119.304,
+      126.568,
+      131.597,
+      136.627,
+      141.656,
+      148.92,
+      153.949,
+      158.979,
+      164.008,
+      171.272,
+      176.301,
+      181.331,
+      186.36,
+      193.624,
+      198.653,
+      203.683,
+      208.712,
+      215.976,
+      221.005,
+      226.035,
+      231.064,
+      238.328,
+      243.357,
+      248.387,
+      253.416,
+      260.68,
+      265.709,
+      270.739,
+      275.768,
+      283.032,
+      288.061,
+      293.091,
+      298.12,
+      305.384,
+      310.413,
+      315.443,
+      320.472,
+      327.736,
+      332.765,
+      337.795,
+      342.824,
+      350.088,
+      355.117,
+      360.147,
+      365.176
+    ],
+    "base_shift": [
+      0.0,
+      0.0
+    ],
+    "applied_id": 0
+  }
 }
