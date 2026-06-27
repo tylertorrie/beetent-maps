@@ -62,9 +62,12 @@
 
   <!-- Bottom controls -->
   <div id="controls">
-    <button id="btn-work" class="active">Work</button>
+    <!-- Prominent view switcher: single Field vs all-fields Overview -->
+    <div id="viewtoggle">
+      <button id="btn-work" class="active">Field</button>
+      <button id="btn-map">Overview</button>
+    </div>
     <button id="btn-scan" class="accent">Scan</button>
-    <button id="btn-map">Map</button>
     <button id="btn-checklist">Checklist</button>
     <button id="btn-fields">Fields</button>
     <div id="stats"><span id="sats">0</span> sats &middot; HDOP <span id="hdop">--</span></div>

@@ -1441,7 +1441,10 @@ window.addEventListener("DOMContentLoaded", () => {
   window.addEventListener("online", checkFieldUpdates);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) checkFieldUpdates(); });
 
-  document.getElementById("btn-work").onclick = () => setMode("work");
+  document.getElementById("btn-work").onclick = () => {
+    if (!activeField) { loadFieldList(); show("fieldsheet"); return; }  // nothing to work yet
+    setMode("work");
+  };
   document.getElementById("btn-map").onclick = () => setMode("map");
   document.getElementById("btn-labelmode").onclick = toggleLabelMode;
   // Work-mode guidance camera + layers controls

@@ -54,6 +54,17 @@ html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; }
 #controls button.active { background: #1faa59; }
 #stats { margin-left: auto; font-size: 12px; opacity: .85; }
 
+/* Prominent Field/Overview view switcher (a connected segmented control) */
+#viewtoggle {
+  display: inline-flex; flex: 0 0 auto; border: 2px solid #1faa59;
+  border-radius: 11px; overflow: hidden; margin-right: 4px;
+}
+#viewtoggle button {
+  background: transparent; color: #bfeccd; border: 0; border-radius: 0;
+  padding: 9px 18px; font-size: 15px; font-weight: 800; letter-spacing: .3px;
+}
+#viewtoggle button.active { background: #1faa59; color: #fff; }
+
 /* Field-update alert (toast above the control bar) + Fields-button badge */
 #updatebanner {
   position: absolute; left: 50%; transform: translateX(-50%); bottom: 64px;
