@@ -1477,6 +1477,7 @@ class BeetentApp(ctk.CTk):
         self.after(300_000, self._check_for_app_update)  # then check every 5 min
         self._autosave_last = None                  # auto-save change-detection baseline
         self._loading_field = False                 # True while _form_from_field repopulates widgets
+        self._reexporting = False                   # True during a bulk tablet re-export
         self.after(2500, self._autosave_tick)       # quietly persist map/field edits
         self._calib_feed = None                     # always-on crew-calibration listener
         self.after(2000, self._calib_start)         # apply crew calibrations from the relay
@@ -12393,6 +12394,13 @@ class BeetentApp(ctk.CTk):
     # Code files whose change signals a restart is needed.
     _CODE_FILES = {"beetent_app.py", "maketentgrid.py", "utmish.py"}
 
+    # Bump whenever the tablet-export geometry changes (crew route, alignment,
+    # pass numbers, overlays, …). On startup — right after the git pull settles —
+    # the app compares this against the version stamped in tablet/fields/index.json
+    # and, if they differ, silently re-exports EVERY field so the tablet always
+    # gets the latest geometry without the user re-opening / re-saving each field.
+    TABLET_EXPORT_VERSION = 2
+
     def _git_pull(self):
         """Pull latest changes from GitHub on startup (background thread).
         If code files changed, show the restart button."""
@@ -12422,6 +12430,11 @@ class BeetentApp(ctk.CTk):
                         self.after(0, lambda: self._status("☁ Pulled latest data"))
             except Exception:
                 pass
+            finally:
+                # Self-heal the tablet exports once the pull has settled (reads the
+                # freshest index.json). Version-gated, so it's a no-op unless the
+                # export geometry changed.
+                self.after(0, self._maybe_reexport_tablet)
         threading.Thread(target=run, daemon=True).start()
 
     def _manual_sync(self):
@@ -12569,7 +12582,8 @@ class BeetentApp(ctk.CTk):
         # the new field's values with the previous field's (the cross-field
         # pivot/LLD leak). _loading_field is set by _form_from_field;
         # _activating_field by _activate_field while a load is in flight.
-        if getattr(self, "_loading_field", False) or getattr(self, "_activating_field", False):
+        if (getattr(self, "_loading_field", False) or getattr(self, "_activating_field", False)
+                or getattr(self, "_reexporting", False)):
             return
         f = self._field_from_form()
         name = (f.get("Name") or "").strip(); co = (f.get("company") or "").strip()
@@ -12709,6 +12723,95 @@ class BeetentApp(ctk.CTk):
         field_geojson.write_field(f, shelters, boundary,
                                   shelter_trays=trays, tracks=tracks,
                                   extra_features=overlays, calibration=calib)
+
+    # ── Bulk tablet re-export (self-heal after a geometry change) ───────────────
+    def _tablet_index_path(self):
+        return Path(__file__).resolve().parent / "tablet" / "fields" / "index.json"
+
+    def _tablet_exported_version(self):
+        """The TABLET_EXPORT_VERSION stamped into the tablet field index, or None
+        if the fields were written before versioning (so they need a refresh)."""
+        try:
+            data = json.loads(self._tablet_index_path().read_text(encoding="utf-8"))
+            return data.get("export_version")
+        except Exception:
+            return None
+
+    def _stamp_tablet_export_version(self):
+        try:
+            p = self._tablet_index_path()
+            data = json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+            data["export_version"] = self.TABLET_EXPORT_VERSION
+            p.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        except Exception as e:
+            self._log(f"stamp tablet export version: {e}")
+
+    def _maybe_reexport_tablet(self):
+        """Startup self-heal: if the export geometry changed since the tablet
+        field files were last written (stamped version differs), silently
+        re-export every field so the crew app always has the latest — no manual
+        re-save needed. A no-op when already current."""
+        try:
+            if self._tablet_exported_version() == self.TABLET_EXPORT_VERSION:
+                return
+        except Exception:
+            return
+        self._reexport_all_fields()
+
+    def _reexport_all_fields(self, manual=False):
+        """Re-export EVERY field's tablet GeoJSON (after a code/geometry change).
+        Runs one field per event-loop tick so the UI stays responsive, restores
+        the field the user had open, then pushes once when done."""
+        if getattr(self, "_reexporting", False):
+            return
+        fields = [(c, y, nm) for c in list_companies()
+                  for y in list_years(c) for nm in list_fields(c, y)]
+        if not fields:
+            self._stamp_tablet_export_version()
+            return
+        self._reexporting = True
+        cur = self.current_field or {}
+        self._reexport_restore = (
+            (str(cur.get("company") or ""), str(cur.get("year") or ""), str(cur.get("Name") or ""))
+            if (cur.get("Name") or "").strip() else None)
+        self._reexport_queue = fields
+        self._reexport_total = len(fields)
+        self._reexport_done = 0
+        self._status(f"Updating tablet… 0/{self._reexport_total} fields")
+        self.after(50, self._reexport_step)
+
+    def _reexport_step(self):
+        q = getattr(self, "_reexport_queue", [])
+        if not q:
+            self._finish_reexport(); return
+        co, yr, nm = q.pop(0)
+        try:
+            f = load_field(co, yr, nm)
+            if f and (f.get("Name") or "").strip():
+                self.current_field = f
+                self._form_from_field()          # populate widgets so the export reads right
+                self._export_tablet_geojson(f)
+        except Exception as e:
+            self._log(f"tablet re-export {nm}: {e}")
+        self._reexport_done += 1
+        self._status(f"Updating tablet… {self._reexport_done}/{self._reexport_total} fields")
+        self.after(15, self._reexport_step)
+
+    def _finish_reexport(self):
+        # Restore the field the user had open (or the blank overview).
+        try:
+            if getattr(self, "_reexport_restore", None):
+                self._activate_field(*self._reexport_restore)
+            else:
+                self._deactivate_field()
+        except Exception as e:
+            self._log(f"tablet re-export restore: {e}")
+        self._autosave_last = None               # re-baseline so the restore can't trigger a save
+        self._stamp_tablet_export_version()
+        self._reexporting = False
+        n = getattr(self, "_reexport_total", 0)
+        self._status(f"Tablet updated — {n} field(s) re-exported.")
+        self._git_push("tablet: re-export all fields (geometry update)")
 
     def _tablet_calibration_meta(self, f):
         """Data the tablet's Calibration button needs to compute the lateral offset
