@@ -10409,6 +10409,55 @@ class BeetentApp(ctk.CTk):
                     if abs(det) < 1e-6:
                         return
 
+            # ── When the pins DON'T form a clean lattice ───────────────────────
+            #    Most fields' shelters sit on a regular triangular lattice and the
+            #    ideal straight mesh below lands on them. But on fields with wide
+            #    bays the snake can make the shelter columns alternate sideways
+            #    (e.g. ~45 m / ~33 m), so the pins are NOT a single lattice and a
+            #    straight mesh can't sit on them. Median distance from each pin to
+            #    its nearest lattice node tells the two apart: tiny for a regular
+            #    field (even with a few track-adjusted outliers), large when the
+            #    lattice model itself is wrong. In that case thread the mesh through
+            #    the ACTUAL shelters — each linked to its nearest lattice-direction
+            #    neighbours — so every guide line lands on real pins.
+            _alen = math.hypot(ax, ay)
+            _res = []
+            for (u, v) in P:
+                du = u - ox; dv = v - oy
+                ri = round((du * by - dv * bx) / det); rj = round((ax * dv - ay * du) / det)
+                _res.append(math.hypot(u - (ox + ri * ax + rj * bx),
+                                       v - (oy + ri * ay + rj * by)))
+            _res.sort()
+            _med = _res[len(_res) // 2] if _res else 0.0
+            if _alen > 1e-6 and _med > 0.15 * _alen:
+                vecs = [(ax, ay), (bx, by), (ax - bx, ay - by)]   # row + 2 diagonals
+                seen = set(); mesh = []
+                for (vx, vy) in vecs:
+                    vlen = math.hypot(vx, vy)
+                    if vlen < 1e-6:
+                        continue
+                    ux, uy = vx / vlen, vy / vlen      # unit along / its perpendicular
+                    tol = 0.34 * vlen
+                    for ii in range(len(P)):
+                        xi, yi = P[ii]; bestj = -1; beste = tol
+                        for jj in range(len(P)):
+                            if jj == ii:
+                                continue
+                            dx = P[jj][0] - xi; dy = P[jj][1] - yi
+                            along = dx * ux + dy * uy
+                            if along <= 0:            # only forward; reverse via dedupe
+                                continue
+                            perp = -dx * uy + dy * ux
+                            err = math.hypot(along - vlen, perp)
+                            if err < beste:
+                                beste = err; bestj = jj
+                        if bestj >= 0:
+                            key = (ii, bestj) if ii < bestj else (bestj, ii)
+                            if key not in seen:
+                                seen.add(key)
+                                mesh.append((to_ll(*P[ii]), to_ll(*P[bestj])))
+                return mesh
+
             # ── Bounding box: the field boundary (so the grid crosses
             #    boundaries) else the shelter extent, padded ~½ a lattice step.
             bp = self.current_field.get("boundary_polygon") or []
