@@ -10102,32 +10102,36 @@ class BeetentApp(ctk.CTk):
                 except Exception:
                     pass
 
-        # ── One number per pass, at its north end just outside the boundary ──
+        # ── One number per pass at BOTH ends, just outside the boundary, so a
+        #    crew entering the field from either headland can read the pass # ──
         for i in range(-n_pass, n_pass + 1):
             xc = (i + 0.5) * pass_w + lat_shift    # actual drawn pass centre
             pe, pn = xc * ldx, xc * ldy
             ivs = clip_line_to_polygon_intervals(pe, pn, tdx, tdy, poly_enu)
             if not ivs:
                 continue
-            # Label at the NORTHERNMOST point across ALL segments (a concave field
-            # near a corner can split a pass into several intervals — picking the
-            # widest one would drop the label mid-field instead of at the top).
+            # Endpoints at the NORTHERN- and SOUTHERN-most points across ALL
+            # segments (a concave field near a corner can split a pass into
+            # several intervals — picking the widest one would drop the label
+            # mid-field instead of at an end).
             ends = [t for iv in ivs for t in iv]
             t_n = max(ends, key=lambda t: pn + t * tdy)   # endpoint with greatest north
+            t_s = min(ends, key=lambda t: pn + t * tdy)   # endpoint with least north
             d = 1.0 if tdy >= 0 else -1.0                 # along-track dir of +north
-            te = t_n + d * 0.6 * pass_w                   # nudge just past the boundary
-            mlat, mlon = enu_to_latlon(pe + te * tdx, pn + te * tdy, plat, plon)
             label = self._pass_label_for_index(i, pass_w, lat_shift)
             txt = ("+%d" % label) if label > 0 else ("%d" % label)
-            try:
-                mk = self.map_widget.set_marker(
-                    mlat, mlon, text=txt, text_color="#FFB000",
-                    marker_color_circle="#FFB000", marker_color_outside="#8A5E00",
-                    font=(FONT_LABEL, 10))
-                self._patch_pass_label_marker(mk, pass_w, len(txt))
-                self.planter_number_markers.append(mk)
-            except Exception:
-                pass
+            for t_end, sgn in ((t_n, d), (t_s, -d)):
+                te = t_end + sgn * 0.6 * pass_w           # nudge just past the boundary
+                mlat, mlon = enu_to_latlon(pe + te * tdx, pn + te * tdy, plat, plon)
+                try:
+                    mk = self.map_widget.set_marker(
+                        mlat, mlon, text=txt, text_color="#FFB000",
+                        marker_color_circle="#FFB000", marker_color_outside="#8A5E00",
+                        font=(FONT_LABEL, 10))
+                    self._patch_pass_label_marker(mk, pass_w, len(txt))
+                    self.planter_number_markers.append(mk)
+                except Exception:
+                    pass
 
     # ── Uploaded sprayer passes ────────────────────────────────────────────────
     def _import_sprayer_data(self):
@@ -13020,12 +13024,16 @@ class BeetentApp(ctk.CTk):
                 continue
             ends = [t for iv in ivs for t in iv]
             t_n = max(ends, key=lambda t: pn + t * tdy)
-            te = t_n + (1.0 if tdy >= 0 else -1.0) * 0.6 * pass_w
-            mlat, mlon = enu_to_latlon(pe + te * tdx, pn + te * tdy, plat, plon)
+            t_s = min(ends, key=lambda t: pn + t * tdy)
+            d = 1.0 if tdy >= 0 else -1.0
             label = self._pass_label_for_index(i, pass_w, lat_shift)
             txt = ("+%d" % label) if label > 0 else ("%d" % label)
-            feats.append({"type": "Feature", "properties": {"type": "planter_number", "label": txt},
-                          "geometry": {"type": "Point", "coordinates": [mlon, mlat]}})
+            # A number at BOTH ends of each pass (mirrors _redraw_planter_pass_numbers).
+            for t_end, sgn in ((t_n, d), (t_s, -d)):
+                te = t_end + sgn * 0.6 * pass_w
+                mlat, mlon = enu_to_latlon(pe + te * tdx, pn + te * tdy, plat, plon)
+                feats.append({"type": "Feature", "properties": {"type": "planter_number", "label": txt},
+                              "geometry": {"type": "Point", "coordinates": [mlon, mlat]}})
         return feats
 
     def _tablet_wet_features(self, f):

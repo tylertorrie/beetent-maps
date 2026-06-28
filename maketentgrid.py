@@ -1402,44 +1402,63 @@ def crew_route(field_dict, use_metric=True, shelters=None):
                     best_d = d; best = (cx_, cy_); best_e = k
             return best, best_e
 
-        prev = None; prev_e = None       # last column's exit point + its edge
-        first_entry = None; first_e = None
-        direction = 1
+        # Each column's IN-FIELD interval(s) that actually contain shelters. A
+        # canal (or any concavity) can split a column into two separate in-field
+        # spans; we keep only the span(s) with shelters and NEVER bridge the gap
+        # between them, so a pass is clipped flush to the boundary and the crew
+        # is never routed across the boundary or the canal.
+        def _shelter_intervals(cx_val, alongs):
+            cr = _clip_col(cx_val)                  # crossings sorted by along
+            out = []
+            for k in range(0, len(cr) - 1, 2):      # consecutive pairs = inside spans
+                a_lo, e_lo = cr[k]; a_hi, e_hi = cr[k + 1]
+                if any(a_lo - 2.0 <= a <= a_hi + 2.0 for a in alongs):
+                    out.append((a_lo, e_lo, a_hi, e_hi))
+            return out
+
+        col_segs = {}        # cx -> (draw lateral, [(a_lo,e_lo,a_hi,e_hi), ...])
+        max_r = 0
         for cx in used:
             members = cols[cx]
-            alongs = [a for (_lv, a) in members]
-            s_lo, s_hi = min(alongs), max(alongs)
-            # Bracket the pass with the boundary crossings just below the lowest
-            # and just above the highest shelter, so the pass spans the WHOLE row
-            # past the shelters. If the bay centre falls outside the boundary at
-            # this column (an edge column whose gap is off the field), its clip
-            # can't reach the shelters — fall back to the shelter lateral, which
-            # is always inside, so the pass never turns around mid-row.
-            cr = _clip_col(cx)
-            below = [c for c in cr if c[0] <= s_lo + 2.0]
-            above = [c for c in cr if c[0] >= s_hi - 2.0]
-            if below and above:
-                cx_draw = cx
-                a_lo, e_lo = max(below, key=lambda c: c[0])
-                a_hi, e_hi = min(above, key=lambda c: c[0])
-            else:
+            alongs = sorted(a for (_lv, a) in members)
+            cx_draw = cx
+            segs_here = _shelter_intervals(cx, alongs)
+            if not segs_here:
+                # Bay centre is off the field at this edge column — fall back to
+                # the mean shelter lateral, which is always inside.
                 cx_draw = sum(lv for (lv, _a) in members) / len(members)
-                cr2 = _clip_col(cx_draw)
-                if len(cr2) < 2:
-                    continue
-                a_lo, e_lo = cr2[0]; a_hi, e_hi = cr2[-1]
-            if direction > 0:
-                entry, e_en, exit_, e_ex = (cx_draw, a_lo), e_lo, (cx_draw, a_hi), e_hi
-            else:
-                entry, e_en, exit_, e_ex = (cx_draw, a_hi), e_hi, (cx_draw, a_lo), e_lo
-            if prev is not None:
-                route_la.extend(_arc(prev, prev_e, entry, e_en))   # along the headland
-            if first_entry is None:
-                first_entry = entry; first_e = e_en
-            route_la.append(entry)
-            route_la.append(exit_)
-            prev, prev_e = exit_, e_ex
-            direction = -direction
+                segs_here = _shelter_intervals(cx_draw, alongs)
+            if not segs_here:
+                continue
+            col_segs[cx] = (cx_draw, segs_here)
+            max_r = max(max_r, len(segs_here))
+
+        # Snake region by region (interval index, low→high along): the crew works
+        # one side of any canal/concavity completely before the next, and every
+        # hop between passes follows the boundary headland (via _arc) — so the
+        # route never crosses the crop or the canal. Each pass is entered from the
+        # end nearest the previous exit to keep the headland hops short.
+        prev = None; prev_e = None
+        first_entry = None; first_e = None
+        ordered = [cx for cx in used if cx in col_segs]
+        for r in range(max_r):
+            cols_r = [cx for cx in ordered if r < len(col_segs[cx][1])]
+            if r % 2 == 1:
+                cols_r = cols_r[::-1]               # serpentine across regions too
+            for cx in cols_r:
+                cx_draw, segs_here = col_segs[cx]
+                a_lo, e_lo, a_hi, e_hi = segs_here[r]
+                if prev is None or abs(a_lo - prev[1]) <= abs(a_hi - prev[1]):
+                    entry, e_en, exit_, e_ex = (cx_draw, a_lo), e_lo, (cx_draw, a_hi), e_hi
+                else:
+                    entry, e_en, exit_, e_ex = (cx_draw, a_hi), e_hi, (cx_draw, a_lo), e_lo
+                if prev is not None:
+                    route_la.extend(_arc(prev, prev_e, entry, e_en))   # along the headland
+                if first_entry is None:
+                    first_entry = entry; first_e = e_en
+                route_la.append(entry)
+                route_la.append(exit_)
+                prev, prev_e = exit_, e_ex
 
         # If a parking pin is placed, the crew starts AND ends there: drive from
         # parking to the boundary, ALONG the boundary to the first pass, work the
