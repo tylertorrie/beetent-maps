@@ -97,22 +97,19 @@ function initMap() {
       filter: ["==", ["get", "type"], "boundary"],
       source: "field", paint: { "line-color": "#FFD700", "line-width": 2 } });
 
-    map.addLayer({ id: "tracks-line", type: "line",
-      filter: ["==", ["get", "type"], "pivot_track"],
-      source: "field",
-      paint: { "line-color": "#FF6600", "line-width": 1.5, "line-opacity": 0.85 } });
-
     // Phase-2 toggleable overlays (exported by the desktop into the field GeoJSON).
     // Drawn UNDER the shelters so the pins stay on top. Hidden by default; the
     // Layers drawer turns them on.
+    // Pivot tracks are drawn as the buffer/exclusion band only (track-buffer-line
+    // below) — the old single centre-line (pivot_track) is no longer rendered.
     map.addLayer({ id: "male-bays-fill", type: "fill",
       filter: ["==", ["get", "type"], "male_bay"], source: "field",
       layout: { visibility: "none" },
-      paint: { "fill-color": "#1faa59", "fill-opacity": 0.22 } });
+      paint: { "fill-color": "#1E73E8", "fill-opacity": 0.22 } });
     map.addLayer({ id: "male-bays-line", type: "line",
       filter: ["==", ["get", "type"], "male_bay"], source: "field",
       layout: { visibility: "none" },
-      paint: { "line-color": "#1faa59", "line-width": 1, "line-opacity": 0.7 } });
+      paint: { "line-color": "#1E73E8", "line-width": 1, "line-opacity": 0.7 } });
     map.addLayer({ id: "alignment-line", type: "line",
       filter: ["==", ["get", "type"], "alignment"], source: "field",
       layout: { visibility: "none" },
@@ -143,10 +140,12 @@ function initMap() {
       filter: ["==", ["get", "type"], "wet_zone"], source: "field",
       layout: { visibility: "none" },
       paint: { "line-color": "#0A3D7A", "line-width": 2 } });
+    // Pivot-track buffer/exclusion band — solid red edge circles (radius ± exclusion).
+    // This is now the ONLY pivot-track rendering (the centre-line was dropped).
     map.addLayer({ id: "track-buffer-line", type: "line",
       filter: ["==", ["get", "type"], "track_buffer"], source: "field",
       layout: { visibility: "none" },
-      paint: { "line-color": "#FF2A2A", "line-width": 1.5, "line-dasharray": [2, 2], "line-opacity": 0.85 } });
+      paint: { "line-color": "#FF2200", "line-width": 2 } });
     map.addLayer({ id: "planter-pass-line", type: "line",
       filter: ["==", ["get", "type"], "planter_pass"], source: "field",
       layout: { visibility: "none" },
@@ -777,7 +776,7 @@ function commitPoint() {
 }
 
 // ---- View switching ---------------------------------------------------------
-const FIELD_LAYERS = ["boundary-line", "tracks-line", "male-bays-fill", "male-bays-line",
+const FIELD_LAYERS = ["boundary-line", "male-bays-fill", "male-bays-line",
   "alignment-line", "sprayer-pass-line", "sprayer-limit-line",
   "tire-zone-fill", "edge-zone-fill", "wet-zone-fill", "wet-zone-line",
   "track-buffer-line", "planter-pass-line", "crew-route-line", "planter-number-label",
@@ -790,14 +789,13 @@ const MAP_LAYERS = ["allfields-fill", "allfields-line", "allfields-label"];
 // into the field GeoJSON. "scan-pins" is intentionally not toggleable — always on.
 const LAYER_TOGGLES = [
   { key: "boundary",  label: "Boundaries",      layers: ["boundary-line"], def: true },
-  { key: "tracks",    label: "Pivot tracks",    layers: ["tracks-line"], def: true },
+  { key: "track_buf", label: "Pivot Tracks",    layers: ["track-buffer-line"], def: true },
   { key: "shelters",  label: "Shelters",        layers: ["shelters", "shelter-labels"], def: true },
   { key: "male_bays", label: "Male bays",       layers: ["male-bays-fill", "male-bays-line"], def: false },
   { key: "alignment", label: "Alignment lines", layers: ["alignment-line"], def: false },
   { key: "sprayer",   label: "Sprayer passes",  layers: ["sprayer-pass-line", "sprayer-limit-line"], def: false },
   { key: "tire_edge", label: "Tire & edge zones", layers: ["tire-zone-fill", "edge-zone-fill"], def: false },
   { key: "wet",       label: "Wet zones",       layers: ["wet-zone-fill", "wet-zone-line"], def: false },
-  { key: "track_buf", label: "Track buffer",    layers: ["track-buffer-line"], def: false },
   { key: "planter",   label: "Planter passes",  layers: ["planter-pass-line", "planter-number-label"], def: false },
   { key: "crew",      label: "Crew route",      layers: ["crew-route-line"], def: false },
 ];
