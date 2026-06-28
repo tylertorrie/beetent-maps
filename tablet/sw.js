@@ -1,9 +1,16 @@
-/* Service worker — caches the app shell so the installed PWA launches with no
- * internet (only possible on https, e.g. GitHub Pages). Field data and satellite
- * tiles are handled separately by the app's IndexedDB cache (db.js / tiles.js),
- * so this SW deliberately does NOT shadow /fields/ or cross-origin tile requests.
+/* Service worker — keeps the installed PWA launchable offline (https only, e.g.
+ * GitHub Pages). Field data and satellite tiles are owned by the app's IndexedDB
+ * cache (db.js / tiles.js), so this SW deliberately does NOT shadow /fields/ or
+ * cross-origin tile requests.
+ *
+ * Strategy: NETWORK-FIRST for the app shell (with a short timeout → cache
+ * fallback). Cache-first previously meant a stale index.html / app.js could be
+ * served indefinitely; any version skew between them then froze the app. Network
+ * -first guarantees an online launch gets the latest, consistent code, while a
+ * field launch (offline) still falls back to the cached shell.
  */
-const CACHE = "beetent-shell-v7";   // bump to push shell changes (Phase B scan sync)
+const CACHE = "beetent-shell-v8";   // bump to force a fresh atomic re-cache
+const NET_TIMEOUT = 3500;           // ms before a slow network falls back to cache
 const ASSETS = [
   "./", "index.html", "app.js", "db.js", "tiles.js", "publish.js", "style.css",
   "manifest.webmanifest",
@@ -31,17 +38,35 @@ self.addEventListener("activate", (e) => {
   );
 });
 
+function networkFirst(request) {
+  const cacheFallback = () => caches.match(request).then((hit) =>
+    hit || (request.mode === "navigate" ? caches.match("index.html") : undefined));
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (r) => { if (!settled && r) { settled = true; resolve(r); } };
+    // cap the network wait so a flaky signal can't hang the launch
+    const t = setTimeout(() => cacheFallback().then(done), NET_TIMEOUT);
+    fetch(request).then((resp) => {
+      clearTimeout(t);
+      if (resp && resp.ok) {
+        const copy = resp.clone();
+        caches.open(CACHE).then((c) => c.put(request, copy)).catch(() => {});
+        done(resp);
+      } else {
+        cacheFallback().then((c) => { if (c) done(c); else { settled = true; resolve(resp); } });
+      }
+    }).catch(() => {
+      clearTimeout(t);
+      cacheFallback().then((c) => { if (c) done(c); else { settled = true; resolve(Response.error()); } });
+    });
+  });
+}
+
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
   // Passthrough: non-GET, cross-origin (Esri tiles, Firebase, gstatic), and the
   // field files (the app's IndexedDB cache owns offline for those).
   if (e.request.method !== "GET" || url.origin !== location.origin) return;
   if (url.pathname.includes("/fields/")) return;
-  e.respondWith(
-    caches.match(e.request).then((hit) => {
-      if (hit) return hit;
-      if (e.request.mode === "navigate") return caches.match("index.html").then((i) => i || fetch(e.request));
-      return fetch(e.request);
-    })
-  );
+  e.respondWith(networkFirst(e.request));
 });

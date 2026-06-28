@@ -1431,69 +1431,77 @@ window.addEventListener("DOMContentLoaded", () => {
   window.addEventListener("online", updateNet);
   window.addEventListener("offline", updateNet);
 
+  // Defensive wiring: a missing element (e.g. a stale cached index.html) must
+  // never throw and halt the rest of the wiring — that's what froze the app.
+  const bind = (id, ev, fn) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener(ev, fn); else console.warn("missing #" + id);
+  };
+
   // Field-update alert: baseline now, then poll while online + on focus/reconnect.
-  document.getElementById("updatebanner").onclick = (e) => {
+  bind("updatebanner", "click", (e) => {
     if (e.target.classList.contains("ub-x")) dismissUpdateBanner();
     else applyFieldUpdates();
-  };
+  });
   checkFieldUpdates();
   setInterval(checkFieldUpdates, 45000);
   window.addEventListener("online", checkFieldUpdates);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) checkFieldUpdates(); });
 
-  document.getElementById("btn-work").onclick = () => {
+  bind("btn-work", "click", () => {
     if (!activeField) { loadFieldList(); show("fieldsheet"); return; }  // nothing to work yet
     setMode("work");
-  };
-  document.getElementById("btn-map").onclick = () => setMode("map");
-  document.getElementById("btn-labelmode").onclick = toggleLabelMode;
+  });
+  bind("btn-map", "click", () => setMode("map"));
+  bind("btn-labelmode", "click", toggleLabelMode);
   // Work-mode guidance camera + layers controls
-  document.getElementById("btn-tilt").onclick = toggleViewTilt;
-  document.getElementById("btn-recenter").onclick = recenter;
-  document.getElementById("btn-layers").onclick = toggleLayersPanel;
-  document.getElementById("btn-calibrate").onclick = startCalibration;
+  bind("btn-tilt", "click", toggleViewTilt);
+  bind("btn-recenter", "click", recenter);
+  bind("btn-layers", "click", toggleLayersPanel);
+  bind("btn-calibrate", "click", startCalibration);
   flushCalibQueue();
   window.addEventListener("online", flushCalibQueue);
   setInterval(flushCalibQueue, 30000);
-  document.getElementById("btn-zoomin").onclick = () => zoomBy(1);
-  document.getElementById("btn-zoomout").onclick = () => zoomBy(-1);
-  document.getElementById("btn-close-layers").onclick = () => closeSheet("layerspanel");
-  document.getElementById("btn-fields").onclick = () => { loadFieldList(); show("fieldsheet"); };
-  document.getElementById("btn-close-fields").onclick = () => closeSheet("fieldsheet");
-  document.getElementById("btn-checklist").onclick = openChecklist;
-  document.getElementById("btn-close-checklist").onclick = () => closeSheet("checklistsheet");
+  bind("btn-zoomin", "click", () => zoomBy(1));
+  bind("btn-zoomout", "click", () => zoomBy(-1));
+  bind("btn-close-layers", "click", () => closeSheet("layerspanel"));
+  bind("btn-fields", "click", () => { loadFieldList(); show("fieldsheet"); });
+  bind("btn-close-fields", "click", () => closeSheet("fieldsheet"));
+  bind("btn-checklist", "click", openChecklist);
+  bind("btn-close-checklist", "click", () => closeSheet("checklistsheet"));
 
   // Scan drawer + camera
-  document.getElementById("btn-scan").onclick = openScan;
-  document.getElementById("btn-close-scan").onclick = () => closeSheet("scansheet");
-  document.getElementById("scan-mode-shelter").onclick = () => setScanMode("shelter");
-  document.getElementById("scan-mode-tray").onclick = () => { trayShelterQr = null; setScanMode("tray"); };
-  document.getElementById("btn-scan-clearshelter").onclick = () => {
+  bind("btn-scan", "click", openScan);
+  bind("btn-close-scan", "click", () => closeSheet("scansheet"));
+  bind("scan-mode-shelter", "click", () => setScanMode("shelter"));
+  bind("scan-mode-tray", "click", () => { trayShelterQr = null; setScanMode("tray"); });
+  bind("btn-scan-clearshelter", "click", () => {
     trayShelterQr = null;
     document.getElementById("btn-scan-clearshelter").classList.add("hidden");
     updateTrayContext();
     setScanStatus("Scan a shelter QR to attach trays to it.", "");
     focusScanInput();
-  };
-  document.getElementById("btn-scan-camera").onclick = openCamera;
-  document.getElementById("btn-cam-close").onclick = closeCamera;
+  });
+  bind("btn-scan-camera", "click", openCamera);
+  bind("btn-cam-close", "click", closeCamera);
   const si = document.getElementById("scan-input");
-  si.addEventListener("keydown", (e) => {
+  if (si) si.addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); const v = si.value; si.value = ""; handleScan(v); }
   });
   // Drain the offline scan queue to Firebase on reconnect + periodically.
   window.addEventListener("online", () => setTimeout(flushScans, 1500));
   setInterval(flushScans, 20000);
-  document.getElementById("btn-sync").onclick = () => syncAll();
-  document.getElementById("btn-close-point").onclick = () => { commitPoint(); closeSheet("pointsheet"); };
-  document.getElementById("pt-visited").onchange = commitPoint;
+  bind("btn-sync", "click", () => syncAll());
+  bind("btn-close-point", "click", () => { commitPoint(); closeSheet("pointsheet"); });
+  const ptv = document.getElementById("pt-visited");
+  if (ptv) ptv.onchange = commitPoint;
 
   // Crew identity (shown on the office Monitor view).
   const cn = document.getElementById("crewname");
-  if (window.beePublish) cn.textContent = window.beePublish.getCrew().name;
-  document.getElementById("btn-crew").onclick = () => {
+  if (cn && window.beePublish) cn.textContent = window.beePublish.getCrew().name;
+  bind("btn-crew", "click", () => {
     const name = prompt("Crew name (shown on the office map):",
                         window.beePublish ? window.beePublish.getCrew().name : "");
-    if (name && window.beePublish) { window.beePublish.setCrew(name); cn.textContent = name; }
-  };
+    if (name && window.beePublish) { window.beePublish.setCrew(name); if (cn) cn.textContent = name; }
+  });
 });
