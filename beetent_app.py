@@ -8773,6 +8773,8 @@ class BeetentApp(ctk.CTk):
         nearest the shelters — and stash the total km for the status readout and
         the Cost Estimator. Uses the cached planned shelters (off-thread). A saved
         manual override (crew_route_override) is drawn as-is."""
+        if getattr(self, "_reexporting", False):
+            return                          # bulk export: never draw mid-run
         self._clear_crews()
         if not self.show_crews.get():
             return
@@ -10266,6 +10268,8 @@ class BeetentApp(ctk.CTk):
     def _redraw_shelter_lines(self):
         """Draw the IDEAL alignment grid (see _shelter_line_segments). Thin
         wrapper: honour the toggle, then draw the shared computed segments."""
+        if getattr(self, "_reexporting", False):
+            return                          # bulk export: never draw mid-run
         self._clear_shelter_lines()
         if not self.show_shelter_lines.get():
             return
@@ -10969,6 +10973,12 @@ class BeetentApp(ctk.CTk):
         keeps the UI responsive on big fields; the per-state cache means toggling
         shelters / alignment lines (or re-toggling) never recomputes. When the
         compute finishes, the visible overlays are redrawn (cache now hits)."""
+        if getattr(self, "_reexporting", False):
+            # During a bulk re-export the get_tent_positions memo is already warm
+            # for this field (warmed off-thread before the export), so compute
+            # synchronously — an instant memo hit — rather than spawning a
+            # background thread per field.
+            return maketentgrid.get_tent_positions(f, use_metric=use_m, return_rows=True)
         try:
             key = self._tent_cache_key(f, use_m)
         except Exception:
@@ -11005,6 +11015,8 @@ class BeetentApp(ctk.CTk):
             self._redraw_crews()
 
     def _redraw_shelters(self):
+        if getattr(self, "_reexporting", False):
+            return                          # bulk export: never draw mid-run
         if not self.show_shelters.get():
             self._clear_shelters(); return
         # Actual (uploaded/scanned) placement view — an independent point set.
@@ -12698,10 +12710,14 @@ class BeetentApp(ctk.CTk):
                     out.append((c,y,name))
         return out
 
-    def _export_tablet_geojson(self, f):
+    def _export_tablet_geojson(self, f, trays_override=None):
         """Write this field's GeoJSON for the field-tablet PWA (tablet/fields/),
         using the same shelter positions drawn on the map. Best-effort — any
-        failure is caught by the caller and never blocks a save."""
+        failure is caught by the caller and never blocks a save.
+
+        trays_override (the bulk re-export passes this) supplies per-shelter tray
+        counts directly, so it doesn't need the live form's shelter_tray_counts
+        (which only reflects the OPEN field)."""
         if not (f.get("Name") or "").strip():
             return                       # never export the blank/startup field
         import sys
@@ -12711,8 +12727,8 @@ class BeetentApp(ctk.CTk):
         import field_geojson
         metric = self.unit_var.get() == "Metric"
         shelters = self._final_shelter_positions(f, metric)
+        trays = trays_override if trays_override is not None else self._final_shelter_trays(f, metric)
         boundary = f.get("boundary_polygon") or None
-        trays = self._final_shelter_trays(f, metric)
         tracks = self._field_track_circles(f)
         overlays = self._tablet_overlay_features(f)
         calib = None
@@ -12758,10 +12774,44 @@ class BeetentApp(ctk.CTk):
             return
         self._reexport_all_fields()
 
+    def _existing_tablet_trays(self, company, year, name):
+        """Per-shelter tray counts from the field's CURRENT tablet GeoJSON (in
+        shelter order). A geometry-only re-export (crew route / alignment / pass
+        numbers) doesn't move shelters, so their trays can be preserved as-is —
+        no need to recompute from the live form (which only reflects the OPEN
+        field). None if unavailable or incomplete."""
+        try:
+            idx = json.loads(self._tablet_index_path().read_text(encoding="utf-8"))
+        except Exception:
+            return None
+        fname = None
+        for e in idx.get("fields", []):
+            if (str(e.get("company")) == str(company) and str(e.get("year")) == str(year)
+                    and str(e.get("name")) == str(name)):
+                fname = e.get("file"); break
+        if not fname:
+            return None
+        try:
+            data = json.loads((self._tablet_index_path().parent / fname).read_text(encoding="utf-8"))
+        except Exception:
+            return None
+        out = [(feat.get("properties") or {}).get("trays") for feat in data.get("features", [])
+               if (feat.get("properties") or {}).get("type") == "shelter"]
+        if out and all(t is not None for t in out):
+            try:
+                return [int(t) for t in out]
+            except (TypeError, ValueError):
+                return None
+        return None
+
     def _reexport_all_fields(self, manual=False):
         """Re-export EVERY field's tablet GeoJSON (after a code/geometry change).
-        Runs one field per event-loop tick so the UI stays responsive, restores
-        the field the user had open, then pushes once when done."""
+
+        The heavy geometry (get_tent_positions, ~seconds on big fields) runs in a
+        worker thread that warms the engine's memo; the actual export then runs on
+        the main thread where every geometry call is an instant memo hit. That's
+        what keeps the UI responsive instead of freezing on a back-to-back run of
+        all fields. Restores the field the user had open and pushes when done."""
         if getattr(self, "_reexporting", False):
             return
         fields = [(c, y, nm) for c in list_companies()
@@ -12777,27 +12827,47 @@ class BeetentApp(ctk.CTk):
         self._reexport_queue = fields
         self._reexport_total = len(fields)
         self._reexport_done = 0
+        self._reexport_metric = self.unit_var.get() == "Metric"
         self._status(f"Updating tablet… 0/{self._reexport_total} fields")
-        self.after(50, self._reexport_step)
+        self.after(50, self._reexport_warm)
 
-    def _reexport_step(self):
+    def _reexport_warm(self):
+        """Compute the next field's heavy geometry OFF the UI thread (warming the
+        memo), then hand off to _reexport_export on the main thread."""
         q = getattr(self, "_reexport_queue", [])
         if not q:
             self._finish_reexport(); return
-        co, yr, nm = q.pop(0)
+        co, yr, nm = q[0]
+        f = load_field(co, yr, nm)
+        if not f or not (f.get("Name") or "").strip():
+            q.pop(0); self.after(5, self._reexport_warm); return
+        metric = self._reexport_metric
+        def _work():
+            try:
+                maketentgrid.get_tent_positions(f, use_metric=metric, return_rows=True)
+            except Exception:
+                pass
+            self.after(0, lambda: self._reexport_export(co, yr, nm, f))
+        threading.Thread(target=_work, daemon=True).start()
+
+    def _reexport_export(self, co, yr, nm, f):
+        """Export one field on the main thread (memo is warm → no UI block)."""
         try:
-            f = load_field(co, yr, nm)
-            if f and (f.get("Name") or "").strip():
-                self.current_field = f
-                self._form_from_field()          # populate widgets so the export reads right
-                self._export_tablet_geojson(f)
+            self.current_field = f
+            self._form_from_field()              # populate the form so the export reads right
+            trays = self._existing_tablet_trays(co, yr, nm)   # preserve trays (shelters unchanged)
+            self._export_tablet_geojson(f, trays_override=trays if trays is not None else [])
         except Exception as e:
             self._log(f"tablet re-export {nm}: {e}")
+        q = getattr(self, "_reexport_queue", [])
+        if q:
+            q.pop(0)
         self._reexport_done += 1
         self._status(f"Updating tablet… {self._reexport_done}/{self._reexport_total} fields")
-        self.after(15, self._reexport_step)
+        self.after(20, self._reexport_warm)
 
     def _finish_reexport(self):
+        self._reexporting = False                # clear FIRST so the restore redraws normally
         # Restore the field the user had open (or the blank overview).
         try:
             if getattr(self, "_reexport_restore", None):
@@ -12808,7 +12878,6 @@ class BeetentApp(ctk.CTk):
             self._log(f"tablet re-export restore: {e}")
         self._autosave_last = None               # re-baseline so the restore can't trigger a save
         self._stamp_tablet_export_version()
-        self._reexporting = False
         n = getattr(self, "_reexport_total", 0)
         self._status(f"Tablet updated — {n} field(s) re-exported.")
         self._git_push("tablet: re-export all fields (geometry update)")

@@ -1624,7 +1624,48 @@ def _shelter_row_centerlines(passes, layout, mask, row_spacing_m=None,
     return centerlines
 
 
+import threading as _threading
+
+_TENT_MEMO = {}
+_TENT_MEMO_ORDER = []
+_TENT_MEMO_MAX = 16
+_TENT_LOCK = _threading.Lock()
+
+
 def get_tent_positions(field_dict, use_metric=True, return_rows=False):
+    """Memoising wrapper around _get_tent_positions_impl.
+
+    get_tent_positions is the geometry hot spot — a single tablet export or map
+    redraw calls it several times for the SAME field state (shelters, trays,
+    alignment, crew route…). Memoising on the serialised field dict collapses
+    those to one compute, which is what keeps the bulk tablet re-export (15+
+    fields back-to-back) responsive instead of freezing. Returns COPIES so a
+    caller mutating the result can't corrupt the cache; it's a pure function of
+    its inputs, so the cache is always valid. Thread-safe: the bulk export warms
+    the memo from a worker thread, then reads it on the main thread."""
+    try:
+        key = (json.dumps(field_dict, sort_keys=True, default=str), bool(use_metric))
+    except Exception:
+        return _get_tent_positions_impl(field_dict, use_metric, return_rows)
+    with _TENT_LOCK:
+        hit = _TENT_MEMO.get(key)
+    if hit is None:
+        # Compute the FULL result once (positions + rows); the return_rows=False
+        # callers get the same positions, so both shapes share one compute.
+        pos, rows = _get_tent_positions_impl(field_dict, use_metric, return_rows=True)
+        hit = (pos, rows)
+        with _TENT_LOCK:
+            _TENT_MEMO[key] = hit
+            _TENT_MEMO_ORDER.append(key)
+            if len(_TENT_MEMO_ORDER) > _TENT_MEMO_MAX:
+                _TENT_MEMO.pop(_TENT_MEMO_ORDER.pop(0), None)
+    pos, rows = hit
+    if return_rows:
+        return list(pos), list(rows)
+    return list(pos)
+
+
+def _get_tent_positions_impl(field_dict, use_metric=True, return_rows=False):
     """
     Compute shelter positions from a field dict, return [(lat, lon), ...] in NW-snake
     numbering order. Returns [] on any error or missing data.
