@@ -19216,6 +19216,20 @@
       "type": "Feature",
       "properties": {
         "type": "planter_number",
+        "label": "+24"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.96639912524098,
+          50.668284866956725
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
         "label": "+23"
       },
       "geometry": {
@@ -19223,6 +19237,20 @@
         "coordinates": [
           -111.966209756111,
           50.67276498556393
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
+        "label": "+23"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.96620933466308,
+          50.66811909808541
         ]
       }
     },
@@ -19244,6 +19272,20 @@
       "type": "Feature",
       "properties": {
         "type": "planter_number",
+        "label": "+22"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.96601954833845,
+          50.667986981337094
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
         "label": "+21"
       },
       "geometry": {
@@ -19251,6 +19293,20 @@
         "coordinates": [
           -111.96583019669612,
           50.67310123384929
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
+        "label": "+21"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.96582976391042,
+          50.66786492429398
         ]
       }
     },
@@ -19272,6 +19328,20 @@
       "type": "Feature",
       "properties": {
         "type": "planter_number",
+        "label": "+20"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.96563998075266,
+          50.66774650742609
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
         "label": "+19"
       },
       "geometry": {
@@ -19279,6 +19349,20 @@
         "coordinates": [
           -111.96545062897427,
           50.673398821982985
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
+        "label": "+19"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.96545019868621,
+          50.6676299212862
         ]
       }
     },
@@ -19300,6 +19384,20 @@
       "type": "Feature",
       "properties": {
         "type": "planter_number",
+        "label": "+18"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.96526041819533,
+          50.66752234455738
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
         "label": "+17"
       },
       "geometry": {
@@ -19307,6 +19405,20 @@
         "coordinates": [
           -111.96507105358192,
           50.67365326197738
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
+        "label": "+17"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.9650706386962,
+          50.66741663840259
         ]
       }
     },
@@ -19328,6 +19440,20 @@
       "type": "Feature",
       "properties": {
         "type": "planter_number",
+        "label": "+16"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.96488086025224,
+          50.66731417943501
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
         "label": "+15"
       },
       "geometry": {
@@ -19335,6 +19461,20 @@
         "coordinates": [
           -111.96469147047378,
           50.673845928938654
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
+        "label": "+15"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.96469108282653,
+          50.66721500867762
         ]
       }
     },
@@ -19356,6 +19496,20 @@
       "type": "Feature",
       "properties": {
         "type": "planter_number",
+        "label": "+14"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.9645013085368,
+          50.66715877243644
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
         "label": "+13"
       },
       "geometry": {
@@ -19363,6 +19517,20 @@
         "coordinates": [
           -111.9643118814377,
           50.67398264440382
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
+        "label": "+13"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.96431153470044,
+          50.667102535885725
         ]
       }
     },
@@ -19384,6 +19552,20 @@
       "type": "Feature",
       "properties": {
         "type": "planter_number",
+        "label": "+12"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.96412176314048,
+          50.66708562533966
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
         "label": "+11"
       },
       "geometry": {
@@ -19391,6 +19573,20 @@
         "coordinates": [
           -111.96393228572256,
           50.67401369962741
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
+        "label": "+11"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.96393199191836,
+          50.66707347566306
         ]
       }
     },
@@ -19412,6 +19608,20 @@
       "type": "Feature",
       "properties": {
         "type": "planter_number",
+        "label": "+10"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.96374222083769,
+          50.66706246171678
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
         "label": "+9"
       },
       "geometry": {
@@ -19419,6 +19629,20 @@
         "coordinates": [
           -111.96355268844215,
           50.67401370236569
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
+        "label": "+9"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.96355245022319,
+          50.66706246201375
         ]
       }
     },
@@ -19440,6 +19664,20 @@
       "type": "Feature",
       "properties": {
         "type": "planter_number",
+        "label": "+8"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.9633626796087,
+          50.667062462001766
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
         "label": "+7"
       },
       "geometry": {
@@ -19447,6 +19685,20 @@
         "coordinates": [
           -111.96317309116168,
           50.674013703867764
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
+        "label": "+7"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.96317290899418,
+          50.6670624616808
         ]
       }
     },
@@ -19468,6 +19720,20 @@
       "type": "Feature",
       "properties": {
         "type": "planter_number",
+        "label": "+6"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.96298313850639,
+          50.66706817611245
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
         "label": "+5"
       },
       "geometry": {
@@ -19475,6 +19741,20 @@
         "coordinates": [
           -111.96279349388115,
           50.6740137041336
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
+        "label": "+5"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.96279336797419,
+          50.66707398297607
         ]
       }
     },
@@ -19496,6 +19776,20 @@
       "type": "Feature",
       "properties": {
         "type": "planter_number",
+        "label": "+4"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.96260359739517,
+          50.667079789530696
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
         "label": "+3"
       },
       "geometry": {
@@ -19503,6 +19797,20 @@
         "coordinates": [
           -111.96241389660064,
           50.67401370316324
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
+        "label": "+3"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.96241382676935,
+          50.66708559577635
         ]
       }
     },
@@ -19524,6 +19832,20 @@
       "type": "Feature",
       "properties": {
         "type": "planter_number",
+        "label": "+2"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.96222405605484,
+          50.66708447372372
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
         "label": "+1"
       },
       "geometry": {
@@ -19531,6 +19853,20 @@
         "coordinates": [
           -111.96203429932012,
           50.674013700956685
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
+        "label": "+1"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.96203428534754,
+          50.66708245279772
         ]
       }
     },
@@ -19552,6 +19888,20 @@
       "type": "Feature",
       "properties": {
         "type": "planter_number",
+        "label": "-1"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.96184451465655,
+          50.66708043156272
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
         "label": "-2"
       },
       "geometry": {
@@ -19559,6 +19909,20 @@
         "coordinates": [
           -111.96165470205429,
           50.67401127988631
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
+        "label": "-2"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.96165474398184,
+          50.66707841001877
         ]
       }
     },
@@ -19580,6 +19944,20 @@
       "type": "Feature",
       "properties": {
         "type": "planter_number",
+        "label": "-3"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.96146497332344,
+          50.667076388165825
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
         "label": "-4"
       },
       "geometry": {
@@ -19587,6 +19965,20 @@
         "coordinates": [
           -111.96127510714697,
           50.67384451942564
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
+        "label": "-4"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.96127520268135,
+          50.66707436600389
         ]
       }
     },
@@ -19608,6 +20000,20 @@
       "type": "Feature",
       "properties": {
         "type": "planter_number",
+        "label": "-5"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.96108543201443,
+          50.66707461143994
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
         "label": "-6"
       },
       "geometry": {
@@ -19615,6 +20021,20 @@
         "coordinates": [
           -111.96089551696146,
           50.6735861401633
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
+        "label": "-6"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.96089566107644,
+          50.66708699346803
         ]
       }
     },
@@ -19636,6 +20056,20 @@
       "type": "Feature",
       "properties": {
         "type": "planter_number",
+        "label": "-7"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.96070589010051,
+          50.66709701399266
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
         "label": "-8"
       },
       "geometry": {
@@ -19643,6 +20077,20 @@
         "coordinates": [
           -111.96051593151968,
           50.67330870861524
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
+        "label": "-8"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.96051611927588,
+          50.6670993575847
         ]
       }
     },
@@ -19664,6 +20112,20 @@
       "type": "Feature",
       "properties": {
         "type": "planter_number",
+        "label": "-9"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.96032634843236,
+          50.667101700867754
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
         "label": "-10"
       },
       "geometry": {
@@ -19671,6 +20133,20 @@
         "coordinates": [
           -111.96013633913772,
           50.67332925746689
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
+        "label": "-10"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.96013657756997,
+          50.66710404384185
         ]
       }
     },
@@ -19692,6 +20168,20 @@
       "type": "Feature",
       "properties": {
         "type": "planter_number",
+        "label": "-11"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.95994680668869,
+          50.667106386506944
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
         "label": "-12"
       },
       "geometry": {
@@ -19699,6 +20189,20 @@
         "coordinates": [
           -111.9597567459366,
           50.67336032323184
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
+        "label": "-12"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.95975703455649,
+          50.66713530678375
         ]
       }
     },
@@ -19720,6 +20224,20 @@
       "type": "Feature",
       "properties": {
         "type": "planter_number",
+        "label": "-13"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.95956726201194,
+          50.66716778306224
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
         "label": "-14"
       },
       "geometry": {
@@ -19727,6 +20245,20 @@
         "coordinates": [
           -111.95937715266794,
           50.67338342474645
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
+        "label": "-14"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.95937748903035,
+          50.66720347905561
         ]
       }
     },
@@ -19748,6 +20280,20 @@
       "type": "Feature",
       "properties": {
         "type": "planter_number",
+        "label": "-15"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.95918771254127,
+          50.667294260074286
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
         "label": "-16"
       },
       "geometry": {
@@ -19755,6 +20301,20 @@
         "coordinates": [
           -111.95899756558337,
           50.67330162239846
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
+        "label": "-16"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.9589979349911,
+          50.66739030932848
         ]
       }
     },
@@ -19776,6 +20336,20 @@
       "type": "Feature",
       "properties": {
         "type": "planter_number",
+        "label": "-17"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.95880815638796,
+          50.66749054719765
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
         "label": "-18"
       },
       "geometry": {
@@ -19783,6 +20357,20 @@
         "coordinates": [
           -111.95861798151205,
           50.67319581637998
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
+        "label": "-18"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.95861837408424,
+          50.667631786221975
         ]
       }
     },
@@ -19804,6 +20392,20 @@
       "type": "Feature",
       "properties": {
         "type": "planter_number",
+        "label": "-19"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.95842858857118,
+          50.66780078972834
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
         "label": "-20"
       },
       "geometry": {
@@ -19811,6 +20413,20 @@
         "coordinates": [
           -111.95823840231967,
           50.67304966458759
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
+        "label": "-20"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.95823880020404,
+          50.667988765774055
         ]
       }
     },
@@ -19832,6 +20448,20 @@
       "type": "Feature",
       "properties": {
         "type": "planter_number",
+        "label": "-21"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.95804900848046,
+          50.66819901612755
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
         "label": "-22"
       },
       "geometry": {
@@ -19839,6 +20469,20 @@
         "coordinates": [
           -111.95785882983336,
           50.672853349767834
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
+        "label": "-22"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.95785920118418,
+          50.668569378410616
         ]
       }
     },
@@ -19860,6 +20504,20 @@
       "type": "Feature",
       "properties": {
         "type": "planter_number",
+        "label": "-23"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.95766936556052,
+          50.66921910788714
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
         "label": "-24"
       },
       "geometry": {
@@ -19867,6 +20525,20 @@
         "coordinates": [
           -111.9574792650199,
           50.67260947490239
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
+        "label": "-24"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.95747951574789,
+          50.66996328283218
         ]
       }
     },
@@ -19888,6 +20560,20 @@
       "type": "Feature",
       "properties": {
         "type": "planter_number",
+        "label": "-25"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.95728967293877,
+          50.670575779797055
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
         "label": "-26"
       },
       "geometry": {
@@ -19902,6 +20588,20 @@
       "type": "Feature",
       "properties": {
         "type": "planter_number",
+        "label": "-26"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.95709982815045,
+          50.67115946933645
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
         "label": "-27"
       },
       "geometry": {
@@ -19909,6 +20609,20 @@
         "coordinates": [
           -111.9569099446954,
           50.67206096823114
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "planter_number",
+        "label": "-27"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.95690997853852,
+          50.671744233500654
         ]
       }
     },
