@@ -659,6 +659,30 @@ async function syncAll() {
   note.textContent = `Synced ${ok}/${items.length} field(s); ${tiles} map tiles cached`
     + (evicted ? ` (evicted ${evicted} old)` : "") + ".";
   loadFieldList();
+  // Apply the freshly-synced data NOW so a manual Sync shows the office's latest
+  // immediately: refresh the all-fields overview and swap the new geometry into
+  // the open field (camera + placement progress preserved). Clears any pending
+  // "field updated" alert since we just pulled everything.
+  try { if (mode === "map") await showAllFields(); } catch (e) {}
+  try { if (activeFieldFile) await reloadActiveField(); } catch (e) {}
+  try { dismissUpdateBanner(); } catch (e) {}
+}
+
+// Manual "Sync now" from the always-visible top-bar button. Pulls the latest
+// field data + tiles and applies them, with toast feedback (the Fields-drawer
+// note isn't visible when triggered from the top bar).
+async function manualSyncNow() {
+  if (!navigator.onLine) { toast("Offline — connect to Wi-Fi to sync."); return; }
+  const btn = document.getElementById("btn-topsync");
+  if (btn) btn.classList.add("syncing");
+  toast("Syncing latest field data…");
+  try {
+    await syncAll();
+    toast("Synced ✓  latest field data loaded.");
+  } catch (e) {
+    toast("Sync failed — try again.");
+  }
+  if (btn) btn.classList.remove("syncing");
 }
 
 async function loadField(url, name) {
@@ -1490,6 +1514,7 @@ window.addEventListener("DOMContentLoaded", () => {
   window.addEventListener("online", () => setTimeout(flushScans, 1500));
   setInterval(flushScans, 20000);
   bind("btn-sync", "click", () => syncAll());
+  bind("btn-topsync", "click", manualSyncNow);
   bind("btn-close-point", "click", () => { commitPoint(); closeSheet("pointsheet"); });
   const ptv = document.getElementById("pt-visited");
   if (ptv) ptv.onchange = commitPoint;

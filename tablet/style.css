@@ -7,7 +7,16 @@ html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; }
   display: flex; align-items: center; justify-content: space-between;
   padding: 0 12px; background: rgba(17,17,17,.82); color: #fff; z-index: 5;
 }
-#fieldname { font-weight: 600; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#fieldname { flex: 1; min-width: 0; font-weight: 600; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Always-visible manual "Sync now" button (top bar) — pulls + applies the
+   office's latest field data on demand. */
+#btn-topsync {
+  flex: 0 0 auto; margin-left: 8px; background: rgba(255,255,255,.14); color: #fff;
+  border: 0; border-radius: 7px; font-size: 17px; line-height: 1; padding: 5px 10px;
+}
+#btn-topsync.syncing { animation: spin 0.9s linear infinite; }
+@keyframes spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
 #fixbadge { font-weight: 700; font-size: 13px; padding: 4px 10px; border-radius: 6px; }
 .fix-rtk   { background: #1faa59; color: #fff; }   /* 4 = RTK fixed */
 .fix-float { background: #d8a200; color: #111; }   /* 5 = RTK float */

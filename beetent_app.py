@@ -12492,6 +12492,10 @@ class BeetentApp(ctk.CTk):
             else:
                 self.after(0, lambda: self._status("☁ Refreshed."))
             self.after(0, lambda: self._sync_btn.configure(text="☁ Refresh", state="normal"))
+            # Force a tablet re-export so the field tablet gets the latest geometry
+            # on demand — no app restart needed. (Off-thread / memoised, so it won't
+            # freeze.) Deferred so the field reactivation above settles first.
+            self.after(600, self._reexport_all_fields)
         threading.Thread(target=run, daemon=True).start()
 
     def _check_for_app_update(self):
