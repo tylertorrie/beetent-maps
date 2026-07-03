@@ -3,12 +3,12 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-  <meta name="theme-color" content="#111111" />
+  <meta name="theme-color" content="#F4F1EA" />
   <link rel="manifest" href="manifest.webmanifest" />
   <!-- iOS: Safari ignores most of the manifest, so these drive the installed
        (Add to Home Screen) experience — fullscreen launch, status bar, icon. -->
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="Bee Field" />
   <link rel="apple-touch-icon" href="icon-180.png" />
   <title>Bee Tent Field</title>
@@ -19,91 +19,195 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+  <!-- Map is the hero: dark satellite fills the screen, light chrome floats over. -->
   <div id="map"></div>
+  <!-- 3D atmospheric fade toward the horizon (fades in only in 3D view). -->
+  <div id="sky"></div>
+  <!-- Optional sunlight-boost scrim for high-contrast mode. -->
+  <div id="hcscrim"></div>
 
-  <!-- Top bar: field name + RTK fix badge (always visible) -->
-  <div id="topbar">
-    <div id="fieldname">No field</div>
-    <div id="netpill" class="hidden">OFFLINE</div>
-    <div id="srcpill" class="src-none">&mdash; NO SIGNAL</div>
-    <div id="fixbadge" class="fix-none">NO FIX</div>
-    <button id="btn-topsync" title="Sync latest field data">&#8635;</button>
-  </div>
+  <!-- ============================================================= TOP BAR -->
+  <header id="topbar">
+    <!-- Field switcher — tap to jump to the all-fields Map overview. -->
+    <button id="fieldswitch" title="Switch field">
+      <svg class="fs-pin" width="18" height="18" viewBox="0 0 24 24" fill="#2F7FE6"><path d="M12 2C8 2 5 5 5 9c0 5 7 13 7 13s7-8 7-13c0-4-3-7-7-7z"></path></svg>
+      <span class="fs-text">
+        <span id="fs-name">No field</span>
+        <span id="fs-sub">tap to pick a field</span>
+      </span>
+      <svg class="fs-chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8A8477" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 10l4 4 4-4"></path></svg>
+    </button>
 
-  <!-- Work-view tools: guidance camera + overlay layers + label mode. -->
-  <div id="worktools" class="hidden">
-    <button id="btn-tilt">Top-down</button>
-    <button id="btn-layers">Layers</button>
-    <button id="btn-calibrate">&#9678; Calibrate</button>
-    <button id="btn-labelmode">Show trays</button>
-    <button id="btn-zoomin" class="wt-zoom">+</button>
-    <button id="btn-zoomout" class="wt-zoom">&minus;</button>
-    <button id="btn-recenter" class="hidden">&#9678; Recenter</button>
-  </div>
-
-  <!-- Calibration confirm dialog + transient toast -->
-  <div id="calibconfirm" class="hidden"></div>
-  <div id="toast" class="hidden"></div>
-
-  <!-- Work-mode layers drawer: independent overlay toggles (multiple at once). -->
-  <div id="layerspanel" class="hidden">
-    <div class="sheet-head">
-      <span>Layers</span>
-      <button id="btn-close-layers">&times;</button>
+    <!-- Screen switcher -->
+    <div id="screenswitch" class="segmented">
+      <button id="btn-work" class="seg active">Work</button>
+      <button id="btn-map" class="seg">Map</button>
+      <button id="btn-system" class="seg">System</button>
     </div>
-    <div id="layers-body"></div>
-  </div>
 
-  <!-- Field-update alert: shown when the office pushes new field data. Tap to
-       refresh (reloads the active field if it changed; the list always). -->
-  <div id="updatebanner" class="hidden"></div>
+    <!-- GPS status pill (reads the receiver: RTK / GPS accuracy / no fix) -->
+    <button id="gpspill" class="fix-none" title="GPS fix quality">
+      <span class="gps-dot"></span>
+      <span id="gps-label">NO FIX</span>
+    </button>
 
-  <!-- Arrival banner: shown when within 10 ft of a shelter. -->
+    <!-- Sync now -->
+    <button id="btn-topsync" class="topbtn" title="Sync latest field data">
+      <svg id="sync-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.3-5.6"></path><path d="M20 4v4h-4"></path></svg>
+      <span id="sync-label">Sync now</span>
+    </button>
+
+    <!-- More: crew, prefs, manage fields (re-homed from the old Fields drawer) -->
+    <button id="btn-more" class="topbtn iconbtn" title="More">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"></circle><circle cx="12" cy="12" r="2"></circle><circle cx="19" cy="12" r="2"></circle></svg>
+    </button>
+  </header>
+
+  <!-- Arrival banner: shown when within ~10 ft of a shelter. -->
   <div id="arrival" class="hidden"></div>
 
-  <!-- Bottom controls -->
-  <div id="controls">
-    <!-- Prominent view switcher: single Field vs all-fields Overview -->
-    <div id="viewtoggle">
-      <button id="btn-work" class="active">Field</button>
-      <button id="btn-map">Overview</button>
+  <!-- Field-update alert: office pushed new field data. Tap to refresh. -->
+  <div id="updatebanner" class="hidden"></div>
+
+  <!-- ================================================== WORK-MODE FLOATERS -->
+  <!-- On-map legend -->
+  <div id="legend">
+    <div class="legend-head">On the map</div>
+    <div class="legend-rows">
+      <div class="legend-row"><span class="lg-dot lg-placed"></span>Shelter placed</div>
+      <div class="legend-row"><span class="lg-dot lg-unplaced"></span>Not yet placed</div>
+      <div class="legend-row"><span class="lg-dot lg-gps"></span>You (GPS)</div>
+      <div class="legend-row"><span class="lg-line lg-track"></span>Pivot track</div>
     </div>
-    <button id="btn-scan" class="accent">Scan</button>
-    <button id="btn-checklist">Checklist</button>
-    <button id="btn-fields">Fields</button>
-    <div id="stats"><span id="sats">0</span> sats &middot; HDOP <span id="hdop">--</span></div>
   </div>
 
-  <!-- Field picker drawer -->
+  <!-- 2D / 3D view toggle -->
+  <div id="viewtoggle">
+    <button id="btn-2d" class="active">2D</button>
+    <button id="btn-3d">3D</button>
+  </div>
+
+  <!-- Recenter / Follow-me FAB -->
+  <button id="btn-follow" class="following">
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.4"></circle><path d="M12 2v3.2M12 18.8V22M2 12h3.2M18.8 12H22"></path></svg>
+    <span id="follow-label">FOLLOW</span>
+  </button>
+
+  <!-- ======================================= BOTTOM ACTION BAR (work mode) -->
+  <footer id="actionbar">
+    <button id="btn-layers" class="abtn">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><polygon points="12,3 22,8.5 12,14 2,8.5"></polygon><polyline points="2,13 12,18.5 22,13"></polyline></svg>
+      <span>Layers</span><span id="layer-count" class="count-badge">3</span>
+    </button>
+    <button id="btn-calibrate" class="abtn">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"></circle><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3"></path><circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"></circle></svg>
+      <span>Calibrate</span>
+    </button>
+    <button id="btn-scan" class="abtn">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"></path><path d="M4 12h16"></path></svg>
+      <span>Scan</span>
+    </button>
+    <button id="btn-checklist" class="abtn">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11M9 12h11M9 18h11"></path><path d="M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"></path></svg>
+      <span>Checklist</span>
+    </button>
+
+    <!-- Placement readout -->
+    <div id="placement">
+      <div class="pl-text">
+        <div class="pl-label">Placement</div>
+        <div id="pl-count" class="pl-count">0 / 0</div>
+      </div>
+      <div class="pl-track"><span id="pl-fill"></span></div>
+    </div>
+
+    <!-- Mark placed (primary) -->
+    <button id="btn-markplaced" class="primary-btn">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"></path></svg>
+      <span>Mark placed</span>
+    </button>
+  </footer>
+
+  <!-- ============================================= MAP-MODE FIELD CARD RAIL -->
+  <div id="mapcards"><div id="mapcards-rail"></div></div>
+
+  <!-- ==================================================== LAYER SLIDE-OVER -->
+  <div id="layerscrim" class="hidden">
+    <aside id="layerspanel">
+      <div class="sheet-head">
+        <div class="sh-title"><div class="sh-h">Map layers</div><div class="sh-sub">Saved on this device</div></div>
+        <button id="btn-close-layers" class="icon-close">✕</button>
+      </div>
+      <div id="layers-body"></div>
+      <div class="sheet-foot">
+        <button id="btn-layers-default" class="secondary-btn">Reset to defaults</button>
+        <button id="btn-layers-done" class="primary-btn">Done</button>
+      </div>
+    </aside>
+  </div>
+
+  <!-- =================================================== CALIBRATE DIALOGS -->
+  <div id="caldialog" class="hidden"></div>
+  <div id="caltoast" class="hidden"></div>
+
+  <!-- =============================================== RE-HOMED CREW DRAWERS -->
+  <!-- More sheet: crew identity + display prefs + manage fields (sync). -->
+  <div id="moresheet" class="hidden">
+    <div class="sheet-head">
+      <div class="sh-title"><div class="sh-h">More</div></div>
+      <button id="btn-close-more" class="icon-close">✕</button>
+    </div>
+    <div class="more-body">
+      <div class="more-row">
+        <div class="more-label">Crew<small id="crewname">—</small></div>
+        <button id="btn-crew" class="secondary-btn sm">Change</button>
+      </div>
+      <div class="more-row">
+        <div class="more-label">Units<small>Distances &amp; accuracy</small></div>
+        <div class="mini-seg" id="unitseg">
+          <button id="unit-imp" class="active">ft</button>
+          <button id="unit-met">m</button>
+        </div>
+      </div>
+      <div class="more-row">
+        <div class="more-label">High-contrast<small>Sunlight boost</small></div>
+        <span id="tog-hc" class="switch"><span class="knob"></span></span>
+      </div>
+      <div class="more-row">
+        <div class="more-label">Map legend<small>Show the on-map key</small></div>
+        <span id="tog-legend" class="switch on"><span class="knob"></span></span>
+      </div>
+      <button id="btn-managefields" class="secondary-btn wide">Manage fields &amp; sync</button>
+    </div>
+  </div>
+
+  <!-- Field picker drawer (full list + Sync all) -->
   <div id="fieldsheet" class="hidden">
     <div class="sheet-head">
-      <span>Fields</span>
-      <button id="btn-sync">&#8635; Sync</button>
-      <button id="btn-close-fields">&times;</button>
+      <div class="sh-title"><div class="sh-h">Fields</div></div>
+      <button id="btn-sync" class="secondary-btn sm">&#8635; Sync all</button>
+      <button id="btn-close-fields" class="icon-close">✕</button>
     </div>
-    <div id="crewbar">You are: <b id="crewname">—</b>
-      <button id="btn-crew">Change</button></div>
     <ul id="fieldlist"></ul>
     <div id="syncnote"></div>
   </div>
 
-  <!-- Shelter-crew checklist drawer (counts fill from the active field) -->
+  <!-- Shelter-crew checklist drawer -->
   <div id="checklistsheet" class="hidden">
     <div class="sheet-head">
-      <span>Shelter Crew Checklist</span>
+      <div class="sh-title"><div class="sh-h">Shelter Crew Checklist</div></div>
       <span id="cl-progress" class="cl-progress"></span>
-      <button id="btn-close-checklist">&times;</button>
+      <button id="btn-close-checklist" class="icon-close">✕</button>
     </div>
     <div id="checklist-body"></div>
   </div>
 
-  <!-- Scan drawer: shelter placement + tray placement (QR via hardware
-       scanner on http, or device camera on https). -->
+  <!-- Scan drawer: shelter + tray placement (QR hardware scanner or camera). -->
   <div id="scansheet" class="hidden">
     <div class="sheet-head">
-      <span>Scan</span>
+      <div class="sh-title"><div class="sh-h">Scan</div></div>
       <span id="scan-progress" class="cl-progress"></span>
-      <button id="btn-close-scan">&times;</button>
+      <button id="btn-close-scan" class="icon-close">✕</button>
     </div>
     <div id="scan-body">
       <div class="scan-modes">
@@ -115,34 +219,41 @@
              autocorrect="off" spellcheck="false"
              placeholder="Scan a QR code (or type) then Enter" />
       <div class="scan-actions">
-        <button id="btn-scan-camera">Use camera</button>
-        <button id="btn-scan-clearshelter" class="hidden">Change shelter</button>
+        <button id="btn-scan-camera" class="secondary-btn">Use camera</button>
+        <button id="btn-scan-clearshelter" class="secondary-btn hidden">Change shelter</button>
       </div>
       <div id="scan-status"></div>
       <div id="scan-recent"></div>
     </div>
   </div>
 
-  <!-- Camera scanner overlay (only when running in a secure context) -->
+  <!-- Camera scanner overlay (only in a secure context) -->
   <div id="camoverlay" class="hidden">
     <video id="cam-video" playsinline muted></video>
     <div id="cam-reticle"></div>
     <div id="cam-bar">
       <span id="cam-hint">Point at the QR code</span>
-      <button id="btn-cam-close">Close camera</button>
+      <button id="btn-cam-close" class="primary-btn">Close camera</button>
     </div>
   </div>
 
   <!-- Point detail popup -->
   <div id="pointsheet" class="hidden">
     <div class="sheet-head">
-      <span id="pt-label">S-00</span>
-      <button id="btn-close-point">&times;</button>
+      <div class="sh-title"><div class="sh-h" id="pt-label">S-00</div></div>
+      <button id="btn-close-point" class="icon-close">✕</button>
     </div>
     <div id="pt-coords"></div>
     <label class="chk"><input type="checkbox" id="pt-visited" /> Placed</label>
     <textarea id="pt-note" placeholder="Note&hellip;"></textarea>
   </div>
+
+  <!-- ==================================================== SYSTEM REFERENCE -->
+  <div id="systemview" class="hidden"></div>
+
+  <!-- transient toast + offline pill -->
+  <div id="toast" class="hidden"></div>
+  <div id="netpill" class="hidden">OFFLINE</div>
 
   <!-- Firebase relay (online-only; safe to fail offline). compat SDK = simplest. -->
   <script defer src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>

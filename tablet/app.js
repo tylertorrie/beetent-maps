@@ -59,7 +59,7 @@ const visited = {};       // label -> {visited, note}  (local only for now)
 // Work-mode camera: a John-Deere-style guidance view. viewTilt 45 = 3D angled,
 // 0 = bird's-eye (top-down). followCam keeps the camera locked on the crew,
 // heading-up; a user pan/rotate detaches it until they tap Recenter.
-let viewTilt = 45;
+let viewTilt = 0;         // 0 = 2D bird's-eye (default); 56 = 3D angled
 let followCam = true;
 const WORK_ZOOM = 18;     // default close zoom when entering Work mode
 
@@ -93,80 +93,86 @@ function initMap() {
   map.on("load", async () => {
     map.addSource("field", { type: "geojson", data: emptyFC() });
 
+    // Overlay colors are kept identical to the desktop planner so a crew and an
+    // operator are literally looking at the same colors (see TABLET_DESIGN_BRIEF).
     map.addLayer({ id: "boundary-line", type: "line",
       filter: ["==", ["get", "type"], "boundary"],
-      source: "field", paint: { "line-color": "#FFD700", "line-width": 2 } });
+      source: "field", paint: { "line-color": "#E9F4D6", "line-width": 2.5 } });
 
     // Phase-2 toggleable overlays (exported by the desktop into the field GeoJSON).
     // Drawn UNDER the shelters so the pins stay on top. Hidden by default; the
-    // Layers drawer turns them on.
+    // Layers slide-over turns them on.
     // Pivot tracks are drawn as the buffer/exclusion band only (track-buffer-line
     // below) — the old single centre-line (pivot_track) is no longer rendered.
     map.addLayer({ id: "male-bays-fill", type: "fill",
       filter: ["==", ["get", "type"], "male_bay"], source: "field",
       layout: { visibility: "none" },
-      paint: { "fill-color": "#1E73E8", "fill-opacity": 0.22 } });
+      paint: { "fill-color": "#2E9BF0", "fill-opacity": 0.12 } });
     map.addLayer({ id: "male-bays-line", type: "line",
       filter: ["==", ["get", "type"], "male_bay"], source: "field",
       layout: { visibility: "none" },
-      paint: { "line-color": "#1E73E8", "line-width": 1, "line-opacity": 0.7 } });
+      paint: { "line-color": "#2E9BF0", "line-width": 3, "line-opacity": 0.85, "line-dasharray": [3, 2] } });
     map.addLayer({ id: "alignment-line", type: "line",
       filter: ["==", ["get", "type"], "alignment"], source: "field",
       layout: { visibility: "none" },
-      paint: { "line-color": "#e8f0ff", "line-width": 1, "line-opacity": 0.55 } });
+      paint: { "line-color": "#86E0FF", "line-width": 1.6, "line-opacity": 0.8 } });
     map.addLayer({ id: "sprayer-pass-line", type: "line",
       filter: ["==", ["get", "type"], "sprayer_pass"], source: "field",
       layout: { visibility: "none" },
-      paint: { "line-color": "#33FF66", "line-width": 1, "line-opacity": 0.8 } });
+      paint: { "line-color": "#FF5A52", "line-width": 1.5, "line-opacity": 0.8, "line-dasharray": [4, 3] } });
     map.addLayer({ id: "sprayer-limit-line", type: "line",
       filter: ["==", ["get", "type"], "sprayer_limit"], source: "field",
       layout: { visibility: "none" },
-      paint: { "line-color": "#33FF66", "line-width": 2 } });
+      paint: { "line-color": "#FF5A52", "line-width": 2, "line-dasharray": [4, 3] } });
 
     // Tire / edge zones, wet zones (fills first so they sit under everything).
     map.addLayer({ id: "tire-zone-fill", type: "fill",
       filter: ["==", ["get", "type"], "tire_zone"], source: "field",
       layout: { visibility: "none" },
-      paint: { "fill-color": "#FF2A2A", "fill-opacity": 0.35 } });
+      paint: { "fill-color": "#E0951F", "fill-opacity": 0.3 } });
     map.addLayer({ id: "edge-zone-fill", type: "fill",
       filter: ["==", ["get", "type"], "edge_zone"], source: "field",
       layout: { visibility: "none" },
-      paint: { "fill-color": "#22E048", "fill-opacity": 0.25 } });
+      paint: { "fill-color": "#E0951F", "fill-opacity": 0.22 } });
     map.addLayer({ id: "wet-zone-fill", type: "fill",
       filter: ["==", ["get", "type"], "wet_zone"], source: "field",
       layout: { visibility: "none" },
-      paint: { "fill-color": "#1E90FF", "fill-opacity": 0.3 } });
+      paint: { "fill-color": "#39B7D6", "fill-opacity": 0.3 } });
     map.addLayer({ id: "wet-zone-line", type: "line",
       filter: ["==", ["get", "type"], "wet_zone"], source: "field",
       layout: { visibility: "none" },
-      paint: { "line-color": "#0A3D7A", "line-width": 2 } });
-    // Pivot-track buffer/exclusion band — solid red edge circles (radius ± exclusion).
+      paint: { "line-color": "#39B7D6", "line-width": 2 } });
+    // Pivot-track buffer/exclusion band — dashed orange edge circles (radius ± exclusion).
     // This is now the ONLY pivot-track rendering (the centre-line was dropped).
     map.addLayer({ id: "track-buffer-line", type: "line",
       filter: ["==", ["get", "type"], "track_buffer"], source: "field",
       layout: { visibility: "none" },
-      paint: { "line-color": "#FF2200", "line-width": 2 } });
+      paint: { "line-color": "#FF8A2B", "line-width": 2.5, "line-dasharray": [4, 3] } });
     map.addLayer({ id: "planter-pass-line", type: "line",
       filter: ["==", ["get", "type"], "planter_pass"], source: "field",
       layout: { visibility: "none" },
-      paint: { "line-color": "#FFB000", "line-width": 1, "line-opacity": 0.8 } });
+      paint: { "line-color": "#8FBE3C", "line-width": 1.4, "line-opacity": 0.8, "line-dasharray": [2, 3] } });
     map.addLayer({ id: "crew-route-line", type: "line",
       filter: ["==", ["get", "type"], "crew_route"], source: "field",
       layout: { visibility: "none" },
-      paint: { "line-color": "#A855F7", "line-width": 3, "line-opacity": 0.9 } });
+      paint: { "line-color": "#A06BFF", "line-width": 4, "line-opacity": 0.95 } });
     map.addLayer({ id: "planter-number-label", type: "symbol",
       filter: ["==", ["get", "type"], "planter_number"], source: "field",
       layout: { visibility: "none", "text-field": ["get", "label"],
                 "text-font": ["OpenSans"], "text-size": 12, "text-allow-overlap": true },
-      paint: { "text-color": "#FFB000", "text-halo-color": "#000", "text-halo-width": 1.2 } });
+      paint: { "text-color": "#8FBE3C", "text-halo-color": "#000", "text-halo-width": 1.2 } });
 
+    // Shelter scan-pins (always on): placed = filled honey-yellow with a dark
+    // outline (the outline is what makes yellow read over satellite); not-placed
+    // = hollow yellow ring.
     map.addLayer({ id: "shelters", type: "circle",
       filter: ["==", ["get", "type"], "shelter"],
       source: "field",
       paint: {
         "circle-radius": 7,
-        "circle-color": ["case", ["get", "visited"], "#1faa59", "#FFD700"],
-        "circle-stroke-color": "#000", "circle-stroke-width": 1.5,
+        "circle-color": ["case", ["get", "visited"], "#FFCE3A", "rgba(255,206,58,0.12)"],
+        "circle-stroke-color": ["case", ["get", "visited"], "#1A1A1A", "#FFCE3A"],
+        "circle-stroke-width": 2.2,
       } });
 
     map.addLayer({ id: "shelter-labels", type: "symbol",
@@ -174,7 +180,7 @@ function initMap() {
       source: "field",
       layout: { "text-field": ["get", "label"], "text-font": ["OpenSans"],
                 "text-size": 11, "text-offset": [0, 1.2] },
-      paint: { "text-color": "#fff", "text-halo-color": "#000", "text-halo-width": 1.2 } });
+      paint: { "text-color": "#fff", "text-halo-color": "#000", "text-halo-width": 1.4 } });
 
     map.on("click", "shelters", (e) => openPoint(e.features[0]));
 
@@ -283,19 +289,46 @@ function onPosition(p, source) {
   if (mode === "work") checkProximity(p);
 }
 
+// Display preferences — device-local. units drives distance/accuracy strings;
+// legendPref shows the on-map key; highContrast is a sunlight-boost scrim/filter.
+let units = (localStorage.getItem("beeUnits") === "metric") ? "metric" : "imperial";
+let legendPref = localStorage.getItem("beeLegend") !== "0";
+let highContrast = localStorage.getItem("beeHC") === "1";
+function fmtDist(m) {
+  return units === "metric" ? `${m.toFixed(1)} m` : `${feet(m).toFixed(1)} ft`;
+}
+function fmtAcc(m) {
+  return units === "metric" ? `±${m.toFixed(1)} m` : `±${feet(m).toFixed(1)} ft`;
+}
+
+// The top-bar GPS pill: RTK teal when we have a good fix, warm amber for a coarse
+// fix, muted grey for no signal. Reads the receiver — not a demo toggle.
 function updateStatus(p, source) {
-  const src = document.getElementById("srcpill");
+  const pill = document.getElementById("gpspill");
+  const lab = document.getElementById("gps-label");
+  if (!pill || !lab) return;
+  let cls = "fix-warn", txt = "GPS";
   if (source === "globe") {
-    src.textContent = "\u{1F6F0} GLOBE"; src.className = "src-globe";
-    setFix(p.fix);                                   // RTK FIX / FLOAT / etc.
+    if (p.fix === 4) { cls = "fix-rtk"; txt = "RTK · " + fixLabel(p); }
+    else if (p.fix === 5) { cls = "fix-warn"; txt = "RTK float · " + fixLabel(p); }
+    else if (p.fix === 2) { cls = "fix-warn"; txt = "DGPS"; }
+    else if (p.fix === 1) { cls = "fix-warn"; txt = "GPS"; }
+    else { cls = "fix-none"; txt = "NO FIX"; }
   } else {
-    src.textContent = "\u{1F4F1} TABLET GPS"; src.className = "src-tablet";
-    const fb = document.getElementById("fixbadge");
-    fb.className = "fix-tablet";
-    fb.textContent = (p.acc != null) ? `±${Math.round(p.acc)} m` : "GPS";
+    // tablet GPS: accuracy in the current units; RTK-teal only when very tight.
+    const good = p.acc != null && p.acc <= 2.0;
+    cls = good ? "fix-rtk" : "fix-warn";
+    txt = "GPS · " + (p.acc != null ? fmtAcc(p.acc) : "—");
   }
-  document.getElementById("sats").textContent = (p.sats ?? "—");
-  document.getElementById("hdop").textContent = (p.hdop ?? "--");
+  pill.className = cls;
+  lab.textContent = txt;
+}
+
+// Best available accuracy string for a globe fix (hdop is unitless; fall back to it).
+function fixLabel(p) {
+  if (p.acc != null) return fmtAcc(p.acc);
+  if (p.hdop != null) return "HDOP " + p.hdop;
+  return units === "metric" ? "±0.4 m" : "±1.2 ft";
 }
 
 // Bring up tablet GPS once the globe goes quiet; flag total signal loss.
@@ -304,20 +337,12 @@ function statusWatchdog() {
   if (now - lastGlobeTs > GLOBE_STALE_MS && geoState === "off") startGeo();
   if (now - lastAnyTs > GLOBE_STALE_MS + 2000) {
     posSource = "none";
-    const src = document.getElementById("srcpill");
-    src.textContent = "— NO SIGNAL"; src.className = "src-none";
-    setFix(null);
+    const pill = document.getElementById("gpspill");
+    const lab = document.getElementById("gps-label");
+    if (pill) pill.className = "fix-none";
+    if (lab) lab.textContent = "NO FIX";
   }
   setTimeout(statusWatchdog, 1500);
-}
-
-function setFix(fix) {
-  const b = document.getElementById("fixbadge");
-  const map_ = { 4: ["RTK FIX", "fix-rtk"], 5: ["RTK FLOAT", "fix-float"],
-                 2: ["DGPS", "fix-dgps"], 1: ["GPS", "fix-gps"] };
-  const [txt, cls] = map_[fix] || ["NO FIX", "fix-none"];
-  b.textContent = txt;
-  b.className = cls;
 }
 
 // ---- Field loading ----------------------------------------------------------
@@ -391,21 +416,22 @@ async function checkFieldUpdates() {
 function showUpdateBanner() {
   const b = document.getElementById("updatebanner");
   const n = updateState.changedFiles.length;
-  if (updateState.activeChanged) {
-    b.className = "active-field";
-    b.innerHTML = '<span>⟳ This field was updated — tap to reload</span><span class="ub-x">✕</span>';
-  } else {
-    b.className = "";
-    b.innerHTML = '<span>⟳ ' + n + ' field' + (n === 1 ? '' : 's')
-      + ' updated — tap to refresh</span><span class="ub-x">✕</span>';
-  }
-  document.getElementById("btn-fields").classList.add("has-updates");
+  const msg = updateState.activeChanged
+    ? "This field was updated in the office"
+    : n + " field" + (n === 1 ? "" : "s") + " updated in the office";
+  b.innerHTML =
+    '<span class="ub-dot"></span>' +
+    `<span class="ub-msg">${msg}</span>` +
+    '<button class="ub-btn">Tap to refresh</button>' +
+    '<button class="ub-x">✕</button>';
+  b.querySelector(".ub-btn").onclick = () => applyFieldUpdates();
+  b.querySelector(".ub-x").onclick = () => dismissUpdateBanner();
+  b.classList.remove("hidden");
 }
 
 function dismissUpdateBanner() {
   updateState = { activeChanged: false, changedFiles: [] };
   document.getElementById("updatebanner").classList.add("hidden");
-  document.getElementById("btn-fields").classList.remove("has-updates");
 }
 
 async function applyFieldUpdates() {
@@ -811,17 +837,20 @@ const MAP_LAYERS = ["allfields-fill", "allfields-line", "allfields-label"];
 // independently (multiple at once); the choice persists per device. Phase 2 appends
 // rows here (male bays, alignment lines, sprayer passes, …) once they're exported
 // into the field GeoJSON. "scan-pins" is intentionally not toggleable — always on.
+// Shelter scan-pins are ALWAYS on (locked) — not in this list. Each row carries a
+// swatch descriptor (color; line=true → dashed line swatch, else filled dot) so the
+// slide-over can draw the on-map key next to each toggle. Defaults per the spec:
+// Boundaries + Pivot tracks on, everything else off.
 const LAYER_TOGGLES = [
-  { key: "boundary",  label: "Boundaries",      layers: ["boundary-line"], def: true },
-  { key: "track_buf", label: "Pivot Tracks",    layers: ["track-buffer-line"], def: true },
-  { key: "shelters",  label: "Shelters",        layers: ["shelters", "shelter-labels"], def: true },
-  { key: "male_bays", label: "Male bays",       layers: ["male-bays-fill", "male-bays-line"], def: false },
-  { key: "alignment", label: "Alignment lines", layers: ["alignment-line"], def: false },
-  { key: "sprayer",   label: "Sprayer passes",  layers: ["sprayer-pass-line", "sprayer-limit-line"], def: false },
-  { key: "tire_edge", label: "Tire & edge zones", layers: ["tire-zone-fill", "edge-zone-fill"], def: false },
-  { key: "wet",       label: "Wet zones",       layers: ["wet-zone-fill", "wet-zone-line"], def: false },
-  { key: "planter",   label: "Planter passes",  layers: ["planter-pass-line", "planter-number-label"], def: false },
-  { key: "crew",      label: "Crew route",      layers: ["crew-route-line"], def: false },
+  { key: "boundary",  label: "Boundaries",      layers: ["boundary-line"], def: true,  color: "#E9F4D6", line: false },
+  { key: "track_buf", label: "Pivot tracks",    layers: ["track-buffer-line"], def: true, color: "#FF8A2B", line: true },
+  { key: "male_bays", label: "Male bays",       layers: ["male-bays-fill", "male-bays-line"], def: false, color: "#2E9BF0", line: true },
+  { key: "alignment", label: "Alignment lines", layers: ["alignment-line"], def: false, color: "#86E0FF", line: true },
+  { key: "sprayer",   label: "Sprayer passes",  layers: ["sprayer-pass-line", "sprayer-limit-line"], def: false, color: "#FF5A52", line: true },
+  { key: "tire_edge", label: "Tire & edge zones", layers: ["tire-zone-fill", "edge-zone-fill"], def: false, color: "#E0951F", line: false },
+  { key: "wet",       label: "Wet zones",       layers: ["wet-zone-fill", "wet-zone-line"], def: false, color: "#39B7D6", line: false },
+  { key: "planter",   label: "Planter passes",  layers: ["planter-pass-line", "planter-number-label"], def: false, color: "#8FBE3C", line: true },
+  { key: "crew",      label: "Crew route",      layers: ["crew-route-line"], def: false, color: "#A06BFF", line: true },
 ];
 
 let layerState = loadLayerState();   // { key: bool }
@@ -845,24 +874,84 @@ function setLayers(ids, vis) {
 function applyLayerVisibility() {
   if (mode !== "work") return;
   for (const t of LAYER_TOGGLES) setLayers(t.layers, layerState[t.key] ? "visible" : "none");
-  setLayers(["scan-pins"], "visible");          // scanned pins always shown
+  // Shelter scan-pins are always on (locked in the slide-over).
+  setLayers(["shelters", "shelter-labels", "scan-pins"], "visible");
+  updateLayerCount();
+}
+
+// Layer-count badge = active toggleable overlays + 1 for the locked scan-pins row.
+function updateLayerCount() {
+  const el = document.getElementById("layer-count");
+  if (!el) return;
+  let n = 1;
+  for (const t of LAYER_TOGGLES) if (layerState[t.key]) n++;
+  el.textContent = String(n);
 }
 
 function setMode(m) {
   mode = m;
-  document.getElementById("btn-work").classList.toggle("active", m === "work");
-  document.getElementById("btn-map").classList.toggle("active", m === "map");
-  document.getElementById("worktools").classList.toggle("hidden", m !== "work");
-  if (m !== "work") closeSheet("layerspanel");
+  // Segmented control active state.
+  for (const [id, key] of [["btn-work", "work"], ["btn-map", "map"], ["btn-system", "system"]]) {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle("active", m === key);
+  }
+  // Work-mode chrome (bottom bar, legend, view toggle, FAB) only in Work.
+  const workChrome = ["actionbar", "viewtoggle", "btn-follow"];
+  for (const id of workChrome) {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle("hidden", m !== "work");
+  }
+  toggleEl("legend", m === "work" && legendPref);
+  toggleEl("mapcards", m === "map");
+  toggleEl("systemview", m === "system");
+  if (m !== "work") { closeSheet("layerscrim"); hideArrival(); }
+
+  if (m === "system") {
+    buildSystemView();
+    return;                                      // System overlays the map; leave layers as-is
+  }
   if (m === "work") {
     setLayers(MAP_LAYERS, "none");
     applyLayerVisibility();                      // honour per-overlay toggles
+    updateFieldSwitcher();
     startWorkCam();
   } else {
     setLayers(FIELD_LAYERS, "none"); setLayers(MAP_LAYERS, "visible");
-    hideArrival();
+    updateFieldSwitcher();
     showAllFields();
+    buildFieldCards();
   }
+}
+
+function toggleEl(id, show) {
+  const el = document.getElementById(id);
+  if (el) el.classList.toggle("hidden", !show);
+}
+
+// Field switcher label: the open field + placement in Work; "All fields" in Map.
+function updateFieldSwitcher() {
+  const name = document.getElementById("fs-name");
+  const sub = document.getElementById("fs-sub");
+  if (!name || !sub) return;
+  if (mode === "map") {
+    name.textContent = "All fields";
+    sub.textContent = "tap a field below to open";
+    return;
+  }
+  if (!activeField) { name.textContent = "No field"; sub.textContent = "tap to pick a field"; return; }
+  const p = fieldProgress();
+  name.textContent = activeField.name || document.getElementById("fs-name").textContent || "Field";
+  sub.textContent = `${p.placed} / ${p.total} placed · tap to switch field`;
+  updatePlacementReadout();
+}
+
+// Bottom-bar placement readout (count + honey progress bar).
+function updatePlacementReadout() {
+  const p = fieldProgress();
+  const cnt = document.getElementById("pl-count");
+  const fill = document.getElementById("pl-fill");
+  if (cnt) cnt.textContent = `${p.placed} / ${p.total}`;
+  if (fill) fill.style.width = (p.total ? Math.round((p.placed / p.total) * 100) : 0) + "%";
 }
 
 // ---- Work-mode guidance camera ----------------------------------------------
@@ -870,7 +959,7 @@ function setMode(m) {
 // whole field when there's no live position yet.
 function startWorkCam() {
   followCam = true;
-  updateRecenterBtn();
+  updateFollowBtn();
   if (pos) {
     const hdg = (typeof pos.course === "number" && !isNaN(pos.course)) ? pos.course : map.getBearing();
     map.easeTo({ center: [pos.lon, pos.lat], zoom: Math.max(map.getZoom(), WORK_ZOOM),
@@ -881,52 +970,82 @@ function startWorkCam() {
   }
 }
 
-// Flip between 3D angled (45°) and bird's-eye (top-down, 0°).
-function toggleViewTilt() {
-  viewTilt = viewTilt > 0 ? 0 : 45;
-  map.easeTo({ pitch: viewTilt, duration: 400 });
-  const btn = document.getElementById("btn-tilt");
-  if (btn) btn.textContent = viewTilt > 0 ? "Top-down" : "3D view";
+// 2D = bird's-eye (top-down, pitch 0); 3D = camera-behind-the-vehicle (pitch 56 +
+// heading-up). Uses MapLibre's native pitch/bearing (the spec prefers this over a
+// CSS ground-plane transform). Default view is 2D.
+const PITCH_3D = 56;
+function setView(v) {
+  viewTilt = v === "3d" ? PITCH_3D : 0;
+  document.body.classList.toggle("view3d", v === "3d");
+  const b2 = document.getElementById("btn-2d"), b3 = document.getElementById("btn-3d");
+  if (b2) b2.classList.toggle("active", v === "2d");
+  if (b3) b3.classList.toggle("active", v === "3d");
+  const hdg = (pos && typeof pos.course === "number" && !isNaN(pos.course)) ? pos.course
+            : (v === "2d" ? 0 : map.getBearing());
+  map.easeTo({ pitch: viewTilt, bearing: (v === "2d" ? 0 : hdg), duration: 550 });
 }
 
-// A manual pan/rotate/pitch detaches follow until the user taps Recenter.
+// A manual pan/rotate/pitch detaches the follow-camera until the crew taps the FAB.
 function detachFollow() {
-  if (mode === "work" && followCam) { followCam = false; updateRecenterBtn(); }
+  if (mode === "work" && followCam) { followCam = false; updateFollowBtn(); }
 }
-function recenter() {
-  followCam = true;
-  updateRecenterBtn();
-  if (pos) {
+// FAB toggles the GPS follow-camera. Turning it on re-centres on the crew, heading-up.
+function toggleFollow() {
+  followCam = !followCam;
+  updateFollowBtn();
+  if (followCam && pos) {
     const hdg = (typeof pos.course === "number" && !isNaN(pos.course)) ? pos.course : map.getBearing();
     map.easeTo({ center: [pos.lon, pos.lat], bearing: hdg, pitch: viewTilt, duration: 500 });
   }
 }
-function updateRecenterBtn() {
-  const btn = document.getElementById("btn-recenter");
-  if (btn) btn.classList.toggle("hidden", followCam || mode !== "work");
+function updateFollowBtn() {
+  const btn = document.getElementById("btn-follow");
+  const lab = document.getElementById("follow-label");
+  if (!btn) return;
+  btn.classList.toggle("following", followCam);
+  btn.classList.toggle("detached", !followCam);
+  if (lab) lab.textContent = followCam ? "FOLLOW" : "RECENTER";
 }
-function zoomBy(d) { map.easeTo({ zoom: map.getZoom() + d, duration: 250 }); }
 
-// ---- Work-mode layers drawer ------------------------------------------------
+// ---- Work-mode layers slide-over --------------------------------------------
+// A right-anchored sheet of toggle switches. The always-on shelter scan-pins are a
+// locked row at the top (rendered in index.html-independent markup here). Each row
+// draws the on-map swatch (dashed line for line overlays, filled dot for fills).
 function buildLayersPanel() {
   const body = document.getElementById("layers-body");
   if (!body) return;
-  body.innerHTML = "";
+  body.innerHTML =
+    '<div class="locked-row"><span class="lr-dot"></span>' +
+    '<div class="lr-text"><div class="lr-h">Shelter scan-pins</div><div class="lr-sub">Always on</div></div>' +
+    '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#B4AD9E" stroke-width="2">' +
+    '<rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg></div>';
   for (const t of LAYER_TOGGLES) {
-    const lab = document.createElement("label");
-    lab.className = "chk";
-    const cb = document.createElement("input");
-    cb.type = "checkbox"; cb.checked = !!layerState[t.key];
-    cb.onchange = () => { layerState[t.key] = cb.checked; saveLayerState(); applyLayerVisibility(); };
-    lab.appendChild(cb);
-    lab.appendChild(document.createTextNode(" " + t.label));
-    body.appendChild(lab);
+    const on = !!layerState[t.key];
+    const row = document.createElement("button");
+    row.className = "layer-row " + (on ? "on" : "off");
+    const swatch = t.line
+      ? `border-radius:3px;background:${on ? t.color : "transparent"};border:2px solid ${t.color};`
+      : `border-radius:50%;background:${t.color};border:2px solid rgba(26,26,26,.35);`;
+    row.innerHTML =
+      `<span class="lr-swatch" style="${swatch}"></span>` +
+      `<span class="lr-label">${t.label}</span>` +
+      `<span class="switch ${on ? "on" : ""}"><span class="knob"></span></span>`;
+    row.onclick = () => {
+      layerState[t.key] = !layerState[t.key];
+      saveLayerState(); applyLayerVisibility(); buildLayersPanel();
+    };
+    body.appendChild(row);
   }
 }
+function openLayersPanel() { buildLayersPanel(); show("layerscrim"); }
 function toggleLayersPanel() {
-  const el = document.getElementById("layerspanel");
-  if (el.classList.contains("hidden")) { buildLayersPanel(); show("layerspanel"); }
-  else closeSheet("layerspanel");
+  const el = document.getElementById("layerscrim");
+  if (el.classList.contains("hidden")) openLayersPanel();
+  else closeSheet("layerscrim");
+}
+function resetLayersDefault() {
+  for (const t of LAYER_TOGGLES) layerState[t.key] = (t.def !== false);
+  saveLayerState(); applyLayerVisibility(); buildLayersPanel();
 }
 
 // Shelter pin labels: numbers vs tray counts.
@@ -971,24 +1090,34 @@ function checkProximity(p) {
   }
 }
 
+let arrivalLabel = null;   // shelter label the arrival banner currently references
 function arrive(feature) {
   const label = feature.properties.label;
   const trays = feature.properties.trays;
+  arrivalLabel = label;
+  const set = trays != null;
+  const sub = set ? `Trays: ${trays} · logged` : "Tray count not set";
   const el = document.getElementById("arrival");
-  if (labelMode === "trays") {
-    // Bee crew: lead with how many trays to place at this shelter.
-    el.innerHTML = (trays != null)
-      ? `&#128029; Put ${trays} tray${trays === 1 ? "" : "s"} here` +
-        `<div class="arrive-sub">${label}</div>`
-      : `&#10003; You're at ${label}<div class="arrive-sub">tray count not set</div>`;
-  } else {
-    // Shelter / flagging crew: just the shelter number.
-    el.innerHTML = `&#10003; You're at ${label}`;
-  }
+  el.innerHTML =
+    '<div class="ar-disc"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#1E8A45" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"></path></svg></div>' +
+    `<div class="ar-body"><div class="ar-title">You're at ${label}</div>` +
+    `<div class="ar-sub ${set ? "set" : "unset"}">${sub}</div></div>` +
+    `<button class="ar-cta">${set ? "Edit trays" : "Set trays"}</button>` +
+    '<button class="ar-x">✕</button>';
+  el.querySelector(".ar-cta").onclick = () => arriveSetTrays(label);
+  el.querySelector(".ar-x").onclick = () => { proxShelter = null; hideArrival(); };
   el.classList.remove("hidden");
-  el.style.animation = "none"; void el.offsetWidth; el.style.animation = "";   // restart pop
+  el.style.animation = "none"; void el.offsetWidth; el.style.animation = "";   // restart drop
   if (navigator.vibrate) navigator.vibrate([200, 80, 200]);
   beep();
+}
+
+// "Set trays" from the arrival banner → open the Scan drawer in tray mode with this
+// shelter preselected, so the crew scans each tray going into it.
+function arriveSetTrays(label) {
+  scanMode = "tray";
+  trayShelterQr = label;
+  openScan();
 }
 function hideArrival() {
   const el = document.getElementById("arrival");
