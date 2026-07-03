@@ -1522,8 +1522,9 @@ class BeetentApp(ctk.CTk):
             _logo = ASSETS_DIR / "logo.png"
             if _logo.exists():
                 _im = Image.open(_logo)
+                # Created here (before the rail builds); shown in the nav rail's
+                # brand header, not the toolbar.
                 self._logo_img = ctk.CTkImage(light_image=_im, dark_image=_im, size=(26,26))
-                ctk.CTkLabel(bar, image=self._logo_img, text="").pack(side="left", padx=(10,8), pady=6)
         except Exception:
             pass
         self._toolbar = bar
@@ -1728,35 +1729,75 @@ class BeetentApp(ctk.CTk):
                 break
         self._close_all_popups()
 
-    # ── Left nav drawer + view swapping ─────────────────────────────────────────
+    # ── Persistent left nav rail + view swapping ────────────────────────────────
     def _build_nav_drawer(self):
-        """The slide-in left menu opened by the ☰ button. Built once, hidden."""
-        self.nav_drawer = ctk.CTkFrame(self, width=240, corner_radius=0,
-                                       fg_color=UI_CARD, border_width=1,
-                                       border_color=UI_BORDER)
-        hdr = ctk.CTkFrame(self.nav_drawer, fg_color="transparent")
-        hdr.pack(fill="x", padx=12, pady=(12, 6))
-        ctk.CTkLabel(hdr, text="Menu", text_color=UI_TEXT,
-                     font=ctk.CTkFont(family=FONT_HEADING, size=16)).pack(side="left")
-        ctk.CTkButton(hdr, text="✕", width=28, fg_color="transparent",
-                      hover_color=UI_HOVER, text_color=UI_TEXT,
-                      command=self._close_nav_drawer).pack(side="right")
-        ctk.CTkFrame(self.nav_drawer, height=1, fg_color=UI_BORDER).pack(
-            fill="x", padx=8, pady=(0, 6))
+        """Persistent left navigation rail (redesign v2). Always visible; the ☰
+        button collapses/expands it. Packed side=left BEFORE the toolbar so it
+        spans full height and the toolbar + views flow into the region to its
+        right — no re-parenting needed (pack geometry handles the columns)."""
+        rail = ctk.CTkFrame(self, width=210, corner_radius=0, fg_color=UI_CARD)
+        rail.pack_propagate(False)
+        self.nav_drawer = rail
+        # Right-edge divider so the white rail separates from the white content.
+        ctk.CTkFrame(rail, width=1, fg_color=UI_BORDER).pack(side="right", fill="y")
+
+        # Brand header (logo + wordmark).
+        hdr = ctk.CTkFrame(rail, fg_color="transparent")
+        hdr.pack(fill="x", padx=16, pady=(16, 14))
+        try:
+            if getattr(self, "_logo_img", None) is not None:
+                ctk.CTkLabel(hdr, image=self._logo_img, text="").pack(side="left", padx=(0, 8))
+        except Exception:
+            pass
+        ctk.CTkLabel(hdr, text="Bee Tent Maps", text_color=UI_TEXT,
+                     font=ctk.CTkFont(family=FONT_HEADING, size=15)).pack(side="left")
+
         self._nav_buttons = {}
-        for key, text, cmd in [("map",     "🗺  Map View",       self._open_map_view),
-                               ("monitor", "📡  Monitor",         self._open_monitor_view),
-                               ("cost",    "💰  Financial View",  self._open_cost_estimator_view),
-                               ("files",   "📁  Files",           self._open_files_view)]:
-            b = ctk.CTkButton(self.nav_drawer, text=text, anchor="w", height=40,
+        for key, text, cmd in [("map",     "🗺   Map View",       self._open_map_view),
+                               ("monitor", "📡   Monitor",         self._open_monitor_view),
+                               ("cost",    "💰   Financial View",  self._open_cost_estimator_view),
+                               ("files",   "📁   Files",           self._open_files_view)]:
+            b = ctk.CTkButton(rail, text=text, anchor="w", height=42,
+                              corner_radius=8,
                               fg_color="transparent", hover_color=UI_HOVER,
                               text_color=UI_TEXT,
                               font=ctk.CTkFont(family=FONT_LABEL, size=14),
                               command=cmd)
-            b.pack(fill="x", padx=8, pady=2)
+            b.pack(fill="x", padx=10, pady=3)
             self._nav_buttons[key] = b
         self._set_active_nav("map")
-        self.nav_drawer.place_forget()
+
+        # Bottom: Style Guide opener (shows the palette/typography reference).
+        ctk.CTkButton(rail, text="✎  Style Guide", anchor="w", height=36,
+                      fg_color="transparent", hover_color=UI_HOVER,
+                      text_color=UI_MUTED,
+                      font=ctk.CTkFont(family=FONT_LABEL, size=12),
+                      command=self._open_style_guide).pack(
+                          side="bottom", fill="x", padx=10, pady=(6, 12))
+
+        # Show the rail now, to the LEFT of the already-packed toolbar/body.
+        rail.pack(side="left", fill="y", before=self._toolbar)
+
+    def _open_style_guide(self):
+        """Small reference window showing the redesign palette + type scale."""
+        win = ctk.CTkToplevel(self)
+        win.title("Style Guide — Bee Tent Maps")
+        win.geometry("360x420")
+        win.transient(self); win.lift()
+        ctk.CTkLabel(win, text="Design system", text_color=UI_TEXT,
+                     font=ctk.CTkFont(family=FONT_HEADING, size=18)).pack(
+                         anchor="w", padx=18, pady=(16, 8))
+        swatches = [("Paper", "#F4F1EA"), ("Surface", UI_CARD), ("Ink", UI_TEXT),
+                    ("Accent (honey)", UI_ACCENT), ("Profit", "#1FA463"),
+                    ("Warning", UI_WARN), ("Danger", UI_DANGER)]
+        for name, hexv in swatches:
+            row = ctk.CTkFrame(win, fg_color="transparent"); row.pack(fill="x", padx=18, pady=3)
+            ctk.CTkFrame(row, width=28, height=20, corner_radius=5,
+                         fg_color=hexv, border_width=1, border_color=UI_BORDER).pack(side="left")
+            ctk.CTkLabel(row, text=f"  {name}", text_color=UI_TEXT,
+                         font=ctk.CTkFont(family=FONT_BODY, size=13)).pack(side="left")
+            ctk.CTkLabel(row, text=hexv, text_color=UI_MUTED,
+                         font=ctk.CTkFont(family=FONT_BODY, size=11)).pack(side="right")
 
     def _set_active_nav(self, key):
         """Highlight the current destination in the nav drawer: honey tint bg +
@@ -1769,17 +1810,20 @@ class BeetentApp(ctk.CTk):
                 b.configure(fg_color="transparent", text_color=UI_TEXT)
 
     def _toggle_nav_drawer(self):
-        if self.nav_drawer is None:
+        """☰ collapses / expands the persistent rail (reclaims map width)."""
+        rail = self.nav_drawer
+        if rail is None:
             return
-        if self.nav_drawer.winfo_ismapped():
-            self._close_nav_drawer()
+        if rail.winfo_ismapped():
+            rail.pack_forget()
         else:
-            self.nav_drawer.place(x=0, y=44, relheight=1.0)
-            self.nav_drawer.lift()
+            rail.pack(side="left", fill="y", before=self._toolbar)
 
     def _close_nav_drawer(self):
-        if self.nav_drawer is not None:
-            self.nav_drawer.place_forget()
+        # The rail is persistent now. The view-open methods used to call this to
+        # dismiss the old slide-in overlay; keep it as a no-op so those call
+        # sites stay harmless and the rail remains visible across view switches.
+        pass
 
     def _hide_all_views(self):
         for v in (self.body_frame,
