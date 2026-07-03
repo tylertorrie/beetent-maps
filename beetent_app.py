@@ -5140,27 +5140,35 @@ class BeetentApp(ctk.CTk):
         except Exception:
             pass
 
-    def _ensure_more_popup(self, t):
-        """Lazily build + cache the 'More ▾' overflow popup for a tool."""
-        p = t.get("_popup")
-        if p is not None and p.winfo_exists():
-            return p
-        popup = ctk.CTkFrame(self, fg_color=UI_CARD, border_width=1,
-                             border_color=UI_BORDER, corner_radius=6)
-        for lbl, cmd in t["more"]:
-            ctk.CTkButton(popup, text=lbl, anchor="w", height=30,
-                          fg_color="transparent", hover_color=UI_HOVER,
-                          text_color=UI_TEXT,
-                          command=lambda pp=popup, c=cmd: (pp.place_forget(), c())
-                          ).pack(fill="x", padx=2, pady=1)
-        self._all_popups.append(popup)
-        t["_popup"] = popup
-        return popup
+    @staticmethod
+    def _est_btn_w(text):
+        """Rough pixel width of an action button sized to its label (emoji-safe
+        enough for layout). Used to fit as many buttons as possible per row."""
+        return max(44, int(len(str(text)) * 7.3) + 22)
+
+    def _on_actions_configure(self, event=None):
+        """Debounced reflow of the ACTIONS row when its width changes (window
+        resize / panel collapse). Avoids re-packing on every Configure tick."""
+        job = getattr(self, "_actions_reflow_job", None)
+        if job:
+            try: self.after_cancel(job)
+            except Exception: pass
+        self._actions_reflow_job = self.after(100, self._render_tool_actions)
+
+    def _clear_tool_more_popup(self):
+        """Drop the current overflow popup (rebuilt fresh on every reflow since
+        which items overflow depends on the available width)."""
+        old = getattr(self, "_tool_more_popup", None)
+        if old is not None:
+            try:
+                if old in self._all_popups: self._all_popups.remove(old)
+                old.destroy()
+            except Exception: pass
+        self._tool_more_popup = None
 
     def _select_tool(self, key):
-        """Select a TOOL: highlight its chip and render its primary actions
-        inline (+ a 'More ▾' overflow). Does not invoke any command — it only
-        reveals the tool's actions, which the user then clicks."""
+        """Select a TOOL: highlight its chip and render its actions. Does not
+        invoke any command — it only reveals the tool's actions."""
         self._active_tool = key
         for k, sel in self._tool_selectors.items():
             if k == key:
@@ -5169,25 +5177,74 @@ class BeetentApp(ctk.CTk):
             else:
                 sel.configure(fg_color=UI_CARD, hover_color=UI_HOVER,
                               text_color=UI_TEXT, border_color=UI_BORDER)
-        for w in self._tool_actions.winfo_children():
+        self._render_tool_actions()
+
+    def _render_tool_actions(self):
+        """Fill the ACTIONS row with as many of the active tool's action buttons
+        as fit the current width, spilling the remainder into a single 'More ▾'
+        overflow only when space actually runs out. Re-runs on resize."""
+        self._actions_reflow_job = None
+        key = getattr(self, "_active_tool", None)
+        if not key or key not in getattr(self, "_tools_by_key", {}):
+            return
+        try:
+            self._tool_actions_row.update_idletasks()
+            avail = self._tool_actions_row.winfo_width() - 84   # ACTIONS label + pads
+        except Exception:
+            avail = 0
+        # Skip if nothing that affects the layout changed (avoids re-pack churn
+        # when Configure fires repeatedly at the same width).
+        sig = (key, avail if avail >= 120 else -1)
+        if sig == getattr(self, "_actions_last_sig", None):
+            return
+        self._actions_last_sig = sig
+        frame = self._tool_actions
+        for w in frame.winfo_children():
             w.destroy()
+        self._clear_tool_more_popup()
         t = self._tools_by_key[key]
+        actions = list(t["primary"]) + list(t["more"])   # full ordered list
         akw = dict(height=28, corner_radius=8, border_width=1,
                    fg_color=UI_CARD, hover_color=UI_HOVER, text_color=UI_TEXT,
                    border_color=UI_BORDER,
                    font=ctk.CTkFont(family=FONT_LABEL, size=12))
-        for lbl, cmd in t["primary"]:
-            ctk.CTkButton(self._tool_actions, text=lbl, command=cmd, **akw
-                          ).pack(side="left", padx=(0,4))
-        if t["more"]:
-            popup = self._ensure_more_popup(t)
-            mbtn = ctk.CTkButton(self._tool_actions, text="More ▾", width=78,
+        PAD = 4
+        more_w = self._est_btn_w("More ▾") + PAD
+        if avail < 120:
+            # Row not realised yet (build time): safe fallback = curated primary
+            # inline + the rest under More. The Configure event reflows it to the
+            # real width a moment later.
+            inline = list(t["primary"]); overflow = list(t["more"])
+        else:
+            inline, overflow, used = [], [], 0
+            for i, (lbl, cmd) in enumerate(actions):
+                bw = self._est_btn_w(lbl) + PAD
+                reserve = more_w if (len(actions) - (i + 1)) > 0 else 0
+                if not inline or used + bw + reserve <= avail:
+                    inline.append((lbl, cmd)); used += bw
+                else:
+                    overflow = actions[i:]; break
+        for lbl, cmd in inline:
+            ctk.CTkButton(frame, text=lbl, width=self._est_btn_w(lbl), command=cmd,
+                          **akw).pack(side="left", padx=(0, PAD))
+        if overflow:
+            popup = ctk.CTkFrame(self, fg_color=UI_CARD, border_width=1,
+                                 border_color=UI_BORDER, corner_radius=6)
+            for lbl, cmd in overflow:
+                ctk.CTkButton(popup, text=lbl, anchor="w", height=30,
+                              fg_color="transparent", hover_color=UI_HOVER,
+                              text_color=UI_TEXT,
+                              command=lambda pp=popup, c=cmd: (pp.place_forget(), c())
+                              ).pack(fill="x", padx=2, pady=1)
+            self._all_popups.append(popup)
+            self._tool_more_popup = popup
+            mbtn = ctk.CTkButton(frame, text="More ▾", width=self._est_btn_w("More ▾"),
                                  height=28, corner_radius=8, border_width=1,
                                  fg_color=UI_CARD, hover_color=UI_HOVER,
                                  text_color=UI_MUTED, border_color=UI_BORDER,
                                  font=ctk.CTkFont(family=FONT_LABEL, size=12))
             mbtn.configure(command=lambda p=popup, c=mbtn: self._toggle_popup(p, c))
-            mbtn.pack(side="left", padx=(4,0))
+            mbtn.pack(side="left", padx=(0, PAD))
 
     # ── Themed text-input popup (matches the light theme + fonts) ────────────
     def _ask_string(self, title, prompt):
@@ -5532,8 +5589,11 @@ class BeetentApp(ctk.CTk):
         row3 = ctk.CTkFrame(bb, fg_color="transparent"); row3.pack(fill="x", pady=(5,0))
         ctk.CTkLabel(row3, text="ACTIONS", text_color=UI_MUTED, width=64, anchor="w",
                      font=ctk.CTkFont(family=FONT_LABEL, size=11)).pack(side="left", padx=(2,10))
+        self._tool_actions_row = row3
         self._tool_actions = ctk.CTkFrame(row3, fg_color="transparent")
-        self._tool_actions.pack(side="left")
+        self._tool_actions.pack(side="left", fill="x", expand=True)
+        # Reflow the inline actions whenever the row's width changes.
+        row3.bind("<Configure>", self._on_actions_configure)
         self._active_tool = None
         self._select_tool("shelters")   # default tool (matches the mockup)
 
