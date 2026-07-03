@@ -6228,6 +6228,30 @@ class BeetentApp(ctk.CTk):
         self.refresh_img_btn.place(relx=1.0, rely=1.0, x=-14, y=-100, anchor="se")
         self.zoom_in_btn.place(relx=1.0, rely=1.0, x=-14, y=-58, anchor="se")
         self.zoom_out_btn.place(relx=1.0, rely=1.0, x=-14, y=-16, anchor="se")
+        self._build_map_legend()
+
+    def _build_map_legend(self):
+        """Small always-on map key (bottom-left). Colours mirror the LIVE overlay
+        colours drawn by the _redraw_* methods so it stays truthful."""
+        # (colour, label) — pivot point + track rings are both red, so grouped.
+        items = [("#FFD700", "Shelter"), ("#FF2A2A", "Pivot & tracks"),
+                 ("#2E9BF0", "Male bay"), ("#33FF66", "Sprayer limit"),
+                 ("#A855F7", "Crew route")]
+        card = ctk.CTkFrame(self.map_widget, fg_color=UI_CARD, corner_radius=8,
+                            border_width=1, border_color=UI_BORDER)
+        ctk.CTkLabel(card, text="LEGEND", text_color=UI_MUTED,
+                     font=ctk.CTkFont(family=FONT_LABEL, size=10)).pack(
+                         anchor="w", padx=12, pady=(8, 2))
+        for color, name in items:
+            row = ctk.CTkFrame(card, fg_color="transparent")
+            row.pack(fill="x", padx=12, pady=2)
+            sw = ctk.CTkFrame(row, width=14, height=14, corner_radius=3, fg_color=color)
+            sw.pack(side="left"); sw.pack_propagate(False)
+            ctk.CTkLabel(row, text="  " + name, text_color=UI_TEXT, anchor="w",
+                         font=ctk.CTkFont(family=FONT_BODY, size=11)).pack(side="left")
+        ctk.CTkFrame(card, height=6, fg_color="transparent").pack()
+        card.place(relx=0.0, rely=1.0, x=12, y=-12, anchor="sw")
+        self.map_legend = card
 
     # ── Bay Presets ────────────────────────────────────────────────────────────
     def _load_bay_presets(self):
