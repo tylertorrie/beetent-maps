@@ -5786,14 +5786,18 @@ class BeetentApp(ctk.CTk):
             ("acres",              "Acres",                  "Total field area in acres",              False),
         ]
         for key,display,hint,unit_dep in form_rows:
-            lbl=ctk.CTkLabel(fs,text=display,anchor="w",font=ctk.CTkFont(family=FONT_LABEL,size=11))
-            lbl.pack(fill="x")
+            # Redesign v2: small UPPERCASE muted field labels, airier spacing,
+            # taller inputs, wrapping hints (matches the target Details form).
+            lbl=ctk.CTkLabel(fs,text=display.upper(),anchor="w",text_color=UI_MUTED,
+                             font=ctk.CTkFont(family=FONT_LABEL,size=10))
+            lbl.pack(fill="x",pady=(8,1))
             if unit_dep: self.field_labels[key]=lbl
             if hint:
-                hl=ctk.CTkLabel(fs,text=hint,anchor="w",text_color=UI_MUTED,font=ctk.CTkFont(size=10))
+                hl=ctk.CTkLabel(fs,text=hint,anchor="w",text_color=UI_MUTED,justify="left",
+                                wraplength=300,font=ctk.CTkFont(size=10))
                 hl.pack(fill="x")
                 if unit_dep: self.hint_labels[key]=hl
-            v=tk.StringVar(); ctk.CTkEntry(fs,textvariable=v).pack(fill="x",pady=(0,5))
+            v=tk.StringVar(); ctk.CTkEntry(fs,textvariable=v,height=32).pack(fill="x",pady=(2,3))
             self.fv[key]=v
 
         # ── Shelters: choose how the exact count is specified ──
