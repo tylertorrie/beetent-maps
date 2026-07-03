@@ -6288,27 +6288,71 @@ class BeetentApp(ctk.CTk):
         self._build_map_legend()
 
     def _build_map_legend(self):
-        """Small always-on map key (bottom-left). Colours mirror the LIVE overlay
-        colours drawn by the _redraw_* methods so it stays truthful."""
-        # (colour, label) — pivot point + track rings are both red, so grouped.
-        items = [("#FFD700", "Shelter"), ("#FF2A2A", "Pivot & tracks"),
-                 ("#2E9BF0", "Male bay"), ("#33FF66", "Sprayer limit"),
-                 ("#A855F7", "Crew route")]
+        """Dynamic map key (bottom-left): lists ONLY the overlays currently
+        toggled on (layers + action overlays). Colours mirror the live _redraw_*
+        colours. Rebuilt whenever a relevant toggle changes; the card hides
+        entirely when nothing is on."""
+        # (state-getter -> bool, swatch colour, label). Getters read the same
+        # vars that gate each overlay's drawing, so the key tracks reality.
+        self._legend_spec = [
+            (lambda: self.shelters_visible_var.get(),  "#FFD700", "Shelter"),
+            (lambda: self.pivot_visible_var.get(),     "#FF2A2A", "Pivot & tracks"),
+            (lambda: self.boundary_visible_var.get() and bool(self.current_field.get("boundary_polygon")),
+                                                       "#00CED1", "Boundary"),
+            (lambda: self.planter_visible_var.get(),   "#2E9BF0", "Male bay"),
+            (lambda: self.sprayer_visible_var.get(),   "#33FF66", "Sprayer limit"),
+            (lambda: self.crews_visible_var.get(),     "#A855F7", "Crew route"),
+            (lambda: self.show_shelter_lines.get(),    "#101010", "Alignment lines"),
+            (lambda: self.show_wet_zones.get() and bool(self.current_field.get("wet_zones")),
+                                                       "#1E90FF", "Wet zone"),
+            (lambda: self.show_pass_buffer_overlay.get(), "#FF2A2A", "Tire zone"),
+            (lambda: self.show_pass_buffer_overlay.get(), "#22E048", "Edge zone"),
+        ]
         card = ctk.CTkFrame(self.map_widget, fg_color=UI_CARD, corner_radius=8,
                             border_width=1, border_color=UI_BORDER)
         ctk.CTkLabel(card, text="LEGEND", text_color=UI_MUTED,
                      font=ctk.CTkFont(family=FONT_LABEL, size=10)).pack(
                          anchor="w", padx=12, pady=(8, 2))
-        for color, name in items:
-            row = ctk.CTkFrame(card, fg_color="transparent")
+        self._legend_rows = ctk.CTkFrame(card, fg_color="transparent")
+        self._legend_rows.pack(fill="x", pady=(0, 6))
+        self.map_legend = card
+        # Refresh the key whenever any overlay toggle flips (from a LAYERS chip
+        # OR an ACTIONS toggle — both write these vars).
+        for var in (self.shelters_visible_var, self.pivot_visible_var,
+                    self.boundary_visible_var, self.planter_visible_var,
+                    self.sprayer_visible_var, self.crews_visible_var,
+                    self.show_shelter_lines, self.show_wet_zones,
+                    self.show_pass_buffer_overlay):
+            try: var.trace_add("write", lambda *a: self._refresh_legend())
+            except Exception: pass
+        self._refresh_legend()
+
+    def _refresh_legend(self):
+        """Rebuild the legend rows from _legend_spec, showing only on-entries;
+        hide the whole card when nothing is toggled on."""
+        rows = getattr(self, "_legend_rows", None)
+        card = getattr(self, "map_legend", None)
+        if rows is None or card is None:
+            return
+        for w in rows.winfo_children():
+            w.destroy()
+        any_on = False
+        for getter, color, name in self._legend_spec:
+            try: on = bool(getter())
+            except Exception: on = False
+            if not on:
+                continue
+            any_on = True
+            row = ctk.CTkFrame(rows, fg_color="transparent")
             row.pack(fill="x", padx=12, pady=2)
             sw = ctk.CTkFrame(row, width=14, height=14, corner_radius=3, fg_color=color)
             sw.pack(side="left"); sw.pack_propagate(False)
             ctk.CTkLabel(row, text="  " + name, text_color=UI_TEXT, anchor="w",
                          font=ctk.CTkFont(family=FONT_BODY, size=11)).pack(side="left")
-        ctk.CTkFrame(card, height=6, fg_color="transparent").pack()
-        card.place(relx=0.0, rely=1.0, x=12, y=-12, anchor="sw")
-        self.map_legend = card
+        if any_on:
+            card.place(relx=0.0, rely=1.0, x=12, y=-12, anchor="sw")
+        else:
+            card.place_forget()
 
     # ── Bay Presets ────────────────────────────────────────────────────────────
     def _load_bay_presets(self):
