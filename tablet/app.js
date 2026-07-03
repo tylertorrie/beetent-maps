@@ -467,7 +467,8 @@ async function reloadActiveField() {
   }
   map.getSource("field").setData(fc);
   refreshScanLayer(); updateScanProgress();
-  publishFieldState(document.getElementById("fieldname").textContent);
+  updateFieldSwitcher(); updatePlacementReadout();
+  publishFieldState(activeField.name || "Field");
 }
 
 // ---- Field calibration -------------------------------------------------------
@@ -585,23 +586,60 @@ function startCalibration() {
   if (!activeField || !(activeField.calibration && activeField.calibration.bay_centers_m)) {
     toast("No bay calibration data for this field."); return;
   }
-  if (!goodFix()) { toast("Need a better GPS fix to calibrate."); return; }
+  if (!goodFix()) { showCalDialog(null); return; }     // poor-fix branch
   const c = calcCalibration();
   if (!c) { toast("Couldn't compute a calibration."); return; }
-  showCalibConfirm(c);
+  showCalDialog(c);
 }
 
-function showCalibConfirm(c) {
-  const el = document.getElementById("calibconfirm");
-  const dist = Math.abs(feet(c.offM));
-  el.innerHTML =
-    '<div class="cc-msg">Shift bays & flags <b>' + dist.toFixed(1) + ' ft</b> to your position?'
-    + '<br><small>Sprayer tracks stay put.</small></div>'
-    + '<div class="cc-row"><button id="cc-cancel">Cancel</button>'
-    + '<button id="cc-apply" class="accent">Apply</button></div>';
+function closeCalDialog() { document.getElementById("caldialog").classList.add("hidden"); }
+
+// Branches on GPS fix quality: a good (RTK) fix → confirm the shift; a poor fix →
+// "need a better GPS fix" with a disabled apply.
+function showCalDialog(c) {
+  const el = document.getElementById("caldialog");
+  const accM = (pos && pos.acc != null) ? pos.acc : null;
+  const accStr = accM != null ? fmtAcc(accM) : (units === "metric" ? "±0.4 m" : "±1.2 ft");
+  let card;
+  if (c) {
+    const dist = fmtDist(Math.abs(c.offM));
+    card =
+      '<div class="cal-card"><div class="cal-top"><div class="cal-head">' +
+      '<div class="cal-icon ok">⌖</div>' +
+      '<div><div class="cal-title">Calibrate grid</div>' +
+      `<div class="cal-fix ok">RTK fix · ${accStr} accuracy</div></div></div>` +
+      `<div class="cal-body"><b>Shift bays &amp; flags ${dist} to your position?</b> ` +
+      'This nudges the whole grid to match where you’re standing on the most-centred male bay. ' +
+      'Sprayer tracks stay put.</div></div>' +
+      '<div class="cal-row"><button class="cal-cancel">Cancel</button>' +
+      '<button class="cal-ok">Apply shift</button></div></div>';
+  } else {
+    card =
+      '<div class="cal-card"><div class="cal-top"><div class="cal-head">' +
+      '<div class="cal-icon warn">⚠</div>' +
+      '<div><div class="cal-title">Need a better GPS fix</div>' +
+      `<div class="cal-fix warn">Current accuracy ${accStr}</div></div></div>` +
+      '<div class="cal-body">Too coarse to calibrate safely. Move to open sky, hold still, and ' +
+      'wait for an RTK fix before shifting the grid.</div></div>' +
+      '<div class="cal-row"><button class="cal-cancel">Cancel</button>' +
+      '<button class="cal-ok disabled">Waiting for RTK…</button></div></div>';
+  }
+  el.innerHTML = card;
   el.classList.remove("hidden");
-  document.getElementById("cc-cancel").onclick = () => el.classList.add("hidden");
-  document.getElementById("cc-apply").onclick = () => { el.classList.add("hidden"); applyCalibration(c); };
+  el.onclick = (e) => { if (e.target === el) closeCalDialog(); };
+  el.querySelector(".cal-cancel").onclick = closeCalDialog;
+  if (c) el.querySelector(".cal-ok").onclick = () => { closeCalDialog(); applyCalibration(c); };
+}
+
+// Green success toast (auto-dismiss). Distance already applied.
+function showCalSuccess(dist) {
+  const el = document.getElementById("caltoast");
+  el.innerHTML =
+    '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"></path></svg>' +
+    `<div><div class="ct-h">Calibrated</div><div class="ct-sub">Shift of ${dist} applied · queued for the office</div></div>`;
+  el.classList.remove("hidden");
+  clearTimeout(showCalSuccess._t);
+  showCalSuccess._t = setTimeout(() => el.classList.add("hidden"), 2800);
 }
 
 function applyCalibration(c) {
@@ -614,7 +652,7 @@ function applyCalibration(c) {
   const rec = { id, e: c.absE, n: c.absN, lat: pos.lat, lon: pos.lon,
                 crew: (window.beePublish ? beePublish.getCrew().name : ""), ts: Date.now() / 1000 };
   sendCalibration(activeFieldFile, rec);
-  toast("Calibrated ✓  (queued for the office)");
+  showCalSuccess(fmtDist(Math.abs(c.offM)));
   try { if (navigator.vibrate) navigator.vibrate(120); } catch (e) {}
 }
 
@@ -746,8 +784,9 @@ async function loadField(url, name) {
 
   map.getSource("field").setData(fc);
   const fname = name || fc.name || "Field";
-  document.getElementById("fieldname").textContent = fname;
+  activeField.name = fname;
   publishFieldState(fname);
+  updateFieldSwitcher(); updatePlacementReadout();
   fitToField();
   refreshScanLayer(); updateScanProgress();   // show this field's scanned pins
 }
@@ -823,6 +862,35 @@ function commitPoint() {
     const p = fieldProgress();
     window.beePublish.setProgress(p.placed, p.placedIds);
   }
+  updatePlacementReadout(); updateFieldSwitcher();
+}
+
+// Bottom-bar "Mark placed": mark the shelter the crew is standing at (the proximity
+// shelter, else the nearest planned shelter) as placed — one-tap field logging.
+function markPlaced() {
+  if (!activeField) { toast("Open a field first."); return; }
+  let target = null;
+  const shelters = activeField.features.filter((f) => f.properties.type === "shelter");
+  if (proxShelter) target = shelters.find((f) => f.properties.label === proxShelter);
+  if (!target && pos) {
+    let bestD = Infinity;
+    for (const f of shelters) {
+      const [lo, la] = f.geometry.coordinates;
+      const d = haversine(pos.lat, pos.lon, la, lo);
+      if (d < bestD) { bestD = d; target = f; }
+    }
+  }
+  if (!target) { toast("No shelter to mark — need a GPS position."); return; }
+  const label = target.properties.label;
+  const already = visited[label] ? visited[label].visited : !!target.properties.visited;
+  visited[label] = { visited: !already, note: (visited[label] && visited[label].note) || target.properties.note || "" };
+  target.properties.visited = !already;
+  map.getSource("field").setData(activeField);
+  if (activeFieldFile) beeDB.putState(activeFieldFile, { ...visited }).catch(() => {});
+  if (window.beePublish) { const p = fieldProgress(); window.beePublish.setProgress(p.placed, p.placedIds); }
+  updatePlacementReadout(); updateFieldSwitcher();
+  if (navigator.vibrate) navigator.vibrate(60);
+  toast(already ? `${label} un-marked` : `${label} marked placed ✓`);
 }
 
 // ---- View switching ---------------------------------------------------------
@@ -1180,6 +1248,97 @@ async function showAllFields() {
   let any = false;
   for (const f of fc.features) eachCoord(f.geometry, ([lon, lat]) => { b.extend([lon, lat]); any = true; });
   if (any) map.fitBounds(b, { padding: 50, maxZoom: 15 });
+}
+
+// ---- Map-mode field cards ---------------------------------------------------
+// A horizontally-scrolling rail of field cards (status dot + name + badge +
+// progress). Tapping a card opens that field in Work mode.
+async function buildFieldCards() {
+  const rail = document.getElementById("mapcards-rail");
+  if (!rail) return;
+  const idx = (await beeDB.getIndex().catch(() => null)) || [];
+  rail.innerHTML = "";
+  if (!idx.length) {
+    rail.innerHTML = '<div style="color:#F3EFE6;font-weight:600;padding:14px;">No fields synced yet — tap “Sync now”.</div>';
+    return;
+  }
+  for (const it of idx) {
+    let fc = await beeDB.getField(it.file).catch(() => null);
+    if (!fc) { try { const r = await fetch("fields/" + it.file); if (r.ok) fc = await r.json(); } catch (e) {} }
+    let total = 0, placed = 0, lld = "";
+    if (fc) {
+      const st = (await beeDB.getState(it.file).catch(() => null)) || {};
+      for (const f of (fc.features || [])) if (f.properties.type === "shelter") {
+        total++;
+        const v = st[f.properties.label];
+        if (v ? v.visited : f.properties.visited) placed++;
+      }
+      lld = (fc.field && (fc.field.lld || fc.field.LLD)) || "";
+    }
+    const pct = total ? Math.round((placed / total) * 100) : 0;
+    const done = total > 0 && placed === total;
+    const active = it.file === activeFieldFile;
+    const started = placed > 0;
+    const ring = done ? "#34C97B" : (started ? "#FF8A2B" : "#8A8477");
+    const badge = done ? "DONE" : (active ? "ACTIVE" : (started ? "IN PROGRESS" : "NOT STARTED"));
+    const badgeBg = done ? "#DBF0EE" : (active ? "#FBF1DD" : "#EFEAE1");
+    const badgeFg = done ? "#0C5B57" : (active ? "#6B4A0E" : "#8A8477");
+    const barColor = done ? "#34C97B" : "linear-gradient(90deg,#B87514,#E0951F)";
+    const pctColor = done ? "#1E8A45" : "#9A5B12";
+    const sub = [it.company, lld || it.year].filter(Boolean).join(" · ");
+
+    const card = document.createElement("button");
+    card.className = "fcard" + (active ? " active" : "");
+    card.innerHTML =
+      `<div class="fc-top"><span class="fc-dot" style="background:${ring};"></span>` +
+      `<span class="fc-name">${it.name}</span>` +
+      `<span class="fc-badge" style="background:${badgeBg};color:${badgeFg};">${badge}</span></div>` +
+      `<div class="fc-sub">${sub}</div>` +
+      `<div class="fc-prog"><span>${placed} / ${total} placed</span><span style="color:${pctColor};">${pct}%</span></div>` +
+      `<div class="fc-bar"><span style="width:${pct}%;background:${barColor};"></span></div>`;
+    card.onclick = () => { loadField("fields/" + it.file, it.name); setMode("work"); };
+    rail.appendChild(card);
+  }
+}
+
+// ---- System design-system reference (hidden page; need not ship) ------------
+let _systemBuilt = false;
+function buildSystemView() {
+  if (_systemBuilt) return;
+  _systemBuilt = true;
+  const el = document.getElementById("systemview");
+  if (!el) return;
+  const palette = [["Paper", "#F4F1EA"], ["Surface", "#FFFFFF"], ["Border", "#D8D2C4"],
+    ["Ink", "#221F1A"], ["Ink 2", "#5C564B"], ["Ink 3", "#938C7E"],
+    ["Honey", "#B87514"], ["Honey tint", "#FBF1DD"], ["Positive", "#1E8A45"], ["Danger", "#C4433B"]];
+  const overlays = [["Shelter pin", "#FFCE3A"], ["Pivot point", "#F5453D"], ["Pivot track", "#FF8A2B"],
+    ["Male bay", "#2E9BF0"], ["Alignment", "#86E0FF"], ["Sprayer", "#FF5A52"],
+    ["Wet zone", "#39B7D6"], ["Planter", "#8FBE3C"], ["Crew route", "#A06BFF"], ["Home/depot", "#2F7FE6"]];
+  const sw = (arr, dark) => arr.map(([n, h]) =>
+    `<div><div class="sw-chip" style="background:${h};"></div><div class="sw-name">${n}</div><div class="sw-hex">${h}</div></div>`).join("");
+  el.innerHTML =
+    '<div class="sys-wrap">' +
+    '<div class="sys-h1">Bee Tent Maps — Field Kit</div>' +
+    '<div class="sys-lead">Same family as the desktop planner — light warm shell, honey accent, dark satellite map as the hero — re-flowed for one-handed field use: bigger targets (≥56px), chunkier type, and chrome that stays legible in direct sun.</div>' +
+    '<div class="sys-eyebrow">Interface — light shell</div>' +
+    `<div class="sys-grid6">${sw(palette)}</div>` +
+    '<div class="sys-eyebrow">Map overlays — tuned to pop over satellite</div>' +
+    `<div class="sys-grid5">${sw(overlays, true)}</div>` +
+    '<div class="sys-eyebrow">Touch components &amp; field states</div>' +
+    '<div class="sys-card" style="display:flex;flex-direction:column;gap:22px;">' +
+      '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;">' +
+        '<button class="primary-btn" style="height:56px;">Primary</button>' +
+        '<button class="secondary-btn" style="height:56px;">Secondary</button>' +
+        '<span class="switch on"><span class="knob"></span></span>' +
+        '<span class="switch"><span class="knob"></span></span>' +
+      '</div>' +
+      '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;">' +
+        '<span style="display:inline-flex;align-items:center;gap:9px;height:44px;padding:0 15px;border-radius:12px;border:1px solid #B6DED9;background:#DBF0EE;color:#0C5B57;font-size:14px;font-weight:800;"><span style="width:11px;height:11px;border-radius:50%;background:#127C77;"></span>RTK · ±1.2 ft</span>' +
+        '<span style="display:inline-flex;align-items:center;gap:9px;height:44px;padding:0 15px;border-radius:12px;border:1px solid #F2DFC2;background:#FCF3E7;color:#9A5B12;font-size:14px;font-weight:800;"><span style="width:11px;height:11px;border-radius:50%;background:#D9822B;"></span>GPS · ±11 ft</span>' +
+      '</div>' +
+    '</div>' +
+    '<div class="sys-note">Family note · Overlay colors are kept identical to the desktop planner so a crew and an operator are literally looking at the same colors. Male bays stay desktop-blue (#2E9BF0) for that parity.</div>' +
+    '</div>';
 }
 
 // ---- Sheets -----------------------------------------------------------------
@@ -1560,6 +1719,29 @@ function closeCamera() {
   focusScanInput();
 }
 
+// ---- Display preferences (More sheet) ---------------------------------------
+function applyDisplayPrefs() {
+  document.body.classList.toggle("hc", highContrast);
+  toggleEl("legend", mode === "work" && legendPref);
+  const hcs = document.getElementById("tog-hc"); if (hcs) hcs.classList.toggle("on", highContrast);
+  const lgs = document.getElementById("tog-legend"); if (lgs) lgs.classList.toggle("on", legendPref);
+  const ui = document.getElementById("unit-imp"); if (ui) ui.classList.toggle("active", units === "imperial");
+  const um = document.getElementById("unit-met"); if (um) um.classList.toggle("active", units === "metric");
+}
+function setUnits(u) {
+  units = u; try { localStorage.setItem("beeUnits", u); } catch (e) {}
+  applyDisplayPrefs();
+  if (pos) updateStatus(pos, posSource);          // refresh the pill's accuracy string
+}
+function toggleHC() { highContrast = !highContrast; try { localStorage.setItem("beeHC", highContrast ? "1" : "0"); } catch (e) {} applyDisplayPrefs(); }
+function toggleLegend() { legendPref = !legendPref; try { localStorage.setItem("beeLegend", legendPref ? "1" : "0"); } catch (e) {} applyDisplayPrefs(); }
+function openMore() {
+  const cn = document.getElementById("crewname");
+  if (cn && window.beePublish) cn.textContent = window.beePublish.getCrew().name;
+  applyDisplayPrefs();
+  show("moresheet");
+}
+
 // ---- Online / offline indicator ---------------------------------------------
 function updateNet() {
   document.getElementById("netpill").classList.toggle("hidden", navigator.onLine);
@@ -1590,35 +1772,50 @@ window.addEventListener("DOMContentLoaded", () => {
   };
 
   // Field-update alert: baseline now, then poll while online + on focus/reconnect.
-  bind("updatebanner", "click", (e) => {
-    if (e.target.classList.contains("ub-x")) dismissUpdateBanner();
-    else applyFieldUpdates();
-  });
   checkFieldUpdates();
   setInterval(checkFieldUpdates, 45000);
   window.addEventListener("online", checkFieldUpdates);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) checkFieldUpdates(); });
 
-  bind("btn-work", "click", () => {
-    if (!activeField) { loadFieldList(); show("fieldsheet"); return; }  // nothing to work yet
-    setMode("work");
-  });
+  applyDisplayPrefs();
+
+  // Screen switcher + field switcher
+  bind("btn-work", "click", () => { if (!activeField) setMode("map"); else setMode("work"); });
   bind("btn-map", "click", () => setMode("map"));
-  bind("btn-labelmode", "click", toggleLabelMode);
-  // Work-mode guidance camera + layers controls
-  bind("btn-tilt", "click", toggleViewTilt);
-  bind("btn-recenter", "click", recenter);
+  bind("btn-system", "click", () => setMode("system"));
+  bind("fieldswitch", "click", () => setMode("map"));
+
+  // Work-mode view + camera
+  bind("btn-2d", "click", () => setView("2d"));
+  bind("btn-3d", "click", () => setView("3d"));
+  bind("btn-follow", "click", toggleFollow);
+
+  // Bottom action bar
   bind("btn-layers", "click", toggleLayersPanel);
   bind("btn-calibrate", "click", startCalibration);
+  bind("btn-markplaced", "click", markPlaced);
+  bind("btn-scan", "click", openScan);
+  bind("btn-checklist", "click", openChecklist);
   flushCalibQueue();
   window.addEventListener("online", flushCalibQueue);
   setInterval(flushCalibQueue, 30000);
-  bind("btn-zoomin", "click", () => zoomBy(1));
-  bind("btn-zoomout", "click", () => zoomBy(-1));
-  bind("btn-close-layers", "click", () => closeSheet("layerspanel"));
-  bind("btn-fields", "click", () => { loadFieldList(); show("fieldsheet"); });
+
+  // Layer slide-over
+  bind("btn-close-layers", "click", () => closeSheet("layerscrim"));
+  bind("btn-layers-done", "click", () => closeSheet("layerscrim"));
+  bind("btn-layers-default", "click", resetLayersDefault);
+  bind("layerscrim", "click", (e) => { if (e.target.id === "layerscrim") closeSheet("layerscrim"); });
+
+  // More sheet: crew, units, prefs, manage fields
+  bind("btn-more", "click", openMore);
+  bind("btn-close-more", "click", () => closeSheet("moresheet"));
+  bind("unit-imp", "click", () => setUnits("imperial"));
+  bind("unit-met", "click", () => setUnits("metric"));
+  bind("tog-hc", "click", toggleHC);
+  bind("tog-legend", "click", toggleLegend);
+  bind("btn-managefields", "click", () => { closeSheet("moresheet"); loadFieldList(); show("fieldsheet"); });
+
   bind("btn-close-fields", "click", () => closeSheet("fieldsheet"));
-  bind("btn-checklist", "click", openChecklist);
   bind("btn-close-checklist", "click", () => closeSheet("checklistsheet"));
 
   // Scan drawer + camera
