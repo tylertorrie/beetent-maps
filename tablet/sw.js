@@ -9,7 +9,7 @@
  * -first guarantees an online launch gets the latest, consistent code, while a
  * field launch (offline) still falls back to the cached shell.
  */
-const CACHE = "beetent-shell-v8";   // bump to force a fresh atomic re-cache
+const CACHE = "beetent-shell-v9";   // bump to force a fresh atomic re-cache
 const NET_TIMEOUT = 3500;           // ms before a slow network falls back to cache
 const ASSETS = [
   "./", "index.html", "app.js", "db.js", "tiles.js", "publish.js", "style.css",
