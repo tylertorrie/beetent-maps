@@ -1471,6 +1471,7 @@ class BeetentApp(ctk.CTk):
         self._build_body()
         self._build_nav_drawer()
         self._init_map()
+        self._set_map_toolbar_visible(False)   # no field yet → hide LAYERS/TOOL/ACTIONS
         self._refresh_unit_labels()
         self._refresh_company_list()
         self._refresh_preset_list()
@@ -5107,13 +5108,31 @@ class BeetentApp(ctk.CTk):
             pass
 
     def _set_menu_checkboxes_visible(self, visible):
-        """Show or hide the master-toggle checkboxes on every toolbar menu button."""
+        """Field-active hook: also shows/hides the whole map toolbar
+        (LAYERS/TOOL/ACTIONS), which only makes sense once a field is loaded."""
         for cb, lbl in self._menu_checkboxes:
             if visible:
                 # Re-insert the checkbox to the left of the label so centering is preserved
                 cb.pack(side="left", padx=(7, 0), pady=5, before=lbl)
             else:
                 cb.pack_forget()
+        self._set_map_toolbar_visible(visible)
+
+    def _set_map_toolbar_visible(self, visible):
+        """Show/hide the map's LAYERS/TOOL/ACTIONS bar. When shown it re-packs
+        ABOVE the map widget; when hidden the map reclaims the space."""
+        tb = getattr(self, "_map_toolbar", None)
+        if tb is None:
+            return
+        if visible:
+            if not tb.winfo_ismapped():
+                mw = getattr(self, "map_widget", None)
+                if mw is not None and mw.winfo_exists():
+                    tb.pack(fill="x", padx=6, pady=(6, 2), before=mw)
+                else:
+                    tb.pack(fill="x", padx=6, pady=(6, 2))
+        else:
+            tb.pack_forget()
 
     def _show_context_btn(self, text, cmd):
         self.btn_context.configure(text=text, command=cmd, state="normal", fg_color=UI_ACCENT)
@@ -5514,6 +5533,7 @@ class BeetentApp(ctk.CTk):
         # ── Dropdown button bar ──
         bb=ctk.CTkFrame(mf,fg_color="transparent")
         bb.pack(fill="x",padx=6,pady=(6,2))
+        self._map_toolbar = bb   # LAYERS/TOOL/ACTIONS — shown only when a field is active
 
         # ── Two-row map toolbar (redesign v2) ──────────────────────────────────
         # Row 1 = LAYERS visibility chips (reuse the existing *_visible_var/fn).
