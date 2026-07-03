@@ -94,7 +94,7 @@
     "selected_hover_color": ["#9E6410", "#9E6410"],
     "unselected_color": ["#F0ECE3", "#F0ECE3"],
     "unselected_hover_color": ["#E7E1D6", "#E7E1D6"],
-    "text_color": ["#FFFFFF", "#FFFFFF"],
+    "text_color": ["#3A352C", "#3A352C"],
     "text_color_disabled": ["#B4AD9E", "#B4AD9E"]
   },
 

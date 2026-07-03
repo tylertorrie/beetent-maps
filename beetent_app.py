@@ -5637,7 +5637,7 @@ class BeetentApp(ctk.CTk):
             ctk.CTkLabel(row,text=label,width=65,anchor="e").pack(side="left")
             var=tk.StringVar(value=values_init[0] if values_init else "")
             setattr(self,var_attr,var)
-            cb=ctk.CTkComboBox(row,variable=var,values=values_init,width=140,
+            cb=ctk.CTkComboBox(row,variable=var,values=values_init,width=185,
                                command=self._on_company_change if "company" in var_attr else self._on_year_change)
             cb.pack(side="left",padx=4); setattr(self,cb_attr,cb)
             ctk.CTkButton(row,text="+",width=30,command=new_cmd).pack(side="left")
