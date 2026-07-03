@@ -3398,6 +3398,7 @@ class BeetentApp(ctk.CTk):
 
     def _build_monitor_view(self):
         self.monitor_view = ctk.CTkFrame(self, corner_radius=0)
+        self._load_crew_names()       # user-set crew name overrides
         self._mon_markers = {}        # crew_id -> map marker
         self._mon_marker_color = {}   # crew_id -> last marker colour (recolour on change)
         self._mon_rows = {}           # crew_id -> dict of row widgets
@@ -3794,7 +3795,7 @@ class BeetentApp(ctk.CTk):
                 try: m.delete()
                 except Exception: pass
             m = self.monitor_map.set_marker(
-                crew["lat"], crew["lon"], text=crew.get("name", cid),
+                crew["lat"], crew["lon"], text=self._crew_display_name(crew),
                 marker_color_circle=color, marker_color_outside="#222222",
                 text_color=UI_TEXT)
             self._mon_markers[cid] = m
@@ -3820,6 +3821,12 @@ class BeetentApp(ctk.CTk):
             badge = ctk.CTkLabel(top, text="", width=54, corner_radius=6,
                                  font=ctk.CTkFont(size=11, weight="bold"))
             badge.pack(side="right")
+            # ✎ rename this crew (own click — doesn't trigger the card's focus bind).
+            edit = ctk.CTkButton(top, text="✎", width=26, height=22,
+                                 fg_color="transparent", hover_color=UI_HOVER,
+                                 text_color=UI_MUTED,
+                                 command=lambda c=cid: self._monitor_rename_crew(c))
+            edit.pack(side="right", padx=(0, 4))
             field = ctk.CTkLabel(card, text="", anchor="w", text_color=UI_TEXT,
                                  font=ctk.CTkFont(family=FONT_LABEL, size=12))
             field.pack(fill="x", padx=8)
@@ -3834,7 +3841,7 @@ class BeetentApp(ctk.CTk):
             row = {"card": card, "name": name, "badge": badge,
                    "field": field, "prog": prog, "seen": seen}
             self._mon_rows[cid] = row
-        row["name"].configure(text=crew.get("name", cid))
+        row["name"].configure(text=self._crew_display_name(crew))
         row["badge"].configure(text=self._mon_fix_text(crew.get("fix")), fg_color=color,
                                text_color="#111111" if crew.get("fix") == 5 else "#ffffff")
         row["field"].configure(text="📍 " + str(crew.get("field", "—")))
@@ -3848,6 +3855,59 @@ class BeetentApp(ctk.CTk):
             row["card"].configure(border_color="#1faa59" if c == cid else UI_BORDER)
         # State-mirror: overlay this crew's field + which shelters they've placed.
         self._monitor_mirror(cid)
+
+    # ── Editable crew names (local override on top of the live feed) ──────────
+    # The feed re-reports each crew's name on every update, so a user-set name is
+    # kept as an override keyed by crew id and re-applied on render. Stored in
+    # fields/crew_names.json so it syncs across devices like the field data.
+    def _load_crew_names(self):
+        if getattr(self, "_mon_name_overrides", None) is not None:
+            return
+        self._mon_name_overrides = {}
+        try:
+            p = DATA_DIR / "crew_names.json"
+            if p.exists():
+                self._mon_name_overrides = json.loads(p.read_text(encoding="utf-8")) or {}
+        except Exception:
+            self._mon_name_overrides = {}
+
+    def _save_crew_names(self):
+        try:
+            (DATA_DIR / "crew_names.json").write_text(
+                json.dumps(self._mon_name_overrides, indent=2), encoding="utf-8")
+        except Exception:
+            pass
+
+    def _crew_display_name(self, crew):
+        """Override name if the user set one, else the feed's name, else the id."""
+        self._load_crew_names()
+        cid = str(crew.get("id"))
+        return self._mon_name_overrides.get(cid) or crew.get("name") or cid
+
+    def _monitor_rename_crew(self, cid):
+        crew = self._mon_state.get(cid) or {"id": cid}
+        cur = self._crew_display_name(crew)
+        new = self._ask_string("Rename crew",
+                               f"Name for this crew (blank clears; current: {cur}):")
+        if new is None:
+            return
+        self._load_crew_names()
+        new = new.strip()
+        if new:
+            self._mon_name_overrides[str(cid)] = new
+        else:
+            self._mon_name_overrides.pop(str(cid), None)   # blank → back to feed name
+        self._save_crew_names()
+        # Re-render this crew's marker (recreated for the new text) + row.
+        c = self._mon_state.get(cid)
+        if c is not None:
+            mk = self._mon_markers.pop(cid, None)
+            if mk is not None:
+                try: mk.delete()
+                except Exception: pass
+            self._mon_marker_color.pop(cid, None)
+            self._monitor_on_update(c)
+        self._status(f"Crew renamed to “{self._crew_display_name(crew)}”.")
 
     # ── Monitor state-mirror ────────────────────────────────────────────────
     def _load_tablet_field(self, field_file):
@@ -3882,7 +3942,7 @@ class BeetentApp(ctk.CTk):
         if geo is None:
             self._mon_mirror_crew = cid
             self._mon_mirror_label.configure(
-                text=f"⚠ {crew.get('name', cid)} — field geometry not found locally "
+                text=f"⚠ {self._crew_display_name(crew)} — field geometry not found locally "
                      f"({crew.get('field', '?')})")
             self._show_mirror_bar()
             # Still center on the crew so they're not lost.
@@ -3941,7 +4001,7 @@ class BeetentApp(ctk.CTk):
         crew = self._mon_state.get(self._mon_mirror_crew) or {}
         if self._mon_mirror_shelters:
             self._mon_mirror_label.configure(
-                text=f"👁 Mirroring {crew.get('name', '')} — {crew.get('field', '')}   "
+                text=f"👁 Mirroring {self._crew_display_name(crew)} — {crew.get('field', '')}   "
                      f"🐝 {crew.get('placed', 0)}/{crew.get('total', 0)} placed")
         if not self._mon_mirror_bar.winfo_ismapped():
             self._mon_mirror_bar.pack(fill="x", padx=12, pady=(0, 4), before=self._mon_body)
