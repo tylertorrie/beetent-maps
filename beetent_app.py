@@ -5160,6 +5160,22 @@ class BeetentApp(ctk.CTk):
             except Exception: pass
         self._actions_reflow_job = self.after(100, self._render_tool_actions)
 
+    def _action_on(self, lbl):
+        """True if action `lbl` is a toggle that's currently on (else False)."""
+        st = getattr(self, "_action_states", {}).get(lbl)
+        if not st:
+            return None            # not a toggle
+        try:
+            return bool(st())
+        except Exception:
+            return False
+
+    def _force_reflow_actions(self):
+        """Re-render the ACTIONS row even at the same width (used after a toggle
+        so its highlight updates); bypasses the (tool, width) signature guard."""
+        self._actions_last_sig = None
+        self._render_tool_actions()
+
     def _clear_tool_more_popup(self):
         """Drop the current overflow popup (rebuilt fresh on every reflow since
         which items overflow depends on the available width)."""
@@ -5235,16 +5251,29 @@ class BeetentApp(ctk.CTk):
                 else:
                     overflow = actions[i:]; break
         for lbl, cmd in inline:
-            ctk.CTkButton(frame, text=lbl, width=self._est_btn_w(lbl), command=cmd,
-                          **akw).pack(side="left", padx=(0, PAD))
+            state = self._action_on(lbl)      # None=command, True/False=toggle
+            kw = dict(akw)
+            if state:                          # toggle currently ON → filled honey
+                kw.update(fg_color=UI_ACCENT, hover_color=UI_ACCENT,
+                          text_color="#FFFFFF", border_color=UI_ACCENT)
+            rcmd = ((lambda c=cmd: (c(), self._force_reflow_actions()))
+                    if state is not None else cmd)   # toggles re-render after click
+            ctk.CTkButton(frame, text=lbl, width=self._est_btn_w(lbl), command=rcmd,
+                          **kw).pack(side="left", padx=(0, PAD))
         if overflow:
             popup = ctk.CTkFrame(self, fg_color=UI_CARD, border_width=1,
                                  border_color=UI_BORDER, corner_radius=6)
             for lbl, cmd in overflow:
+                state = self._action_on(lbl)
+                tcol = UI_ACCENT if state else UI_TEXT   # honey label while on
+                if state is not None:
+                    rc = (lambda pp=popup, c=cmd:
+                          (pp.place_forget(), c(), self._force_reflow_actions()))
+                else:
+                    rc = (lambda pp=popup, c=cmd: (pp.place_forget(), c()))
                 ctk.CTkButton(popup, text=lbl, anchor="w", height=30,
                               fg_color="transparent", hover_color=UI_HOVER,
-                              text_color=UI_TEXT,
-                              command=lambda pp=popup, c=cmd: (pp.place_forget(), c())
+                              text_color=tcol, command=rc
                               ).pack(fill="x", padx=2, pady=1)
             self._all_popups.append(popup)
             self._tool_more_popup = popup
@@ -5547,6 +5576,26 @@ class BeetentApp(ctk.CTk):
              "more":[]},
         ]
         self._tools_by_key = {t["key"]: t for t in self._tools}
+
+        # Which action labels are on/off (or radio) toggles, and how to read
+        # their current state. Buttons with an entry here are highlighted honey
+        # while on (like the LAYERS chips) and re-render after a click.
+        self._action_states = {
+            "Toggle Alignment Lines":     lambda: bool(self.show_shelter_lines.get()),
+            "Show Planned / Actual":      lambda: getattr(self, "shelter_view", "planned") == "actual",
+            "Toggle Shelter Buffer Zone": lambda: bool(self.shelter_circle_var.get()),
+            "Numbers: Tray count":        lambda: getattr(self, "pin_label_mode", "off") == "trays",
+            "Numbers: Shelter #":         lambda: getattr(self, "pin_label_mode", "off") == "shelters",
+            "Numbers: Off":               lambda: getattr(self, "pin_label_mode", "off") == "off",
+            "Toggle Wet Zones":           lambda: bool(self.show_wet_zones.get()),
+            "Toggle Field Info":          lambda: bool(self.show_field_info.get()),
+            "Toggle Uploaded Paths":      lambda: bool(self.show_sprayer_passes.get()),
+            "Toggle Tire & Edge Zone":    lambda: bool(self.show_pass_buffer_overlay.get()),
+            "Toggle Pass Through Inner":  lambda: bool(self.current_field.get("sprayer_routes_around_inner", True)),
+            "Number Planter Passes":      lambda: bool(self.show_planter_numbers.get()),
+            "Toggle Bays Through Inner":  lambda: bool(self.current_field.get("bays_through_inner", False)),
+            "Toggle Two Pivots":          lambda: bool(self.two_pivots_var.get()),
+        }
 
         # Row 1 — LAYERS visibility chips.
         row1 = ctk.CTkFrame(bb, fg_color="transparent"); row1.pack(fill="x")
