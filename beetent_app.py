@@ -12871,7 +12871,16 @@ class BeetentApp(ctk.CTk):
                     if hit:
                         self.after(1, lambda h=hit: self._activate_field(*h))
                     else:
-                        self._on_map_click((lat,lon))
+                        # No other field hit. If a field is active and the click
+                        # landed OUTSIDE its boundary, deselect → general map view.
+                        cur = self.current_field or {}
+                        abp = cur.get("boundary_polygon")
+                        if cur.get("Name") and abp and len(abp) >= 3 \
+                           and not _pt_in_poly(lat, lon, abp):
+                            self._status("Field deselected.")
+                            self.after(1, self._deactivate_field)
+                        else:
+                            self._on_map_click((lat,lon))
                 except Exception: pass
         else:
             # Pan finished — let tkintermapview run its fading animation
