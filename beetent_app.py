@@ -5113,6 +5113,82 @@ class BeetentApp(ctk.CTk):
         self.btn_context.configure(state="disabled", text="", command=lambda: None)
         self.btn_context.pack_forget()   # remove entirely so no empty grey box shows
 
+    # ── Two-row map toolbar: LAYERS chips + TOOL strip (redesign v2) ─────────
+    def _style_layer_chip(self, key):
+        """Colour a LAYERS chip by its visibility var: honey when on, neutral
+        surface when off. Driven by a var trace so it stays in sync no matter
+        who flips the var."""
+        chip = getattr(self, "_layer_chips", {}).get(key)
+        if chip is None:
+            return
+        on = bool(self._tools_by_key[key]["var"].get())
+        if on:
+            chip.configure(fg_color=UI_ACCENT, hover_color=UI_ACCENT,
+                           text_color="#FFFFFF", border_color=UI_ACCENT)
+        else:
+            chip.configure(fg_color=UI_CARD, hover_color=UI_HOVER,
+                           text_color=UI_TEXT, border_color=UI_BORDER)
+
+    def _toggle_layer(self, key):
+        """Flip a layer's visibility (same var + redraw fn the old master-toggle
+        checkbox used). The var trace restyles the chip."""
+        t = self._tools_by_key[key]
+        newval = not bool(t["var"].get())
+        t["var"].set(newval)
+        try:
+            t["fn"](newval)
+        except Exception:
+            pass
+
+    def _ensure_more_popup(self, t):
+        """Lazily build + cache the 'More ▾' overflow popup for a tool."""
+        p = t.get("_popup")
+        if p is not None and p.winfo_exists():
+            return p
+        popup = ctk.CTkFrame(self, fg_color=UI_CARD, border_width=1,
+                             border_color=UI_BORDER, corner_radius=6)
+        for lbl, cmd in t["more"]:
+            ctk.CTkButton(popup, text=lbl, anchor="w", height=30,
+                          fg_color="transparent", hover_color=UI_HOVER,
+                          text_color=UI_TEXT,
+                          command=lambda pp=popup, c=cmd: (pp.place_forget(), c())
+                          ).pack(fill="x", padx=2, pady=1)
+        self._all_popups.append(popup)
+        t["_popup"] = popup
+        return popup
+
+    def _select_tool(self, key):
+        """Select a TOOL: highlight its chip and render its primary actions
+        inline (+ a 'More ▾' overflow). Does not invoke any command — it only
+        reveals the tool's actions, which the user then clicks."""
+        self._active_tool = key
+        for k, sel in self._tool_selectors.items():
+            if k == key:
+                sel.configure(fg_color=UI_ACCENT, hover_color=UI_ACCENT,
+                              text_color="#FFFFFF", border_color=UI_ACCENT)
+            else:
+                sel.configure(fg_color=UI_CARD, hover_color=UI_HOVER,
+                              text_color=UI_TEXT, border_color=UI_BORDER)
+        for w in self._tool_actions.winfo_children():
+            w.destroy()
+        t = self._tools_by_key[key]
+        akw = dict(height=28, corner_radius=8, border_width=1,
+                   fg_color=UI_CARD, hover_color=UI_HOVER, text_color=UI_TEXT,
+                   border_color=UI_BORDER,
+                   font=ctk.CTkFont(family=FONT_LABEL, size=12))
+        for lbl, cmd in t["primary"]:
+            ctk.CTkButton(self._tool_actions, text=lbl, command=cmd, **akw
+                          ).pack(side="left", padx=(0,4))
+        if t["more"]:
+            popup = self._ensure_more_popup(t)
+            mbtn = ctk.CTkButton(self._tool_actions, text="More ▾", width=78,
+                                 height=28, corner_radius=8, border_width=1,
+                                 fg_color=UI_CARD, hover_color=UI_HOVER,
+                                 text_color=UI_MUTED, border_color=UI_BORDER,
+                                 font=ctk.CTkFont(family=FONT_LABEL, size=12))
+            mbtn.configure(command=lambda p=popup, c=mbtn: self._toggle_popup(p, c))
+            mbtn.pack(side="left", padx=(4,0))
+
     # ── Themed text-input popup (matches the light theme + fonts) ────────────
     def _ask_string(self, title, prompt):
         """Light-themed input dialog (CTkInputDialog) replacing the native
@@ -5333,115 +5409,129 @@ class BeetentApp(ctk.CTk):
         bb=ctk.CTkFrame(mf,fg_color="transparent")
         bb.pack(fill="x",padx=6,pady=(6,2))
 
-        # Pivot menu: pivot point + pivot tracks (concentric circles) + corner
-        # tracks (polygon paths anchored to absolute lat/lon — stay put when
-        # the pivot is moved). All share the same exclusion width.
-        self._pivot_btn = self._make_menu_btn(bb, "🎯 Pivot", [
-            ("Set Pivot Point",         self._mode_pivot),
-            ("Draw Track Circle",       self._mode_track),
-            ("Edit Span Lengths",       self._mode_edit_track_measurements),
-            ("Set Buffer Zone (ft)",    self._edit_track_exclusion),
-            ("Add Corner Path",         self._mode_add_corner_path),
-            ("—  Second Pivot (rare)  —", lambda: None),
-            ("Toggle Two Pivots",       self._toggle_two_pivots),
-            ("Set 2nd Pivot Point",     self._mode_pivot2),
-        ], color="#1a6b3a",
-           toggle_var=self.pivot_visible_var, toggle_fn=self._set_pivot_visible)
-        self._pivot_btn.pack(side="left", padx=(0,4))
+        # ── Two-row map toolbar (redesign v2) ──────────────────────────────────
+        # Row 1 = LAYERS visibility chips (reuse the existing *_visible_var/fn).
+        # Row 2 = a TOOL strip whose selected tool reveals its primary actions
+        # inline, with a "More ▾" overflow for the long tail. Every command and
+        # visibility var below is reused verbatim from the old dropdown menus.
+        self._tools = [
+            {"key":"pivot","label":"🎯 Pivot",
+             "var":self.pivot_visible_var,"fn":self._set_pivot_visible,
+             "primary":[("Set Pivot Point",self._mode_pivot),
+                        ("Draw Track Circle",self._mode_track),
+                        ("Add Corner Path",self._mode_add_corner_path)],
+             "more":[("Edit Span Lengths",self._mode_edit_track_measurements),
+                     ("Set Buffer Zone (ft)",self._edit_track_exclusion),
+                     ("Toggle Two Pivots",self._toggle_two_pivots),
+                     ("Set 2nd Pivot Point",self._mode_pivot2)]},
+            {"key":"boundary","label":"◌ Boundary",
+             "var":self.boundary_visible_var,"fn":self._set_boundary_visible,
+             "primary":[("Draw Outer",self._mode_boundary),
+                        ("Draw Circle Outer",self._mode_boundary_circle),
+                        ("Upload File",self._upload_boundary),
+                        ("Edit Outer",self._mode_edit_boundary)],
+             "more":[("Add Inner Boundary",self._mode_add_inner_boundary),
+                     ("Edit Inner Boundary",self._mode_edit_inner_boundary),
+                     ("Delete Inner",self._mode_delete_inner_boundary),
+                     ("Add Pivot Access Road",self._mode_add_access_road),
+                     ("Edit Access Road",self._mode_edit_access_road),
+                     ("Delete Access Road",self._mode_delete_access_road),
+                     ("Add Wet Zone",self._mode_add_wet_zone),
+                     ("Edit Wet Zone",self._mode_edit_wet_zone),
+                     ("Delete Wet Zone",self._mode_delete_wet_zone),
+                     ("Toggle Wet Zones",self._toggle_wet_zones),
+                     ("Set Entrance Pin",self._mode_set_entrance),
+                     ("Set Parking Pin",self._mode_set_parking),
+                     ("Set Home Pin (depot)",self._mode_set_home),
+                     ("Delete Entrance / Parking",self._delete_field_info_pin),
+                     ("Toggle Field Info",self._toggle_field_info)]},
+            {"key":"sprayer","label":"⋰⋮⋱ Sprayer",
+             "var":self.sprayer_visible_var,"fn":self._set_sprayer_visible,
+             "primary":[("Shift",self._mode_shift_sprayer),
+                        ("Import Sprayer Data",self._import_sprayer_data),
+                        ("Toggle Uploaded Paths",self._toggle_sprayer_passes)],
+             "more":[("Clear Uploaded Paths",self._clear_sprayer_data),
+                     ("Set Edge Zone & Tire Width",self._edit_pass_edge_buffer),
+                     ("Toggle Tire & Edge Zone",self._toggle_pass_buffer_overlay),
+                     ("Toggle Pass Through Inner",self._toggle_route_around_inner)]},
+            {"key":"planter","label":"🌱 Planter",
+             "var":self.planter_visible_var,"fn":self._set_planter_visible,
+             "primary":[("Shift",self._mode_shift_planter),
+                        ("Import Planter Data",self._import_planter_data),
+                        ("Number Planter Passes",self._toggle_planter_pass_numbers)],
+             "more":[("Clear Planter Data",self._clear_planter_passes),
+                     ("Toggle Bays Through Inner",self._toggle_bays_through_inner)]},
+            {"key":"shelters","label":"🐝 Shelters",
+             "var":self.shelters_visible_var,"fn":self._set_shelters_visible,
+             "primary":[("Add Shelter Pin",self._mode_add_shelter),
+                        ("Toggle Alignment Lines",self._toggle_shelter_lines),
+                        ("Show Planned / Actual",self._toggle_shelter_view)],
+             "more":[("Numbers: Tray count",lambda:self._set_pin_mode("trays")),
+                     ("Numbers: Shelter #",lambda:self._set_pin_mode("shelters")),
+                     ("Numbers: Off",lambda:self._set_pin_mode("off")),
+                     ("Toggle Shelter Buffer Zone",self._toggle_shelter_buffers),
+                     ("Set Shelter Buffer Size",self._edit_shelter_buffer),
+                     ("Import Actual Shelter Pins (CSV)",self._import_actual_shelters)]},
+            {"key":"crews","label":"🚜 Crews",
+             "var":self.crews_visible_var,"fn":self._set_crews_visible,
+             "primary":[("Show driving distance",self._crew_distance_status),
+                        ("Edit Crew Route",self._mode_edit_crew_route),
+                        ("Reset Crew Route",self._reset_crew_route)],
+             "more":[]},
+        ]
+        self._tools_by_key = {t["key"]: t for t in self._tools}
 
-        self._bnd_btn = self._make_menu_btn(bb, "◌ Boundary", [
-            ("Draw Outer",                self._mode_boundary),
-            ("Draw Circle Outer Boundary", self._mode_boundary_circle),
-            ("Upload File",           self._upload_boundary),
-            ("Edit Outer Boundary",   self._mode_edit_boundary),
-            ("Add Inner Boundary",    self._mode_add_inner_boundary),
-            ("Edit Inner Boundary",   self._mode_edit_inner_boundary),
-            ("Delete Inner",          self._mode_delete_inner_boundary),
-            ("Add Pivot Access Road", self._mode_add_access_road),
-            ("Edit Access Road",      self._mode_edit_access_road),
-            ("Delete Access Road",    self._mode_delete_access_road),
-            ("—  Wet Zones  —",       lambda: None),
-            ("Add Wet Zone",          self._mode_add_wet_zone),
-            ("Edit Wet Zone",         self._mode_edit_wet_zone),
-            ("Delete Wet Zone",       self._mode_delete_wet_zone),
-            ("Toggle Wet Zones",      self._toggle_wet_zones),
-            ("—  Additional Field Info  —", lambda: None),
-            ("Set Entrance Pin",      self._mode_set_entrance),
-            ("Set Parking Pin",       self._mode_set_parking),
-            ("Set Home Pin (depot)",  self._mode_set_home),
-            ("Delete Entrance / Parking", self._delete_field_info_pin),
-            ("Toggle Field Info",     self._toggle_field_info),
-        ], color="#5a3a8a",
-           toggle_var=self.boundary_visible_var, toggle_fn=self._set_boundary_visible)
-        self._bnd_btn.pack(side="left", padx=(0,4))
+        # Row 1 — LAYERS visibility chips.
+        row1 = ctk.CTkFrame(bb, fg_color="transparent"); row1.pack(fill="x")
+        ctk.CTkLabel(row1, text="LAYERS", text_color=UI_MUTED,
+                     font=ctk.CTkFont(family=FONT_LABEL, size=11)).pack(side="left", padx=(2,10))
+        self._layer_chips = {}
+        for t in self._tools:
+            key = t["key"]
+            chip = ctk.CTkButton(row1, text=t["label"], height=28, corner_radius=8,
+                                 border_width=1,
+                                 font=ctk.CTkFont(family=FONT_LABEL, size=12),
+                                 command=lambda k=key: self._toggle_layer(k))
+            chip.pack(side="left", padx=(0,4))
+            self._layer_chips[key] = chip
+            t["var"].trace_add("write", lambda *a, k=key: self._style_layer_chip(k))
+            self._style_layer_chip(key)
 
-        self._sp_btn = self._make_menu_btn(bb, "⋰⋮⋱ Sprayer", [
-            ("Shift",                           self._mode_shift_sprayer),
-            ("Import Sprayer Data (.shp/.geojson)", self._import_sprayer_data),
-            ("Toggle Uploaded Paths on/off",    self._toggle_sprayer_passes),
-            ("Clear Uploaded Paths",            self._clear_sprayer_data),
-            ("Set Sprayer Edge Zone and Tire Width", self._edit_pass_edge_buffer),
-            ("Toggle Tire and Sprayer Edge Zone",    self._toggle_pass_buffer_overlay),
-            ("Toggle Pass Through Inner Boundaries", self._toggle_route_around_inner),
-        ], color="#2a5a4a",
-           toggle_var=self.sprayer_visible_var, toggle_fn=self._set_sprayer_visible)
-        self._sp_btn.pack(side="left", padx=(0,4))
+        # Row 2 — TOOL strip: selector chips + inline actions for the active tool.
+        row2 = ctk.CTkFrame(bb, fg_color="transparent"); row2.pack(fill="x", pady=(5,0))
+        ctk.CTkLabel(row2, text="TOOL", text_color=UI_MUTED,
+                     font=ctk.CTkFont(family=FONT_LABEL, size=11)).pack(side="left", padx=(2,10))
+        self._tool_selectors = {}
+        for t in self._tools:
+            key = t["key"]
+            sel = ctk.CTkButton(row2, text=t["label"], height=28, corner_radius=8,
+                                border_width=1,
+                                font=ctk.CTkFont(family=FONT_LABEL, size=12),
+                                command=lambda k=key: self._select_tool(k))
+            sel.pack(side="left", padx=(0,4))
+            self._tool_selectors[key] = sel
 
-        # Planter menu: synthetic bay overlay (from bay-calculator inputs) PLUS
-        # imported planter passes from a John Deere Operations Center Seeding
-        # shapefile (the actual path the planter took on this field).
-        self._pl_btn = self._make_menu_btn(bb, "🌱 Planter", [
-            ("Shift",                     self._mode_shift_planter),
-            ("Import Planter Data (.shp)", self._import_planter_data),
-            ("Clear Planter Data",        self._clear_planter_passes),
-            ("Number Planter Passes (toggle)", self._toggle_planter_pass_numbers),
-            ("Toggle Bays Through Inner Boundaries", self._toggle_bays_through_inner),
-        ], color="#3a5a1a",
-           toggle_var=self.planter_visible_var, toggle_fn=self._set_planter_visible)
-        self._pl_btn.pack(side="left", padx=(0,4))
-
-        self._shelter_btn = self._make_menu_btn(bb, "🐝 Shelters", [
-            ("Add Shelter Pin",      self._mode_add_shelter),
-            ("Numbers: Tray count",  lambda: self._set_pin_mode("trays")),
-            ("Numbers: Shelter #",   lambda: self._set_pin_mode("shelters")),
-            ("Numbers: Off",         lambda: self._set_pin_mode("off")),
-            ("Toggle Shelter Buffer Zone",   self._toggle_shelter_buffers),
-            ("Set Shelter Buffer Size",      self._edit_shelter_buffer),
-            ("Import Actual Shelter Pins (CSV)", self._import_actual_shelters),
-            ("Show Planned / Actual",        self._toggle_shelter_view),
-            ("Toggle Alignment Lines",       self._toggle_shelter_lines),
-        ], color="#5a3000",
-           toggle_var=self.shelters_visible_var, toggle_fn=self._set_shelters_visible)
-        self._shelter_btn.pack(side="left", padx=(0,4))
-
-        self._crews_btn = self._make_menu_btn(bb, "🚜 Crews", [
-            ("Show driving distance",        self._crew_distance_status),
-            ("Edit Crew Route",              self._mode_edit_crew_route),
-            ("Reset Crew Route",             self._reset_crew_route),
-        ], color="#3a2a5a",
-           toggle_var=self.crews_visible_var, toggle_fn=self._set_crews_visible)
-        self._crews_btn.pack(side="left", padx=(0,4))
-
-        # Secondary "tool" buttons: neutral surface + border + dark text so they
-        # sit quietly next to the menu chips (redesign v2).
+        # Global tools + on-demand buttons live on the right of row 2.
         _tool_kw = dict(fg_color=UI_CARD, hover_color=UI_HOVER,
                         text_color=UI_TEXT, border_width=1, border_color=UI_BORDER)
-        ctk.CTkButton(bb, text="↶ Reset Move", width=110, **_tool_kw,
-                      command=self._undo_shelter_move).pack(side="left", padx=(0,4))
-
-        ctk.CTkButton(bb, text="📏 Measure", width=100, **_tool_kw,
-                      command=self._mode_measure).pack(side="left", padx=(0,4))
-
-        # Context action button (only shown when a mode needs a "Done" action) —
-        # the primary confirm action, so it uses the honey accent.
-        self.btn_context = ctk.CTkButton(bb, text="", width=130, fg_color=UI_ACCENT,
+        # Context action button (shown by _show_context_btn when a mode needs a
+        # "Done"/"Save" action) — honey accent. Created here; packed on demand.
+        self.btn_context = ctk.CTkButton(row2, text="", width=130, fg_color=UI_ACCENT,
                                           state="disabled", command=lambda: None)
-        # starts hidden — _show_context_btn packs it when a mode needs it
-
-        # Measure-tool unit toggle (ft↔in / m↔cm) — shown only in measure mode.
-        self._measure_unit_btn = ctk.CTkButton(bb, text="Unit: ft", width=90,
+        # Measure-tool sub-unit toggle (ft↔in / m↔cm) — shown only in measure mode.
+        self._measure_unit_btn = ctk.CTkButton(row2, text="Unit: ft", width=90,
                                                **_tool_kw,
                                                command=self._measure_unit_cycle)
+        ctk.CTkButton(row2, text="📏 Measure", width=100, **_tool_kw,
+                      command=self._mode_measure).pack(side="right", padx=(4,2))
+        ctk.CTkButton(row2, text="↶ Reset Move", width=110, **_tool_kw,
+                      command=self._undo_shelter_move).pack(side="right", padx=(0,2))
+
+        # Inline actions for the selected tool (right of the selector chips).
+        self._tool_actions = ctk.CTkFrame(row2, fg_color="transparent")
+        self._tool_actions.pack(side="left", padx=(10,0))
+        self._active_tool = None
+        self._select_tool("shelters")   # default tool (matches the mockup)
 
         self.map_frame=mf
 
