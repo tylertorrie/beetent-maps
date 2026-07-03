@@ -467,6 +467,10 @@
     "trays_2|None=|out=Yes|both=0": {
       "shelter_overrides": {},
       "tray_overrides": {}
+    },
+    "trays_2|None=|out=No|both=0": {
+      "shelter_overrides": {},
+      "tray_overrides": {}
     }
   },
   "spray_both_ways": false,
