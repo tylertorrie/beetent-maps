@@ -1598,6 +1598,13 @@ class BeetentApp(ctk.CTk):
                                         fg_color="#1FA463",width=160,
                                         command=self._restart_app)
         # intentionally NOT packed here — shown on demand
+        # Map-only tool buttons (moved up from the map toolbar). Neutral style.
+        _tb_tool_kw = dict(fg_color=UI_HOVER, hover_color=UI_BORDER, text_color=UI_TEXT,
+                           font=ctk.CTkFont(family=FONT_LABEL, size=12))
+        self._tb_reset = ctk.CTkButton(bar, text="↶ Reset Move", width=110,
+                                       command=self._undo_shelter_move, **_tb_tool_kw)
+        self._tb_measure = ctk.CTkButton(bar, text="📏 Measure", width=100,
+                                         command=self._mode_measure, **_tb_tool_kw)
         # ── Left-side status label (no fixed width — shrinks before buttons do) ──
         self.status_lbl=ctk.CTkLabel(bar,text="",text_color=UI_MUTED,anchor="w")
         self._apply_toolbar_for_view("map")
@@ -1606,24 +1613,27 @@ class BeetentApp(ctk.CTk):
         """Show only the toolbar controls relevant to the current view.
         Map: LLD + Generate + PDF + Units. Overview: Units only. Files: none.
         ☰, logo and the status label are always visible."""
-        for w in (self._tb_lld_btn, self._tb_units, self._tb_generate,
-                  self._tb_pdf, self.status_lbl):
+        for w in (self._tb_lld_btn, self._tb_reset, self._tb_measure, self._tb_units,
+                  self._tb_generate, self._tb_pdf, self.status_lbl):
             try: w.pack_forget()
             except Exception: pass
         # Hide the floating LLD popup whenever the view changes.
         try: self._tb_lld.place_forget()
         except Exception: pass
-        # Left side: LLD opener (map only) then the status label.
+        # Left side: LLD opener + map tools (map only), then the status label.
         if view == "map":
             self._tb_lld_btn.pack(side="left", padx=(4,0), pady=6)
+            self._tb_reset.pack(side="left", padx=(8,0), pady=6)
+            self._tb_measure.pack(side="left", padx=(6,0), pady=6)
         self.status_lbl.pack(side="left", padx=16)
         # Right side: first packed = rightmost. Units → Generate → PDF gives the
-        # visual order PDF · Generate · Units (Units furthest right).
+        # visual order PDF · Generate · Units (Units furthest right). Roomy gaps
+        # so the export buttons + unit toggle aren't squished together.
         if view in ("map", "overview"):
-            self._tb_units.pack(side="right", padx=(0,8))
+            self._tb_units.pack(side="right", padx=(0,12))
         if view == "map":
-            self._tb_generate.pack(side="right", padx=(0,4), pady=4)
-            self._tb_pdf.pack(side="right", padx=(0,4), pady=4)
+            self._tb_generate.pack(side="right", padx=(0,12), pady=4)
+            self._tb_pdf.pack(side="right", padx=(0,12), pady=4)
 
     # ── Popup menu helpers ─────────────────────────────────────────────────────
     def _make_menu_btn(self, bar, label, items, color="#2b2b2b",
@@ -5635,13 +5645,10 @@ class BeetentApp(ctk.CTk):
         self.btn_context = ctk.CTkButton(row2, text="", width=130, fg_color=UI_ACCENT,
                                           state="disabled", command=lambda: None)
         # Measure-tool sub-unit toggle (ft↔in / m↔cm) — shown only in measure mode.
+        # (Reset Move + Measure now live in the top bar.)
         self._measure_unit_btn = ctk.CTkButton(row2, text="Unit: ft", width=90,
                                                **_tool_kw,
                                                command=self._measure_unit_cycle)
-        ctk.CTkButton(row2, text="📏 Measure", width=100, **_tool_kw,
-                      command=self._mode_measure).pack(side="right", padx=(4,2))
-        ctk.CTkButton(row2, text="↶ Reset Move", width=110, **_tool_kw,
-                      command=self._undo_shelter_move).pack(side="right", padx=(0,2))
 
         # Row 3 — inline actions for the selected tool, on their own full-width
         # row so they're never squeezed by the selectors/global tools above.
