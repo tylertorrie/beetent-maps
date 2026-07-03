@@ -1527,10 +1527,14 @@ class BeetentApp(ctk.CTk):
         except Exception:
             pass
         self._toolbar = bar
-        # ── LLD group (Map view only) — wrapped in one frame so the whole search
-        # bar can be shown/hidden per view via _apply_toolbar_for_view. ──
-        self._tb_lld = ctk.CTkFrame(bar, fg_color="transparent")
-        ctk.CTkLabel(self._tb_lld,text="Legal Land Description:").pack(side="left",padx=(0,4),pady=8)
+        # ── LLD search — an on-demand popup (redesign v2). Opened by the
+        # "🔍 Find by LLD" toolbar button; the frame floats over the map. Parent
+        # is `self` (not the 44px toolbar) so it isn't clipped. Same vars,
+        # entries, key-bindings and Go command as before — only the container
+        # moved, so _on_lld_key / _search_lld are untouched. ──
+        self._tb_lld = ctk.CTkFrame(self, fg_color=UI_CARD, border_width=1,
+                                    border_color=UI_BORDER, corner_radius=8)
+        ctk.CTkLabel(self._tb_lld,text="Legal Land Description:").pack(side="left",padx=(10,4),pady=8)
         # Structured LLD entry — one cell per part: Quarter-Section-Township-
         # Range-Meridian. Each cell auto-advances to the next once it's full,
         # which cuts down on mistyped legal land descriptions. The meridian
@@ -1558,7 +1562,19 @@ class BeetentApp(ctk.CTk):
         ctk.CTkSwitch(self._tb_lld,text="LLD box",variable=self.show_lld_box,
                       command=self._toggle_lld_box,
                       font=ctk.CTkFont(family=FONT_LABEL,size=11)
-                      ).pack(side="left",padx=(0,20),pady=8)
+                      ).pack(side="left",padx=(0,10),pady=8)
+        # ✕ close — same effect as clicking outside (see _on_global_popup_click).
+        ctk.CTkButton(self._tb_lld,text="✕",width=30,fg_color="transparent",
+                      hover_color=UI_HOVER,text_color=UI_MUTED,
+                      command=lambda: self._tb_lld.place_forget()
+                      ).pack(side="left",padx=(0,8),pady=8)
+        # Register so an outside click / opening another menu closes it.
+        self._all_popups.append(self._tb_lld)
+        # Toolbar opener (packed for the map view by _apply_toolbar_for_view).
+        self._tb_lld_btn = ctk.CTkButton(bar, text="🔍 Find by LLD", width=124,
+                      fg_color=UI_HOVER, hover_color=UI_BORDER, text_color=UI_TEXT,
+                      font=ctk.CTkFont(family=FONT_LABEL, size=12),
+                      command=self._toggle_lld_popup)
         # ── Right-side groups. Packing/visibility is handled per view by
         # _apply_toolbar_for_view; here we only build the widgets. ──
         self.unit_var=tk.StringVar(value="Imperial")
@@ -1588,13 +1604,16 @@ class BeetentApp(ctk.CTk):
         """Show only the toolbar controls relevant to the current view.
         Map: LLD + Generate + PDF + Units. Overview: Units only. Files: none.
         ☰, logo and the status label are always visible."""
-        for w in (self._tb_lld, self._tb_units, self._tb_generate,
+        for w in (self._tb_lld_btn, self._tb_units, self._tb_generate,
                   self._tb_pdf, self.status_lbl):
             try: w.pack_forget()
             except Exception: pass
-        # Left side: LLD (map only) then the status label.
+        # Hide the floating LLD popup whenever the view changes.
+        try: self._tb_lld.place_forget()
+        except Exception: pass
+        # Left side: LLD opener (map only) then the status label.
         if view == "map":
-            self._tb_lld.pack(side="left")
+            self._tb_lld_btn.pack(side="left", padx=(4,0), pady=6)
         self.status_lbl.pack(side="left", padx=16)
         # Right side: first packed = rightmost. Units → Generate → PDF gives the
         # visual order PDF · Generate · Units (Units furthest right).
@@ -1668,6 +1687,15 @@ class BeetentApp(ctk.CTk):
         ry = btn.winfo_rooty() - self.winfo_rooty() + btn.winfo_height() + 2
         popup.place(x=rx, y=ry)
         popup.lift()
+
+    def _toggle_lld_popup(self):
+        """Open/close the floating LLD search popup below its toolbar button.
+        Focuses the first cell on open for immediate typing."""
+        opening = not self._tb_lld.winfo_ismapped()
+        self._toggle_popup(self._tb_lld, self._tb_lld_btn)
+        if opening and self._lld_entries:
+            try: self._lld_entries[0].focus_set()
+            except Exception: pass
 
     def _close_all_popups(self, event=None):
         for p in self._all_popups:
@@ -7374,6 +7402,9 @@ class BeetentApp(ctk.CTk):
         self.lld_label = label
         self._render_lld_box()
         self._status(f"→ {label}")
+        # Close the search popup once we've jumped to the result (Go / Enter).
+        try: self._tb_lld.place_forget()
+        except Exception: pass
 
     def _render_lld_box(self):
         """(Re)draw the LLD highlight rectangle iff `show_lld_box` is on and
