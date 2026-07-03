@@ -5755,17 +5755,19 @@ class BeetentApp(ctk.CTk):
         _st=ttk.Style()
         try: _st.theme_use("default")
         except Exception: pass
+        # Redesign v2: taller rows, borderless, small UPPERCASE muted headers,
+        # honey-tint selection (matches the target field-list design).
         _st.configure("Fields.Treeview",background=UI_CARD,foreground=UI_TEXT,
-                      fieldbackground=UI_CARD,borderwidth=0,rowheight=22,font=(FONT_BODY,10))
-        _st.configure("Fields.Treeview.Heading",background=UI_HOVER,foreground=UI_TEXT,
-                      relief="flat",font=(FONT_LABEL,10))
-        _st.map("Fields.Treeview",background=[("selected",UI_SELECT)],foreground=[("selected",UI_TEXT)])
-        _st.map("Fields.Treeview.Heading",background=[("active",UI_BORDER)])
+                      fieldbackground=UI_CARD,borderwidth=0,rowheight=34,font=(FONT_BODY,11))
+        _st.configure("Fields.Treeview.Heading",background=UI_CARD,foreground=UI_MUTED,
+                      relief="flat",borderwidth=0,font=(FONT_LABEL,9))
+        _st.map("Fields.Treeview",background=[("selected",UI_SELECT)],foreground=[("selected","#6B4A0E")])
+        _st.map("Fields.Treeview.Heading",background=[("active",UI_HOVER)])
         tree_wrap=ctk.CTkFrame(lf,fg_color="transparent")
         tree_wrap.pack(fill="x")
         self.field_tree=ttk.Treeview(tree_wrap,columns=("field","company","year"),show="headings",
                                      height=7,style="Fields.Treeview",selectmode="browse")
-        for col,label,w,anchor in (("field","Field",130,"w"),("company","Company",110,"w"),("year","Year",55,"center")):
+        for col,label,w,anchor in (("field","FIELD",130,"w"),("company","COMPANY",110,"w"),("year","YR",45,"center")):
             self.field_tree.heading(col,text=label,command=lambda c=col:self._sort_fields(c))
             self.field_tree.column(col,width=w,anchor=anchor,stretch=(col=="field"))
         # CTk scrollbar to match the right-hand panel's scrollbar style.
@@ -5783,7 +5785,8 @@ class BeetentApp(ctk.CTk):
         ctk.CTkButton(br,text="+ New",width=58,command=self._new_field).pack(side="left")
         ctk.CTkButton(br,text="Load CSV",width=72,fg_color=UI_HOVER,hover_color=UI_BORDER,
                       text_color=UI_TEXT,command=self._load_csv).pack(side="left",padx=4)
-        ctk.CTkButton(br,text="💾 Save",width=66,command=self._save_field).pack(side="left",padx=(0,4))
+        ctk.CTkButton(br,text="💾 Save",width=66,fg_color=UI_HOVER,hover_color=UI_BORDER,
+                      text_color=UI_TEXT,command=self._save_field).pack(side="left",padx=(0,4))
         ctk.CTkButton(br,text="Delete",width=60,fg_color=UI_DANGER,command=self._delete_field).pack(side="right")
 
         # Field Details (collapsible)
