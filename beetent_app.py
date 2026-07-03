@@ -1615,17 +1615,22 @@ class BeetentApp(ctk.CTk):
                           ).pack(fill="x", padx=2, pady=1)
         self._all_popups.append(popup)
 
-        container = ctk.CTkFrame(bar, fg_color=color, corner_radius=6)
+        # Redesign v2: neutral "surface" chip (white + border + dark text) so the
+        # toolbar reads as one coherent set against the honey/paper theme, instead
+        # of the old per-menu dark colours. `color` is kept in the signature for
+        # call-site compatibility but no longer drives the background.
+        container = ctk.CTkFrame(bar, fg_color=UI_CARD, border_width=1,
+                                 border_color=UI_BORDER, corner_radius=8)
 
         # Right: dropdown trigger (packed first so it anchors right)
         ctk.CTkButton(container, text="▾", width=26,
-                      fg_color="transparent", hover_color="#ffffff22",
-                      text_color="white",
+                      fg_color="transparent", hover_color=UI_HOVER,
+                      text_color=UI_MUTED,
                       command=lambda p=popup, c=container: self._toggle_popup(p, c)
                       ).pack(side="right", padx=(0, 2), pady=2)
 
         # Centre: label fills the remaining space, text centred within it
-        lbl = ctk.CTkLabel(container, text=label, text_color="white",
+        lbl = ctk.CTkLabel(container, text=label, text_color=UI_TEXT,
                            anchor="center", fg_color="transparent")
         lbl.pack(side="left", fill="x", expand=True, padx=8)
 
@@ -1635,9 +1640,9 @@ class BeetentApp(ctk.CTk):
         if toggle_var is not None and toggle_fn is not None:
             cb = ctk.CTkCheckBox(container, variable=toggle_var, text="",
                                  width=20, checkbox_width=16, checkbox_height=16,
-                                 border_width=1,
-                                 border_color="white", fg_color="white",
-                                 checkmark_color="#333333", hover_color="#ffffff33",
+                                 border_width=2,
+                                 border_color=UI_BORDER, fg_color=UI_ACCENT,
+                                 checkmark_color="#FFFFFF", hover_color=UI_HOVER,
                                  command=lambda: toggle_fn(toggle_var.get()))
             # Don't pack yet — hidden until a field is selected
             self._menu_checkboxes.append((cb, lbl))
@@ -1706,16 +1711,30 @@ class BeetentApp(ctk.CTk):
                       command=self._close_nav_drawer).pack(side="right")
         ctk.CTkFrame(self.nav_drawer, height=1, fg_color=UI_BORDER).pack(
             fill="x", padx=8, pady=(0, 6))
-        for text, cmd in [("🗺  Map View", self._open_map_view),
-                          ("📡  Monitor",  self._open_monitor_view),
-                          ("💰  Financial View", self._open_cost_estimator_view),
-                          ("📁  Files",    self._open_files_view)]:
-            ctk.CTkButton(self.nav_drawer, text=text, anchor="w", height=40,
-                          fg_color="transparent", hover_color=UI_HOVER,
-                          text_color=UI_TEXT,
-                          font=ctk.CTkFont(family=FONT_LABEL, size=14),
-                          command=cmd).pack(fill="x", padx=8, pady=2)
+        self._nav_buttons = {}
+        for key, text, cmd in [("map",     "🗺  Map View",       self._open_map_view),
+                               ("monitor", "📡  Monitor",         self._open_monitor_view),
+                               ("cost",    "💰  Financial View",  self._open_cost_estimator_view),
+                               ("files",   "📁  Files",           self._open_files_view)]:
+            b = ctk.CTkButton(self.nav_drawer, text=text, anchor="w", height=40,
+                              fg_color="transparent", hover_color=UI_HOVER,
+                              text_color=UI_TEXT,
+                              font=ctk.CTkFont(family=FONT_LABEL, size=14),
+                              command=cmd)
+            b.pack(fill="x", padx=8, pady=2)
+            self._nav_buttons[key] = b
+        self._set_active_nav("map")
         self.nav_drawer.place_forget()
+
+    def _set_active_nav(self, key):
+        """Highlight the current destination in the nav drawer: honey tint bg +
+        honey-ink text (ACCENT_TINT / ACCENT_INK from the design system);
+        inactive rows stay transparent. Style-only — navigation is unchanged."""
+        for k, b in getattr(self, "_nav_buttons", {}).items():
+            if k == key:
+                b.configure(fg_color=UI_SELECT, text_color="#6B4A0E")   # ACCENT_TINT / ACCENT_INK
+            else:
+                b.configure(fg_color="transparent", text_color=UI_TEXT)
 
     def _toggle_nav_drawer(self):
         if self.nav_drawer is None:
@@ -1744,6 +1763,7 @@ class BeetentApp(ctk.CTk):
         self._hide_all_views()
         self.body_frame.pack(fill="both", expand=True)
         self._apply_toolbar_for_view("map")
+        self._set_active_nav("map")
 
     def _open_files_view(self):
         self._close_nav_drawer()
@@ -1752,6 +1772,7 @@ class BeetentApp(ctk.CTk):
             self._build_files_view()
         self.files_view.pack(fill="both", expand=True)
         self._apply_toolbar_for_view("files")
+        self._set_active_nav("files")
         self._files_cwd = None
         self._files_res_cwd = ()
         self._fv_tab_seg.set("Output Files")
@@ -1813,6 +1834,7 @@ class BeetentApp(ctk.CTk):
             self._build_cost_estimator_view()
         self.cost_estimator_view.pack(fill="both", expand=True)
         self._apply_toolbar_for_view("cost_estimator")
+        self._set_active_nav("cost")
 
     def _build_cost_estimator_view(self):
         self.cost_estimator_view = ctk.CTkFrame(self, corner_radius=0)
@@ -3283,6 +3305,7 @@ class BeetentApp(ctk.CTk):
             self._build_monitor_view()
         self.monitor_view.pack(fill="both", expand=True)
         self._apply_toolbar_for_view("monitor")
+        self._set_active_nav("monitor")
         self._monitor_start()
 
     def _build_monitor_view(self):
@@ -5291,20 +5314,25 @@ class BeetentApp(ctk.CTk):
            toggle_var=self.crews_visible_var, toggle_fn=self._set_crews_visible)
         self._crews_btn.pack(side="left", padx=(0,4))
 
-        ctk.CTkButton(bb, text="↶ Reset Move", width=110, fg_color="#4a2a00",
+        # Secondary "tool" buttons: neutral surface + border + dark text so they
+        # sit quietly next to the menu chips (redesign v2).
+        _tool_kw = dict(fg_color=UI_CARD, hover_color=UI_HOVER,
+                        text_color=UI_TEXT, border_width=1, border_color=UI_BORDER)
+        ctk.CTkButton(bb, text="↶ Reset Move", width=110, **_tool_kw,
                       command=self._undo_shelter_move).pack(side="left", padx=(0,4))
 
-        ctk.CTkButton(bb, text="📏 Measure", width=100, fg_color="#0a6b6b",
+        ctk.CTkButton(bb, text="📏 Measure", width=100, **_tool_kw,
                       command=self._mode_measure).pack(side="left", padx=(0,4))
 
-        # Context action button (only shown when a mode needs a "Done" action)
-        self.btn_context = ctk.CTkButton(bb, text="", width=130, fg_color="#225588",
+        # Context action button (only shown when a mode needs a "Done" action) —
+        # the primary confirm action, so it uses the honey accent.
+        self.btn_context = ctk.CTkButton(bb, text="", width=130, fg_color=UI_ACCENT,
                                           state="disabled", command=lambda: None)
         # starts hidden — _show_context_btn packs it when a mode needs it
 
         # Measure-tool unit toggle (ft↔in / m↔cm) — shown only in measure mode.
         self._measure_unit_btn = ctk.CTkButton(bb, text="Unit: ft", width=90,
-                                               fg_color="#0a6b6b",
+                                               **_tool_kw,
                                                command=self._measure_unit_cycle)
 
         self.map_frame=mf
