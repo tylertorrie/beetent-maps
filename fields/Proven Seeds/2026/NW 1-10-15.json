@@ -471,9 +471,13 @@
     "trays_2|None=|out=No|both=0": {
       "shelter_overrides": {},
       "tray_overrides": {}
+    },
+    "trays_2|None=|out=Yes|both=1": {
+      "shelter_overrides": {},
+      "tray_overrides": {}
     }
   },
-  "spray_both_ways": false,
+  "spray_both_ways": true,
   "parking_pin": [
     49.80035189033358,
     -111.92267906305096
