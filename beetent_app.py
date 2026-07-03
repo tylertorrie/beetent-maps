@@ -5658,7 +5658,7 @@ class BeetentApp(ctk.CTk):
 
         self.map_frame=mf
 
-        # ── Right panel (scrollable) — collapsible to a thin edge tab ──
+        # ── Right panel — frozen header + scrollable sections, collapsible ──
         self.body_grid = body
         right_outer=ctk.CTkFrame(body,width=370,corner_radius=8)
         right_outer.grid(row=0,column=1,sticky="nsew",padx=(4,8),pady=8)
@@ -5666,7 +5666,6 @@ class BeetentApp(ctk.CTk):
         self.right_outer = right_outer
 
         # Thin tab shown when the sidebar is hidden; click ◀ to bring it back.
-        # Always present at the right edge so the panel is one click away.
         self.sidebar_tab = ctk.CTkFrame(body, width=18, corner_radius=0)
         self.sidebar_tab.grid(row=0, column=2, sticky="ns", pady=8)
         self.sidebar_tab.grid_propagate(False)
@@ -5675,15 +5674,22 @@ class BeetentApp(ctk.CTk):
                       command=self._toggle_sidebar).pack(fill="both", expand=True)
         self.sidebar_tab.grid_remove()      # hidden until the panel is collapsed
 
-        # Collapse handle at the top of the panel.
-        collapse_row = ctk.CTkFrame(right_outer, fg_color="transparent")
-        collapse_row.pack(fill="x", padx=4, pady=(2,0))
-        ctk.CTkButton(collapse_row, text="▶  Hide panel", width=110, height=24,
-                      fg_color=UI_HOVER, hover_color=UI_BORDER, text_color=UI_TEXT,
-                      font=ctk.CTkFont(family=FONT_LABEL, size=11),
-                      command=self._toggle_sidebar).pack(side="right")
+        # Thin collapse tab on the panel's LEFT edge (▶) — mirrors the expand
+        # tab and replaces the old "Hide panel" button.
+        collapse_tab = ctk.CTkFrame(right_outer, width=18, corner_radius=0, fg_color=UI_HOVER)
+        collapse_tab.pack(side="left", fill="y")
+        collapse_tab.pack_propagate(False)
+        ctk.CTkButton(collapse_tab, text="▶", width=16, fg_color=UI_HOVER,
+                      hover_color=UI_BORDER, text_color=UI_TEXT,
+                      command=self._toggle_sidebar).pack(fill="both", expand=True)
 
-        right=ctk.CTkScrollableFrame(right_outer,fg_color="transparent")
+        # content = a FROZEN header (Company/Year + inspector tabs) that stays
+        # put, above a SCROLLABLE area holding the selected tab's section.
+        content = ctk.CTkFrame(right_outer, fg_color="transparent")
+        content.pack(side="left", fill="both", expand=True)
+        frozen_header = ctk.CTkFrame(content, fg_color="transparent")
+        frozen_header.pack(side="top", fill="x")
+        right=ctk.CTkScrollableFrame(content,fg_color="transparent")
         right.pack(fill="both",expand=True)
 
         # Company / Year
@@ -5691,7 +5697,7 @@ class BeetentApp(ctk.CTk):
             ("Company:","company_var","company_cb",self._new_company,[]),
             ("Year:",   "year_var",   "year_cb",   self._new_year,   [str(datetime.date.today().year)])
         ]:
-            row=ctk.CTkFrame(right,fg_color="transparent")
+            row=ctk.CTkFrame(frozen_header,fg_color="transparent")
             row.pack(fill="x",padx=8,pady=(6,0))
             ctk.CTkLabel(row,text=label,width=65,anchor="e").pack(side="left")
             var=tk.StringVar(value=values_init[0] if values_init else "")
@@ -5708,7 +5714,7 @@ class BeetentApp(ctk.CTk):
                              "bay": "Bay", "bees": "Bees"}
         _insp_l2k = {v: k for k, v in self._insp_labels.items()}
         self._insp_tabs = ctk.CTkSegmentedButton(
-            right, values=list(self._insp_labels.values()),
+            frozen_header, values=list(self._insp_labels.values()),
             command=lambda lbl: self._insp_select(_insp_l2k.get(lbl)))
         self._insp_tabs.pack(fill="x", padx=8, pady=(2, 8))
         self._insp_tabs.set("Fields")
