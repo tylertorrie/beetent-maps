@@ -5212,9 +5212,15 @@ class BeetentApp(ctk.CTk):
                      " inner boundaries.")
 
     # ── Collapsible section card ────────────────────────────────────────────
-    def _collapsible(self, parent, title, expanded=True):
+    def _collapsible(self, parent, title, expanded=True, key=None):
         """A card with a clickable header that expands/collapses its content.
-        Returns the content frame to build the section's widgets into."""
+        Returns the content frame to build the section's widgets into.
+
+        When `key` is given the card is registered as an inspector "tab": only
+        one keyed card is shown at a time (redesign v2). set_open toggles the
+        WHOLE card so the panel reads like tabs, and a header click selects that
+        tab via _insp_select (which also syncs the segmented control). Callers
+        without a key keep the original independent expand/collapse behaviour."""
         wrap = ctk.CTkFrame(parent, fg_color=UI_CARD, corner_radius=8,
                             border_width=1, border_color=UI_BORDER)
         wrap.pack(fill="x", padx=8, pady=(0,8))
@@ -5228,6 +5234,18 @@ class BeetentApp(ctk.CTk):
         chev.pack(side="right")
         content = ctk.CTkFrame(wrap, fg_color="transparent")
         content.pack(fill="x", padx=8, pady=(0,6))
+        if key is not None:
+            # Tab mode: show/hide the whole card; header click selects the tab.
+            def set_open(open_):
+                if open_: wrap.pack(fill="x", padx=8, pady=(0,8))
+                else:     wrap.pack_forget()
+            chev.configure(text="")   # chevron is redundant under the tab bar
+            self._insp_sections[key] = set_open
+            for w in (hdr, tlbl):
+                w.bind("<Button-1>", lambda _=None, k=key: self._insp_select(k))
+            if not expanded:
+                set_open(False)
+            return content
         state = {"open": True}
         def toggle(_=None):
             state["open"] = not state["open"]
@@ -5240,6 +5258,20 @@ class BeetentApp(ctk.CTk):
         if not expanded:
             toggle()
         return content
+
+    def _insp_select(self, key):
+        """Show only the inspector section `key`; sync the segmented tab bar.
+        No-op if the key is unknown (e.g. a stray segmented callback)."""
+        if not key or key not in getattr(self, "_insp_sections", {}):
+            return
+        for k, set_open in self._insp_sections.items():
+            set_open(k == key)
+        lbl = self._insp_labels.get(key)
+        try:
+            if lbl and self._insp_tabs.get() != lbl:
+                self._insp_tabs.set(lbl)
+        except Exception:
+            pass
 
     # ── Body ───────────────────────────────────────────────────────────────────
     def _build_body(self):
@@ -5412,11 +5444,22 @@ class BeetentApp(ctk.CTk):
             cb.pack(side="left",padx=4); setattr(self,cb_attr,cb)
             ctk.CTkButton(row,text="+",width=30,command=new_cmd).pack(side="left")
 
-        # Field list — sortable Field / Company / Year columns (collapsible).
-        # Fields starts expanded so the user lands on something usable; the
-        # other right-side panels (Field Details / Bay / Bee) stay collapsed
-        # until the user opens them.
-        lf=self._collapsible(right,"Fields",expanded=True)
+        # ── Inspector tab bar (redesign v2) — one section shown at a time.
+        # Drives the four keyed _collapsible cards below; Fields is the default.
+        self._insp_sections = {}
+        self._insp_labels = {"fields": "Fields", "details": "Details",
+                             "bay": "Bay", "bees": "Bees"}
+        _insp_l2k = {v: k for k, v in self._insp_labels.items()}
+        self._insp_tabs = ctk.CTkSegmentedButton(
+            right, values=list(self._insp_labels.values()),
+            command=lambda lbl: self._insp_select(_insp_l2k.get(lbl)))
+        self._insp_tabs.pack(fill="x", padx=8, pady=(2, 8))
+        self._insp_tabs.set("Fields")
+
+        # Field list — sortable Field / Company / Year columns.
+        # Fields is the default tab; the other sections (Details / Bay / Bees)
+        # are hidden until their tab is selected.
+        lf=self._collapsible(right,"Fields",expanded=True,key="fields")
         _st=ttk.Style()
         try: _st.theme_use("default")
         except Exception: pass
@@ -5452,7 +5495,7 @@ class BeetentApp(ctk.CTk):
         ctk.CTkButton(br,text="Delete",width=60,fg_color=UI_DANGER,command=self._delete_field).pack(side="right")
 
         # Field Details (collapsible)
-        fd=self._collapsible(right,"Field Details",expanded=False)
+        fd=self._collapsible(right,"Field Details",expanded=False,key="details")
 
         # Field preset (reuse a field's fixed geometry — name, pivot, tracks,
         # acres, boundary, corner zones — across years)
@@ -5556,7 +5599,7 @@ class BeetentApp(ctk.CTk):
         self.fv["Planting_angle"].set(""); self.fv["Spray_angle"].set(""); self.fv["Sprayer_width"].set("133")
 
         # Bay calculator (collapsible)
-        bc=self._collapsible(right,"Bay Calculator",expanded=False)
+        bc=self._collapsible(right,"Bay Calculator",expanded=False,key="bay")
 
         # Preset: dropdown row
         preset_row=ctk.CTkFrame(bc,fg_color="transparent")
@@ -5689,7 +5732,7 @@ class BeetentApp(ctk.CTk):
         # automatically whenever any bay-calculator field changes.
 
         # ── Bee Allocation (collapsible) ──────────────────────────────────
-        ba=self._collapsible(right,"Bee Allocation",expanded=False)
+        ba=self._collapsible(right,"Bee Allocation",expanded=False,key="bees")
 
         bp_row=ctk.CTkFrame(ba,fg_color="transparent")
         bp_row.pack(fill="x",pady=(2,0))
