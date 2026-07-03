@@ -5123,11 +5123,15 @@ class BeetentApp(ctk.CTk):
             return
         on = bool(self._tools_by_key[key]["var"].get())
         if on:
+            # On = FILLED honey (the layer is lit up / visible).
             chip.configure(fg_color=UI_ACCENT, hover_color=UI_ACCENT,
-                           text_color="#FFFFFF", border_color=UI_ACCENT)
+                           text_color="#FFFFFF", border_color=UI_ACCENT,
+                           border_width=1)
         else:
+            # Off = dimmed muted text so a hidden layer reads as "off".
             chip.configure(fg_color=UI_CARD, hover_color=UI_HOVER,
-                           text_color=UI_TEXT, border_color=UI_BORDER)
+                           text_color=UI_MUTED, border_color=UI_BORDER,
+                           border_width=1)
 
     def _toggle_layer(self, key):
         """Flip a layer's visibility (same var + redraw fn the old master-toggle
@@ -5172,11 +5176,16 @@ class BeetentApp(ctk.CTk):
         self._active_tool = key
         for k, sel in self._tool_selectors.items():
             if k == key:
-                sel.configure(fg_color=UI_ACCENT, hover_color=UI_ACCENT,
-                              text_color="#FFFFFF", border_color=UI_ACCENT)
+                # Selected TOOL = OUTLINED honey (a 2px honey ring + honey text),
+                # deliberately distinct from the FILLED honey of an active LAYERS
+                # chip so the two rows don't read as identical.
+                sel.configure(fg_color=UI_CARD, hover_color=UI_HOVER,
+                              text_color=UI_ACCENT, border_color=UI_ACCENT,
+                              border_width=2)
             else:
                 sel.configure(fg_color=UI_CARD, hover_color=UI_HOVER,
-                              text_color=UI_TEXT, border_color=UI_BORDER)
+                              text_color=UI_TEXT, border_color=UI_BORDER,
+                              border_width=1)
         self._render_tool_actions()
 
     def _render_tool_actions(self):
