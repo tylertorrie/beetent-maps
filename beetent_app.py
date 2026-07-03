@@ -1580,9 +1580,10 @@ class BeetentApp(ctk.CTk):
         # _apply_toolbar_for_view; here we only build the widgets. ──
         self.unit_var=tk.StringVar(value="Imperial")
         self._tb_units = ctk.CTkFrame(bar, fg_color="transparent")
-        ctk.CTkLabel(self._tb_units,text="Units:").pack(side="left",padx=(0,4))
-        ctk.CTkComboBox(self._tb_units,variable=self.unit_var,values=["Imperial","Metric"],
-                        width=100,command=self._on_unit_change).pack(side="left",padx=(0,12))
+        ctk.CTkLabel(self._tb_units,text="Units:").pack(side="left",padx=(0,6))
+        _units_seg = ctk.CTkSegmentedButton(self._tb_units,variable=self.unit_var,
+                        values=["Imperial","Metric"],command=self._on_unit_change)
+        _units_seg.pack(side="left",padx=(0,12)); _units_seg.set(self.unit_var.get())
         # Generate = primary export action (honey); PDF = secondary (neutral).
         self._tb_generate = ctk.CTkButton(bar, text="⚙ Generate Output Files", fg_color=UI_ACCENT,
                       font=ctk.CTkFont(family=FONT_LABEL, size=12),
@@ -12283,7 +12284,7 @@ class BeetentApp(ctk.CTk):
                 for band in bands:
                     lpts=[enu_to_latlon(en,no,g["plat"],g["plon"]) for en,no in band]
                     try:
-                        p=self.map_widget.set_polygon(lpts,fill_color="#001F7A",outline_color="#001F7A",border_width=0)
+                        p=self.map_widget.set_polygon(lpts,fill_color="#2E9BF0",outline_color="#2E9BF0",border_width=0)  # OVERLAY["male_bay"]
                         self.bay_polygons.append(p)
                     except Exception: pass
 
@@ -12325,8 +12326,8 @@ class BeetentApp(ctk.CTk):
                 band = list(left_poly) + list(reversed(right_poly))
                 try:
                     p = self.map_widget.set_polygon(
-                        band, fill_color="#001F7A",
-                        outline_color="#001F7A", border_width=0)
+                        band, fill_color="#2E9BF0",
+                        outline_color="#2E9BF0", border_width=0)  # OVERLAY["male_bay"]
                     self.bay_polygons.append(p)
                 except Exception:
                     pass
