@@ -2109,7 +2109,7 @@
         "label": "S-03",
         "visited": false,
         "note": "",
-        "trays": 1
+        "trays": 2
       },
       "geometry": {
         "type": "Point",
@@ -2228,7 +2228,7 @@
         "label": "S-10",
         "visited": false,
         "note": "",
-        "trays": 2
+        "trays": 3
       },
       "geometry": {
         "type": "Point",
@@ -2296,7 +2296,7 @@
         "label": "S-14",
         "visited": false,
         "note": "",
-        "trays": 2
+        "trays": 3
       },
       "geometry": {
         "type": "Point",
@@ -2398,7 +2398,7 @@
         "label": "S-20",
         "visited": false,
         "note": "",
-        "trays": 2
+        "trays": 3
       },
       "geometry": {
         "type": "Point",
@@ -2517,7 +2517,7 @@
         "label": "S-27",
         "visited": false,
         "note": "",
-        "trays": 2
+        "trays": 3
       },
       "geometry": {
         "type": "Point",
@@ -2602,7 +2602,7 @@
         "label": "S-32",
         "visited": false,
         "note": "",
-        "trays": 2
+        "trays": 3
       },
       "geometry": {
         "type": "Point",
@@ -2721,7 +2721,7 @@
         "label": "S-39",
         "visited": false,
         "note": "",
-        "trays": 2
+        "trays": 3
       },
       "geometry": {
         "type": "Point",
@@ -2874,7 +2874,7 @@
         "label": "S-48",
         "visited": false,
         "note": "",
-        "trays": 2
+        "trays": 3
       },
       "geometry": {
         "type": "Point",
@@ -2959,7 +2959,7 @@
         "label": "S-53",
         "visited": false,
         "note": "",
-        "trays": 2
+        "trays": 3
       },
       "geometry": {
         "type": "Point",
@@ -3044,7 +3044,7 @@
         "label": "S-58",
         "visited": false,
         "note": "",
-        "trays": 2
+        "trays": 3
       },
       "geometry": {
         "type": "Point",
@@ -3180,7 +3180,7 @@
         "label": "S-66",
         "visited": false,
         "note": "",
-        "trays": 2
+        "trays": 3
       },
       "geometry": {
         "type": "Point",
@@ -3299,7 +3299,7 @@
         "label": "S-73",
         "visited": false,
         "note": "",
-        "trays": 2
+        "trays": 3
       },
       "geometry": {
         "type": "Point",
@@ -3435,7 +3435,7 @@
         "label": "S-81",
         "visited": false,
         "note": "",
-        "trays": 2
+        "trays": 3
       },
       "geometry": {
         "type": "Point",
@@ -3520,7 +3520,7 @@
         "label": "S-86",
         "visited": false,
         "note": "",
-        "trays": 2
+        "trays": 3
       },
       "geometry": {
         "type": "Point",

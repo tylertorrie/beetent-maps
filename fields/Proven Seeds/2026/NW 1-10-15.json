@@ -448,7 +448,7 @@
   ],
   "boundary_inner": [],
   "sprayer_routes_around_inner": true,
-  "bays_through_inner": false,
+  "bays_through_inner": true,
   "manual_shelter_pins": [],
   "shelter_overrides": {},
   "Planting_angle": "0",
