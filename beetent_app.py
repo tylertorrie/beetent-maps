@@ -5669,8 +5669,9 @@ class BeetentApp(ctk.CTk):
         self.sidebar_tab = ctk.CTkFrame(body, width=18, corner_radius=0)
         self.sidebar_tab.grid(row=0, column=2, sticky="ns", pady=8)
         self.sidebar_tab.grid_propagate(False)
-        ctk.CTkButton(self.sidebar_tab, text="◀", width=16, fg_color=UI_HOVER,
+        ctk.CTkButton(self.sidebar_tab, text="‹", width=16, fg_color=UI_HOVER,
                       hover_color=UI_BORDER, text_color=UI_TEXT,
+                      font=ctk.CTkFont(family=FONT_LABEL, size=18),
                       command=self._toggle_sidebar).pack(fill="both", expand=True)
         self.sidebar_tab.grid_remove()      # hidden until the panel is collapsed
 
@@ -5679,8 +5680,9 @@ class BeetentApp(ctk.CTk):
         collapse_tab = ctk.CTkFrame(right_outer, width=18, corner_radius=0, fg_color=UI_HOVER)
         collapse_tab.pack(side="left", fill="y")
         collapse_tab.pack_propagate(False)
-        ctk.CTkButton(collapse_tab, text="▶", width=16, fg_color=UI_HOVER,
+        ctk.CTkButton(collapse_tab, text="›", width=16, fg_color=UI_HOVER,
                       hover_color=UI_BORDER, text_color=UI_TEXT,
+                      font=ctk.CTkFont(family=FONT_LABEL, size=18),
                       command=self._toggle_sidebar).pack(fill="both", expand=True)
 
         # content = a FROZEN header (Company/Year + inspector tabs) that stays
