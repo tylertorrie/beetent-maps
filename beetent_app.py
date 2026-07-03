@@ -37,18 +37,27 @@ if sys.platform.startswith("win"):
     subprocess.Popen = _QuietPopen
 
 ctk.set_appearance_mode("light")
-ctk.set_default_color_theme("blue")
+# Redesign v2 theme (honey/paper). Absolute path so it resolves no matter what
+# CWD the desktop shortcut launches from. Falls back to the built-in "blue"
+# theme if the file is missing. UI *widget* colours come from here; the map
+# overlay colours live in design_tokens.OVERLAY (see the _redraw_* methods).
+try:
+    ctk.set_default_color_theme(str(Path(__file__).parent / "bee_tent_maps_theme.json"))
+except Exception:
+    ctk.set_default_color_theme("blue")
 
 # ── Light UI palette (everything outside the map). Map overlay colours are
-# set separately in the _redraw_* methods and are intentionally left alone. ──
-UI_CARD   = "#FFFFFF"   # section cards / popups
-UI_BORDER = "#E3E5E8"   # dividers, borders
-UI_HOVER  = "#EDEFF2"   # hover / header highlight
-UI_TEXT   = "#1F2A37"   # primary text
-UI_MUTED  = "#6B7280"   # hints / secondary text
-UI_ACCENT = "#0E9384"   # teal — data readouts
-UI_WARN   = "#C2410C"   # warnings
-UI_SELECT = "#CFE2FF"   # table/list selection
+# set separately in the _redraw_* methods and are intentionally left alone.
+# Values mirror the redesign palette in design_tokens.py (honey accent on warm
+# paper); kept as literals here so this module has no import-time dependency. ──
+UI_CARD   = "#FFFFFF"   # section cards / popups        (SURFACE)
+UI_BORDER = "#E4DFD4"   # dividers, borders             (BORDER)
+UI_HOVER  = "#EDE8DE"   # hover / header highlight       (warm neutral)
+UI_TEXT   = "#221F1A"   # primary text                  (INK)
+UI_MUTED  = "#5C564B"   # hints / secondary text        (INK_2)
+UI_ACCENT = "#B87514"   # honey — data readouts / accent (ACCENT)
+UI_WARN   = "#D9822B"   # warnings                      (WARNING)
+UI_SELECT = "#FBF1DD"   # table/list selection          (ACCENT_TINT)
 
 # ── Typography ──────────────────────────────────────────────────────────────
 # Desktop equivalent of a Google-Fonts setup: bundled Inter TTFs (fonts/) are
