@@ -5483,7 +5483,7 @@ class BeetentApp(ctk.CTk):
 
         # Row 1 — LAYERS visibility chips.
         row1 = ctk.CTkFrame(bb, fg_color="transparent"); row1.pack(fill="x")
-        ctk.CTkLabel(row1, text="LAYERS", text_color=UI_MUTED,
+        ctk.CTkLabel(row1, text="LAYERS", text_color=UI_MUTED, width=64, anchor="w",
                      font=ctk.CTkFont(family=FONT_LABEL, size=11)).pack(side="left", padx=(2,10))
         self._layer_chips = {}
         for t in self._tools:
@@ -5499,7 +5499,7 @@ class BeetentApp(ctk.CTk):
 
         # Row 2 — TOOL strip: selector chips + inline actions for the active tool.
         row2 = ctk.CTkFrame(bb, fg_color="transparent"); row2.pack(fill="x", pady=(5,0))
-        ctk.CTkLabel(row2, text="TOOL", text_color=UI_MUTED,
+        ctk.CTkLabel(row2, text="TOOL", text_color=UI_MUTED, width=64, anchor="w",
                      font=ctk.CTkFont(family=FONT_LABEL, size=11)).pack(side="left", padx=(2,10))
         self._tool_selectors = {}
         for t in self._tools:
@@ -5527,9 +5527,13 @@ class BeetentApp(ctk.CTk):
         ctk.CTkButton(row2, text="↶ Reset Move", width=110, **_tool_kw,
                       command=self._undo_shelter_move).pack(side="right", padx=(0,2))
 
-        # Inline actions for the selected tool (right of the selector chips).
-        self._tool_actions = ctk.CTkFrame(row2, fg_color="transparent")
-        self._tool_actions.pack(side="left", padx=(10,0))
+        # Row 3 — inline actions for the selected tool, on their own full-width
+        # row so they're never squeezed by the selectors/global tools above.
+        row3 = ctk.CTkFrame(bb, fg_color="transparent"); row3.pack(fill="x", pady=(5,0))
+        ctk.CTkLabel(row3, text="ACTIONS", text_color=UI_MUTED, width=64, anchor="w",
+                     font=ctk.CTkFont(family=FONT_LABEL, size=11)).pack(side="left", padx=(2,10))
+        self._tool_actions = ctk.CTkFrame(row3, fg_color="transparent")
+        self._tool_actions.pack(side="left")
         self._active_tool = None
         self._select_tool("shelters")   # default tool (matches the mockup)
 
