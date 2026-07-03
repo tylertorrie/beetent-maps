@@ -58,6 +58,7 @@ UI_MUTED  = "#5C564B"   # hints / secondary text        (INK_2)
 UI_ACCENT = "#B87514"   # honey — data readouts / accent (ACCENT)
 UI_WARN   = "#D9822B"   # warnings                      (WARNING)
 UI_SELECT = "#FBF1DD"   # table/list selection          (ACCENT_TINT)
+UI_DANGER = "#C4433B"   # destructive actions (Delete)  (DANGER)
 
 # ── Typography ──────────────────────────────────────────────────────────────
 # Desktop equivalent of a Google-Fonts setup: bundled Inter TTFs (fonts/) are
@@ -1565,15 +1566,18 @@ class BeetentApp(ctk.CTk):
         ctk.CTkLabel(self._tb_units,text="Units:").pack(side="left",padx=(0,4))
         ctk.CTkComboBox(self._tb_units,variable=self.unit_var,values=["Imperial","Metric"],
                         width=100,command=self._on_unit_change).pack(side="left",padx=(0,12))
-        self._tb_generate = ctk.CTkButton(bar, text="⚙ Generate Output Files", fg_color="#1a5c8a",
+        # Generate = primary export action (honey); PDF = secondary (neutral).
+        self._tb_generate = ctk.CTkButton(bar, text="⚙ Generate Output Files", fg_color=UI_ACCENT,
                       font=ctk.CTkFont(family=FONT_LABEL, size=12),
                       command=self._generate)
-        self._tb_pdf = ctk.CTkButton(bar, text="📄 Field Summary PDF", fg_color="#4a3060",
+        self._tb_pdf = ctk.CTkButton(bar, text="📄 Field Summary PDF",
+                      fg_color=UI_HOVER, hover_color=UI_BORDER, text_color=UI_TEXT,
                       font=ctk.CTkFont(family=FONT_LABEL, size=12),
                       command=self._export_field_pdf)
-        # Update-ready button — hidden until a code update is pulled.
+        # Update-ready button — hidden until a code update is pulled. Uses the
+        # positive/profit green so it reads as a good-news call to action.
         self._update_btn=ctk.CTkButton(bar,text="🔄 Restart to update",
-                                        fg_color="#1a6b3a",width=160,
+                                        fg_color="#1FA463",width=160,
                                         command=self._restart_app)
         # intentionally NOT packed here — shown on demand
         # ── Left-side status label (no fixed width — shrinks before buttons do) ──
@@ -5029,7 +5033,7 @@ class BeetentApp(ctk.CTk):
                 cb.pack_forget()
 
     def _show_context_btn(self, text, cmd):
-        self.btn_context.configure(text=text, command=cmd, state="normal", fg_color="#225588")
+        self.btn_context.configure(text=text, command=cmd, state="normal", fg_color=UI_ACCENT)
         if not self.btn_context.winfo_ismapped():
             self.btn_context.pack(side="right", padx=(4,0))
 
@@ -5349,8 +5353,8 @@ class BeetentApp(ctk.CTk):
         self.sidebar_tab = ctk.CTkFrame(body, width=18, corner_radius=0)
         self.sidebar_tab.grid(row=0, column=2, sticky="ns", pady=8)
         self.sidebar_tab.grid_propagate(False)
-        ctk.CTkButton(self.sidebar_tab, text="◀", width=16, fg_color="#3a3a3a",
-                      hover_color=UI_HOVER,
+        ctk.CTkButton(self.sidebar_tab, text="◀", width=16, fg_color=UI_HOVER,
+                      hover_color=UI_BORDER, text_color=UI_TEXT,
                       command=self._toggle_sidebar).pack(fill="both", expand=True)
         self.sidebar_tab.grid_remove()      # hidden until the panel is collapsed
 
@@ -5358,7 +5362,7 @@ class BeetentApp(ctk.CTk):
         collapse_row = ctk.CTkFrame(right_outer, fg_color="transparent")
         collapse_row.pack(fill="x", padx=4, pady=(2,0))
         ctk.CTkButton(collapse_row, text="▶  Hide panel", width=110, height=24,
-                      fg_color="#3a3a3a", hover_color=UI_HOVER,
+                      fg_color=UI_HOVER, hover_color=UI_BORDER, text_color=UI_TEXT,
                       font=ctk.CTkFont(family=FONT_LABEL, size=11),
                       command=self._toggle_sidebar).pack(side="right")
 
@@ -5414,9 +5418,10 @@ class BeetentApp(ctk.CTk):
         self._field_sort_col=None; self._field_sort_rev=False
         br=ctk.CTkFrame(lf,fg_color="transparent"); br.pack(fill="x",pady=(3,0))
         ctk.CTkButton(br,text="+ New",width=58,command=self._new_field).pack(side="left")
-        ctk.CTkButton(br,text="Load CSV",width=72,fg_color="#555",command=self._load_csv).pack(side="left",padx=4)
+        ctk.CTkButton(br,text="Load CSV",width=72,fg_color=UI_HOVER,hover_color=UI_BORDER,
+                      text_color=UI_TEXT,command=self._load_csv).pack(side="left",padx=4)
         ctk.CTkButton(br,text="💾 Save",width=66,command=self._save_field).pack(side="left",padx=(0,4))
-        ctk.CTkButton(br,text="Delete",width=60,fg_color="#8b1a1a",command=self._delete_field).pack(side="right")
+        ctk.CTkButton(br,text="Delete",width=60,fg_color=UI_DANGER,command=self._delete_field).pack(side="right")
 
         # Field Details (collapsible)
         fd=self._collapsible(right,"Field Details",expanded=False)
