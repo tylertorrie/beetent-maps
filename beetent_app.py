@@ -5102,6 +5102,12 @@ class BeetentApp(ctk.CTk):
         hdr.pack(fill="x", padx=12, pady=(10, 4))
         ctk.CTkLabel(hdr, text="Overview", text_color=UI_TEXT,
                      font=ctk.CTkFont(family=FONT_HEADING, size=18)).pack(side="left")
+        # One-off: re-bake + re-export every field to the tablet (e.g. after a
+        # geometry/export change like the direction-angle meta).
+        ctk.CTkButton(hdr, text="🔄 Re-export all to tablet", width=190,
+                      fg_color=UI_HOVER, hover_color=UI_BORDER, text_color=UI_TEXT,
+                      font=ctk.CTkFont(family=FONT_LABEL, size=12),
+                      command=self._reexport_all_confirm).pack(side="right")
 
         flt = ctk.CTkFrame(self.overview_view, fg_color="transparent")
         flt.pack(fill="x", padx=12, pady=(2, 4))
@@ -13503,6 +13509,24 @@ class BeetentApp(ctk.CTk):
             except (TypeError, ValueError):
                 return None
         return None
+
+    def _reexport_all_confirm(self):
+        """User-triggered one-off re-export of every field to the tablet (Overview
+        button). Confirms first — it activates each field and pushes when done."""
+        if getattr(self, "_reexporting", False):
+            self._status("Tablet re-export already running…"); return
+        try:
+            n = sum(len(list_fields(c, y)) for c in list_companies() for y in list_years(c))
+        except Exception:
+            n = 0
+        if not tkinter.messagebox.askyesno(
+                "Re-export all fields to tablet",
+                f"Re-bake and re-export all {n} field(s) to the tablet?\n\n"
+                "This refreshes every field's overlays + direction-angle data on the "
+                "crew tablet. It runs in the background (progress on the status line) "
+                "and pushes when done."):
+            return
+        self._reexport_all_fields(manual=True)
 
     def _reexport_all_fields(self, manual=False):
         """Re-export EVERY field's tablet GeoJSON (after a code/geometry change).
