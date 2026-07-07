@@ -550,6 +550,153 @@ function applyLocalCalibIfPending(fc, file) {
   translateField(fc, rec.de, rec.dn);
 }
 
+// ---- Field DIRECTION (planting / spray angle) --------------------------------
+// Crews often arrive and find the planned planting/spray direction was wrong.
+// They rotate the grid to match reality; every angle-driven overlay spins about
+// the pivot. Sign matches the desktop convention: +deg increases the stored
+// planting/spray angle (desktop draws the grid rotated by -angle in ENU).
+const DIR_SIGN = -1;
+// Overlay types driven by the PLANTING angle vs the SPRAY angle.
+const PLANT_ROT_TYPES = new Set(
+  ["male_bay", "alignment", "shelter", "planter_pass", "planter_number", "crew_route"]);
+const SPRAY_ROT_TYPES = new Set(
+  ["sprayer_pass", "sprayer_limit", "tire_zone", "edge_zone"]);
+
+// Rotate one GeoJSON [lon,lat] by `deg` about the pivot (projected in the ENU
+// frame so it matches the desktop grid geometry).
+function _rotPt(lon, lat, plat, plon, cosT, sinT) {
+  const [e, n] = _UTM.enu(lat, lon, plat, plon);
+  const e2 = e * cosT - n * sinT;
+  const n2 = e * sinT + n * cosT;
+  const [la, lo] = shiftLatLon(plat, plon, e2, n2);
+  return [lo, la];
+}
+
+// Rotate the planting-driven features by plantDeg and the spray-driven features
+// by sprayDeg, in place. Boundary / pivot tracks / wet zones are NOT rotated.
+function rotateField(fc, plantDeg, sprayDeg) {
+  if (!fc || !fc.features || !(fc.calibration && fc.calibration.pivot)) return;
+  const [plat, plon] = fc.calibration.pivot;
+  const doGroup = (types, deg) => {
+    if (!deg) return;
+    const t = deg * Math.PI / 180 * DIR_SIGN, cosT = Math.cos(t), sinT = Math.sin(t);
+    const rp = (c) => _rotPt(c[0], c[1], plat, plon, cosT, sinT);
+    const walk = (g) => {
+      if (!g) return;
+      if (g.type === "Point") g.coordinates = rp(g.coordinates);
+      else if (g.type === "LineString") g.coordinates = g.coordinates.map(rp);
+      else if (g.type === "Polygon") g.coordinates = g.coordinates.map((r) => r.map(rp));
+    };
+    for (const f of fc.features) if (types.has(f.properties.type)) walk(f.geometry);
+  };
+  doGroup(PLANT_ROT_TYPES, plantDeg);
+  doGroup(SPRAY_ROT_TYPES, sprayDeg);
+}
+
+function loadDir(file) {
+  try { return (JSON.parse(localStorage.getItem("beeDirection") || "{}") || {})[file] || null; }
+  catch (e) { return null; }
+}
+function saveDir(file, rec) {
+  try {
+    const all = JSON.parse(localStorage.getItem("beeDirection") || "{}") || {};
+    if (rec) all[file] = rec; else delete all[file];
+    localStorage.setItem("beeDirection", JSON.stringify(all));
+  } catch (e) {}
+}
+
+// On (re)load: re-apply a crew's un-baked-in direction change to the fresh
+// features; drop it once the desktop has recomputed with it (applied_id ≥ ours).
+function applyLocalDirectionIfPending(fc, file) {
+  const rec = loadDir(file);
+  if (!rec) return;
+  const appliedId = (fc.calibration && fc.calibration.direction_applied_id) || 0;
+  if (appliedId >= rec.id) { saveDir(file, null); return; }
+  rotateField(fc, rec.plantDelta || 0, rec.sprayDelta || 0);
+}
+
+// ---- Direction dialog (nudge + 90° flip; live overlay update) ----------------
+let _dirSession = null;   // { plant, spray, base:{plant,spray}, axis } while open
+
+function startDirection() {
+  if (!activeField) { toast("Open a field first."); return; }
+  if (!(activeField.calibration && activeField.calibration.pivot)) {
+    toast("No pivot for this field — can't rotate the grid."); return;
+  }
+  const prev = loadDir(activeFieldFile) || {};
+  _dirSession = { plant: prev.plantDelta || 0, spray: prev.sprayDelta || 0,
+                  base: { plant: prev.plantDelta || 0, spray: prev.sprayDelta || 0 },
+                  axis: "plant" };
+  showDirDialog();
+}
+
+function _dirNudge(deg) {
+  const s = _dirSession; if (!s || !deg) return;
+  if (s.axis === "plant") { rotateField(activeField, deg, 0); s.plant += deg; }
+  else { rotateField(activeField, 0, deg); s.spray += deg; }
+  map.getSource("field").setData(activeField);
+  _dirRenderReadout();
+}
+
+function _dirSetAxis(ax) { if (_dirSession) { _dirSession.axis = ax; showDirDialog(); } }
+
+function _dirCancel() {
+  const s = _dirSession;
+  if (s) {                                   // undo this session's rotation
+    rotateField(activeField, s.base.plant - s.plant, s.base.spray - s.spray);
+    map.getSource("field").setData(activeField);
+  }
+  _dirSession = null;
+  document.getElementById("dirdialog").classList.add("hidden");
+}
+
+function _dirApply() {
+  const s = _dirSession; if (!s) return;
+  const rec = { id: Date.now(), plantDelta: s.plant, sprayDelta: s.spray };
+  if (!s.plant && !s.spray) saveDir(activeFieldFile, null);   // back to planned → clear
+  else saveDir(activeFieldFile, rec);
+  // Phase B wires sendDirection (queue the corrected absolute angles to office).
+  try { if (typeof sendDirection === "function") sendDirection(activeFieldFile, rec); } catch (e) {}
+  _dirSession = null;
+  document.getElementById("dirdialog").classList.add("hidden");
+  toast("Direction updated" + (window.beePublish ? " · queued for the office" : ""));
+  try { if (navigator.vibrate) navigator.vibrate(120); } catch (e) {}
+}
+
+function _dirRenderReadout() {
+  const s = _dirSession; if (!s) return;
+  const r = document.getElementById("dir-readout");
+  if (!r) return;
+  const fmt = (v) => (v > 0 ? "+" : "") + Math.round(v) + "°";
+  r.innerHTML = 'Planting <b>' + fmt(s.plant) + '</b> &nbsp;·&nbsp; Spray <b>' + fmt(s.spray) + '</b>';
+}
+
+function showDirDialog() {
+  const s = _dirSession; if (!s) return;
+  const el = document.getElementById("dirdialog");
+  const axP = s.axis === "plant";
+  el.innerHTML =
+    '<div class="cal-card"><div class="cal-top"><div class="cal-head">' +
+    '<div class="cal-icon ok">➤</div>' +
+    '<div><div class="cal-title">Field direction</div>' +
+    '<div class="cal-fix ok">Rotate the grid to match the real rows</div></div></div>' +
+    '<div class="dir-seg"><button class="dseg' + (axP ? ' active' : '') + '" data-ax="plant">Planting</button>' +
+    '<button class="dseg' + (!axP ? ' active' : '') + '" data-ax="spray">Spray</button></div>' +
+    '<div class="dir-readout" id="dir-readout"></div>' +
+    '<div class="dir-nudges"><button data-d="-5">−5°</button><button data-d="-1">−1°</button>' +
+    '<button data-d="1">+1°</button><button data-d="5">+5°</button>' +
+    '<button data-d="90" class="dir-90">⟳ 90°</button></div></div>' +
+    '<div class="cal-row"><button class="cal-cancel">Cancel</button>' +
+    '<button class="cal-ok">Apply direction</button></div>';
+  el.classList.remove("hidden");
+  el.onclick = (e) => { if (e.target === el) _dirCancel(); };
+  el.querySelectorAll(".dseg").forEach((b) => (b.onclick = () => _dirSetAxis(b.dataset.ax)));
+  el.querySelectorAll(".dir-nudges button").forEach((b) => (b.onclick = () => _dirNudge(parseFloat(b.dataset.d))));
+  el.querySelector(".cal-cancel").onclick = _dirCancel;
+  el.querySelector(".cal-ok").onclick = _dirApply;
+  _dirRenderReadout();
+}
+
 function goodFix() {
   if (!pos) return false;
   if (posSource === "globe") return pos.fix === 4 || pos.fix === 5;   // RTK fixed / float
@@ -766,6 +913,7 @@ async function loadField(url, name) {
     }
   }
   applyLocalCalibIfPending(fc, activeFieldFile);  // re-apply an un-baked-in crew calibration
+  applyLocalDirectionIfPending(fc, activeFieldFile); // ...and an un-baked-in direction change
   activeField = fc;
   proxShelter = null; hideArrival();              // reset proximity for the new field
   if (window.beeTiles) beeTiles.touchField(fc);   // keep this field's tiles fresh (LRU)
@@ -1793,6 +1941,7 @@ window.addEventListener("DOMContentLoaded", () => {
   // Bottom action bar
   bind("btn-layers", "click", toggleLayersPanel);
   bind("btn-calibrate", "click", startCalibration);
+  bind("btn-direction", "click", startDirection);
   bind("btn-markplaced", "click", markPlaced);
   bind("btn-scan", "click", openScan);
   bind("btn-checklist", "click", openChecklist);

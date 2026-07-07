@@ -316,7 +316,7 @@ body.hc #hcscrim { background: rgba(20,18,14,.16); }
   background: var(--raised); color: var(--ink); border: 1px solid var(--border); border-radius: 10px; padding: 10px; font-family: inherit; font-size: 14px; }
 
 /* ================================================= CALIBRATE DIALOG + TOAST */
-#caldialog { position: absolute; inset: 0; z-index: 40; background: rgba(28,26,22,.5);
+#caldialog, #dirdialog { position: absolute; inset: 0; z-index: 40; background: rgba(28,26,22,.5);
   display: flex; align-items: center; justify-content: center; animation: btm-fade .2s ease; }
 .cal-card { width: 480px; max-width: 92%; background: var(--surface); border-radius: 20px;
   box-shadow: var(--sh-dialog); overflow: hidden; animation: btm-rise .26s ease; }
@@ -337,6 +337,18 @@ body.hc #hcscrim { background: rgba(20,18,14,.16); }
 .cal-cancel { border: 1px solid var(--border); background: var(--surface); color: #3A352C; }
 .cal-ok { border: none; background: var(--honey); color: #fff; font-weight: 800; }
 .cal-ok.disabled { background: #EDE8DE; color: #A29B8C; }
+
+/* Direction adjuster (planting/spray) — reuses .cal-card / .cal-row */
+.dir-seg { display: flex; gap: 8px; margin: 18px 28px 0; }
+.dseg { flex: 1; height: 44px; border-radius: 12px; border: 1px solid var(--border);
+  background: var(--surface); color: #3A352C; font-size: 15px; font-weight: 700; }
+.dseg.active { background: var(--honey); border-color: var(--honey); color: #fff; }
+.dir-readout { text-align: center; font-size: 15px; color: #3A352C; margin: 16px 28px 0; }
+.dir-readout b { color: var(--ink3); font-size: 18px; }
+.dir-nudges { display: flex; gap: 8px; padding: 16px 28px 22px; }
+.dir-nudges button { flex: 1; height: 52px; border-radius: 12px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--ink3); font-size: 16px; font-weight: 800; }
+.dir-nudges .dir-90 { flex: 1.4; background: var(--tint); border-color: var(--tint-bd); color: var(--tint-ink); }
 
 #caltoast { position: absolute; bottom: 104px; left: 50%; transform: translateX(-50%); z-index: 45;
   display: flex; align-items: center; gap: 14px; padding: 16px 22px;

@@ -103,6 +103,10 @@
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"></circle><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3"></path><circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"></circle></svg>
       <span>Calibrate</span>
     </button>
+    <button id="btn-direction" class="abtn" title="Fix the planting/spray direction">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><polygon points="12,6.5 14.6,15 12,13.2 9.4,15" fill="currentColor" stroke="none"></polygon></svg>
+      <span>Direction</span>
+    </button>
     <button id="btn-scan" class="abtn">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"></path><path d="M4 12h16"></path></svg>
       <span>Scan</span>
@@ -149,6 +153,9 @@
   <!-- =================================================== CALIBRATE DIALOGS -->
   <div id="caldialog" class="hidden"></div>
   <div id="caltoast" class="hidden"></div>
+
+  <!-- Direction (planting / spray) adjuster -->
+  <div id="dirdialog" class="hidden"></div>
 
   <!-- =============================================== RE-HOMED CREW DRAWERS -->
   <!-- More sheet: crew identity + display prefs + manage fields (sync). -->
