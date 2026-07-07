@@ -1492,6 +1492,8 @@ class BeetentApp(ctk.CTk):
         self.after(2500, self._autosave_tick)       # quietly persist map/field edits
         self._calib_feed = None                     # always-on crew-calibration listener
         self.after(2000, self._calib_start)         # apply crew calibrations from the relay
+        self._direction_feed = None                 # always-on crew direction-change listener
+        self.after(2200, self._direction_start)     # apply crew planting/spray direction changes
 
     # ── Window icon / logo ──────────────────────────────────────────────────
     def _set_window_icon(self):
@@ -3695,6 +3697,152 @@ class BeetentApp(ctk.CTk):
             # it's opened. The calibrating tablet shows the shift via its local copy.
             self._status(f"Crew calibrated {nm} — open it to republish overlays.")
         self._git_push(f"calibration: {nm}")
+
+    # ── Crew direction-change ingest (tablet → Firebase → field angles) ──────
+    def _direction_start(self):
+        """Always-on listener for crew planting/spray direction changes pushed to
+        the Firebase `direction` tree. Applies each new one to the field's
+        Planting_angle / Spray_angle (recompute + re-export) and alerts the office."""
+        url, token = self._firebase_cfg()
+        if not url:
+            return
+        try:
+            import monitor_feed
+            feed = monitor_feed.JsonPathFeed(url, "direction", token, interval=3.0)
+            feed.on_data = lambda d: self.after(0, self._direction_ingest, d or {})
+            self._direction_feed = feed
+            feed.start()
+        except Exception as e:
+            self._log(f"direction feed start failed: {e}")
+
+    def _direction_ingest(self, data):
+        """data = {fieldKey: {id, plant_angle, spray_angle, crew, ...}}. Apply any
+        direction change whose id we haven't already baked into that field."""
+        if not isinstance(data, dict) or not data:
+            return
+        keymap = None
+        for fkey, rec in data.items():
+            if not isinstance(rec, dict):
+                continue
+            try:
+                cid = int(rec.get("id") or 0)
+                plant_abs = float(rec.get("plant_angle"))
+                spray_abs = float(rec.get("spray_angle"))
+            except (ValueError, TypeError):
+                continue
+            if not cid:
+                continue
+            if keymap is None:
+                keymap = self._calib_fbkey_map()   # same {fbkey -> (co,yr,nm)} map
+            loc = keymap.get(fkey)
+            if loc:
+                try:
+                    self._direction_apply(loc[0], loc[1], loc[2], cid, plant_abs,
+                                          spray_abs, str(rec.get("crew") or ""))
+                except Exception as e:
+                    self._log(f"direction apply {loc}: {e}")
+
+    def _direction_apply(self, co, yr, nm, cid, plant_abs, spray_abs, crew):
+        cf = self.current_field
+        is_open = (str(cf.get("company")) == str(co) and str(cf.get("year")) == str(yr)
+                   and str(cf.get("Name")) == str(nm))
+        f = cf if is_open else load_field(co, yr, nm)
+        if not f:
+            return
+        try:
+            if int(f.get("direction_applied_id") or 0) == cid:
+                return                       # already applied
+        except (ValueError, TypeError):
+            pass
+
+        def _eff(a, b):
+            _a = str(f.get(a) or "").strip(); _b = str(f.get(b) or "").strip()
+            try: return float(_a or _b or 0)
+            except (ValueError, TypeError): return 0.0
+        old_plant = _eff("Planting_angle", "Spray_angle")
+        old_spray = _eff("Spray_angle", "Planting_angle")
+        # Set the ABSOLUTE new direction the tablet sent (idempotent, last-write-wins).
+        f["Planting_angle"] = "%g" % plant_abs
+        f["Spray_angle"] = "%g" % spray_abs
+        f["direction_applied_id"] = cid
+        save_field(f)
+        if is_open:
+            # Reflect on the live map + re-bake the tablet overlays, then push.
+            try: self._form_from_field()
+            except Exception: pass
+            try: self._redraw_all()
+            except Exception: pass
+            try: self._export_tablet_geojson(self._field_from_form())
+            except Exception: pass
+            try:
+                self._autosave_last = json.dumps(self._field_from_form(),
+                                                 sort_keys=True, default=str)
+            except Exception: pass
+        self._git_push(f"direction: {nm}")
+        try:
+            self._show_direction_alert(nm, crew, old_plant, plant_abs,
+                                       old_spray, spray_abs, co, yr, is_open)
+        except Exception as e:
+            self._log(f"direction alert failed: {e}")
+        self._status(f"Crew changed direction on {nm}: planting "
+                     f"{old_plant:g}°→{plant_abs:g}°.")
+
+    def _dir_thumb(self, parent, label, angle_deg, color):
+        """A 120px field-circle thumbnail with parallel bay lines at `angle_deg`,
+        for the before/after direction preview."""
+        wrap = ctk.CTkFrame(parent, fg_color="transparent")
+        ctk.CTkLabel(wrap, text=label, text_color=UI_MUTED,
+                     font=ctk.CTkFont(family=FONT_LABEL, size=11)).pack(pady=(0, 2))
+        cv = tk.Canvas(wrap, width=120, height=120, bg=UI_CARD, highlightthickness=0)
+        cv.pack()
+        cx, cy, R = 60, 60, 50
+        cv.create_oval(cx - R, cy - R, cx + R, cy + R, outline="#E4DFD4", width=2)
+        th = math.radians(-float(angle_deg))     # screen north-up; +angle clockwise
+        dx, dy = math.cos(th), math.sin(th)
+        nx, ny = -math.sin(th), math.cos(th)
+        d = -R + 8
+        while d <= R - 8:
+            ch = math.sqrt(max(0.0, R * R - d * d)) - 2
+            cv.create_line(cx + d * nx - ch * dx, cy + d * ny - ch * dy,
+                           cx + d * nx + ch * dx, cy + d * ny + ch * dy,
+                           fill=color, width=3)
+            d += 13
+        return wrap
+
+    def _show_direction_alert(self, nm, crew, old_p, new_p, old_s, new_s, co, yr, is_open):
+        win = ctk.CTkToplevel(self)
+        win.title("Crew changed field direction")
+        win.geometry("470x380")
+        win.transient(self); win.lift()
+        try: win.attributes("-topmost", True)
+        except Exception: pass
+        ctk.CTkLabel(win, text="🚜  Crew changed field direction", text_color=UI_TEXT,
+                     font=ctk.CTkFont(family=FONT_HEADING, size=16)).pack(anchor="w", padx=18, pady=(16, 2))
+        who = (crew + " — ") if crew else ""
+        ctk.CTkLabel(win, text=f"{who}{nm}", text_color=UI_MUTED,
+                     font=ctk.CTkFont(family=FONT_LABEL, size=12)).pack(anchor="w", padx=18)
+        summ = ctk.CTkFrame(win, fg_color="transparent"); summ.pack(fill="x", padx=18, pady=(10, 4))
+        def _line(lbl, o, n):
+            changed = abs(o - n) > 0.01
+            ctk.CTkLabel(summ, text=f"{lbl}:  {o:g}°  →  {n:g}°",
+                         text_color=(UI_ACCENT if changed else UI_MUTED),
+                         font=ctk.CTkFont(family=FONT_LABEL, size=14,
+                                          weight=("bold" if changed else "normal"))
+                         ).pack(anchor="w", pady=1)
+        _line("Planting direction", old_p, new_p)
+        _line("Spray direction", old_s, new_s)
+        vis = ctk.CTkFrame(win, fg_color="transparent"); vis.pack(pady=(8, 4))
+        self._dir_thumb(vis, "Before", old_p, "#B4AD9E").pack(side="left", padx=14)
+        ctk.CTkLabel(vis, text="→", text_color=UI_MUTED,
+                     font=ctk.CTkFont(size=22)).pack(side="left")
+        self._dir_thumb(vis, "After", new_p, UI_ACCENT).pack(side="left", padx=14)
+        row = ctk.CTkFrame(win, fg_color="transparent"); row.pack(fill="x", padx=18, pady=(8, 14))
+        if not is_open:
+            ctk.CTkButton(row, text="Open field",
+                          command=lambda: (win.destroy(), self._activate_field(co, yr, nm))
+                          ).pack(side="right", padx=(6, 0))
+        ctk.CTkButton(row, text="Dismiss", fg_color=UI_HOVER, hover_color=UI_BORDER,
+                      text_color=UI_TEXT, command=win.destroy).pack(side="right")
 
     # ── Google Sheets mirror (Phase D) ──────────────────────────────────────
     def _sheets_url(self):
@@ -13465,12 +13613,25 @@ class BeetentApp(ctk.CTk):
         except (ValueError, TypeError):
             applied_id = 0
         be, bn = self._bay_shift()
+        # Effective planting / spray angles the exported grid is drawn at, so the
+        # tablet's Direction control can send an ABSOLUTE corrected angle back.
+        _plant = str(f.get("Planting_angle") or "").strip()
+        _spray = str(f.get("Spray_angle") or "").strip()
+        try: plant_eff = float(_plant or _spray or 0)
+        except (ValueError, TypeError): plant_eff = 0.0
+        try: spray_eff = float(_spray or _plant or 0)
+        except (ValueError, TypeError): spray_eff = 0.0
+        try: dir_applied = int(f.get("direction_applied_id") or 0)
+        except (ValueError, TypeError): dir_applied = 0
         return {
             "pivot": [g["plat"], g["plon"]],
             "lat_axis": [g["ldx"], g["ldy"]],
             "bay_centers_m": sorted(centers),
             "base_shift": [be, bn],          # field's current bay_shift (east, north m)
             "applied_id": applied_id,
+            "plant_angle": plant_eff,        # current planting / spray direction (deg)
+            "spray_angle": spray_eff,
+            "direction_applied_id": dir_applied,  # last crew direction change baked in
         }
 
     # ── Toggleable tablet overlays (geometry export) ────────────────────────

@@ -15,6 +15,7 @@ window.beePublish = (function () {
   let ref = null;       // firebase db ref for this crew
   let scansRef = null;  // persistent scans/<field>/{shelters,trays}/<qr> tree
   let calibRef = null;  // calibration/<field> — crew bay-shift corrections
+  let dirRef = null;    // direction/<field> — crew planting/spray angle changes
   let enabled = false;
 
   // Firebase keys may not contain . # $ [ ] / — sanitise field ids and QR codes.
@@ -49,6 +50,7 @@ window.beePublish = (function () {
       ref.onDisconnect().remove();
       scansRef = firebase.database().ref("scans");   // persistent — NOT removed
       calibRef = firebase.database().ref("calibration");
+      dirRef = firebase.database().ref("direction");
       enabled = true;
       setInterval(write, PUSH_MS);
       console.info("Relay publish enabled as", crewId());
@@ -98,6 +100,11 @@ window.beePublish = (function () {
     pushCalibration(fieldId, rec) {
       if (!enabled || !calibRef || !fieldId || !rec) return null;
       return calibRef.child(fieldKey(fieldId)).set(rec);
+    },
+    // Crew planting/spray direction change → direction/<field>. Absolute angles.
+    pushDirection(fieldId, rec) {
+      if (!enabled || !dirRef || !fieldId || !rec) return null;
+      return dirRef.child(fieldKey(fieldId)).set(rec);
     },
     _init: init,
   };

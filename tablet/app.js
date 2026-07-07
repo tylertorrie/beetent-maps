@@ -827,6 +827,42 @@ function flushCalibQueue() {
   if (changed) { try { localStorage.setItem("beeCalibQueue", JSON.stringify(q)); } catch (e) {} }
 }
 
+// Send the crew's corrected ABSOLUTE planting/spray direction to the office
+// (base angle from the export + their accumulated delta). Idempotent SET, so
+// re-delivery / multiple edits are safe. Queues offline; flushed on reconnect.
+function sendDirection(file, rec) {
+  const cal = activeField && activeField.calibration;
+  const basePlant = (cal && typeof cal.plant_angle === "number") ? cal.plant_angle : 0;
+  const baseSpray = (cal && typeof cal.spray_angle === "number") ? cal.spray_angle : 0;
+  const out = {
+    id: rec.id,
+    plant_angle: basePlant + (rec.plantDelta || 0),
+    spray_angle: baseSpray + (rec.sprayDelta || 0),
+    plant_delta: rec.plantDelta || 0, spray_delta: rec.sprayDelta || 0,
+    crew: (window.beePublish ? beePublish.getCrew().name : ""), ts: Date.now() / 1000,
+  };
+  const fieldId = file.replace(/\.geojson$/i, "");
+  let p = null;
+  try { p = window.beePublish ? beePublish.pushDirection(fieldId, out) : null; } catch (e) {}
+  if (!p) {
+    try {
+      const q = JSON.parse(localStorage.getItem("beeDirQueue") || "{}") || {};
+      q[fieldId] = out; localStorage.setItem("beeDirQueue", JSON.stringify(q));
+    } catch (e) {}
+  }
+}
+function flushDirQueue() {
+  let q;
+  try { q = JSON.parse(localStorage.getItem("beeDirQueue") || "{}") || {}; } catch (e) { return; }
+  let changed = false;
+  for (const fieldId of Object.keys(q)) {
+    let p = null;
+    try { p = window.beePublish ? beePublish.pushDirection(fieldId, q[fieldId]) : null; } catch (e) {}
+    if (p) { delete q[fieldId]; changed = true; }
+  }
+  if (changed) { try { localStorage.setItem("beeDirQueue", JSON.stringify(q)); } catch (e) {} }
+}
+
 // Lightweight toast reusing the update banner's slot styling.
 function toast(msg) {
   const t = document.getElementById("toast");
@@ -1945,9 +1981,9 @@ window.addEventListener("DOMContentLoaded", () => {
   bind("btn-markplaced", "click", markPlaced);
   bind("btn-scan", "click", openScan);
   bind("btn-checklist", "click", openChecklist);
-  flushCalibQueue();
-  window.addEventListener("online", flushCalibQueue);
-  setInterval(flushCalibQueue, 30000);
+  flushCalibQueue(); flushDirQueue();
+  window.addEventListener("online", () => { flushCalibQueue(); flushDirQueue(); });
+  setInterval(() => { flushCalibQueue(); flushDirQueue(); }, 30000);
 
   // Layer slide-over
   bind("btn-close-layers", "click", () => closeSheet("layerscrim"));
