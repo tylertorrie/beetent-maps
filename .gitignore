@@ -63,6 +63,13 @@ tablet/firebase-config.js
 # Google Maps API key for Cost Estimator travel times — secret, repo is public.
 maps_api_key.txt
 
+# Supabase credentials — service_role key must NEVER be committed (repo is public).
+supabase_config.json
+.env
+**/.env
+.env.local
+**/.env.local
+
 # Compiled/installed dependencies that ship with the source
 # (shapefile.py, simplekml, utm, fpdf are vendored — DO track them)
 
