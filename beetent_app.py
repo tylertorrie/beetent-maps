@@ -12170,9 +12170,12 @@ class BeetentApp(ctk.CTk):
             try: _tla, _tlo = float(_tp[0]), float(_tp[1])
             except (TypeError, ValueError, IndexError): continue
             visible.append((_tla, _tlo, "test", _tj, -1))
-        # Re-sort the FULL list so test pins draw in position order (share the
-        # regular pins' z-order) rather than always on top.
-        visible = self._snake_sort_shelters(visible, f)
+        # Draw order = north → south (highest latitude first) so a pin further
+        # SOUTH is created last and sits ON TOP, with northern pins tucked
+        # underneath — the marker pointer never gets hidden by the pin below it.
+        # Regular + test share this z-order; numbering was captured above from
+        # the snake order, so it's unaffected.
+        visible.sort(key=lambda v: v[0], reverse=True)
         mode=self.pin_label_mode
         try: BUFFER_M=float(self.current_field.get("shelter_buffer_m") or 0)
         except (ValueError,TypeError): BUFFER_M=0.0
