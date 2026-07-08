@@ -11024,6 +11024,32 @@ class BeetentApp(ctk.CTk):
         self._delete_testpin(idx)
         self._status("Test shelter → regular shelter (Save Field to keep).")
 
+    def _shelter_to_test(self, idx):
+        """Convert a regular (algorithm) shelter into a blue test shelter: drop a
+        test pin at its position and delete the grid shelter (per-combo override,
+        so it doesn't re-space the rest). ↶ Reset Move undoes the delete."""
+        info = self._drag_registry.get(f"shelter_{idx}") or {}
+        lat, lon = info.get("lat"), info.get("lon")
+        if lat is None or lon is None:
+            self._status("Couldn't read that shelter's position."); return
+        self.current_field.setdefault("test_shelters", []).append([lat, lon])
+        self._record_shelter_change(idx)
+        self.current_field.setdefault("shelter_overrides", {})[str(idx)] = None
+        if self.show_shelters.get(): self._redraw_shelters()
+        self._refresh_bee_summary()
+        self._status("Shelter → test shelter (blue). ↶ Reset Move to undo.")
+
+    def _manualpin_to_test(self, idx):
+        """Convert an extra (manual) shelter pin into a blue test shelter."""
+        pins = self.current_field.get("manual_shelter_pins") or []
+        if not (0 <= idx < len(pins)):
+            return
+        pt = pins.pop(idx)
+        self.current_field.setdefault("test_shelters", []).append([pt[0], pt[1]])
+        if self.show_shelters.get(): self._redraw_shelters()
+        self._refresh_bee_summary()
+        self._status("Extra pin → test shelter (blue).")
+
     def _on_testpin_tap(self, idx):
         """Tap a blue test pin → set its bee gallons, convert to regular, or delete."""
         pins = self.current_field.get("test_shelters") or []
@@ -11554,6 +11580,9 @@ class BeetentApp(ctk.CTk):
             fill="x", padx=24, pady=(8, 4))
         ctk.CTkButton(win, text="Reset to auto", height=32, fg_color="#555",
                       command=_reset).pack(fill="x", padx=24, pady=(0, 4))
+        ctk.CTkButton(win, text="Make test shelter", height=32, fg_color="#1E90FF",
+                      command=lambda: (win.destroy(), self._shelter_to_test(idx))
+                      ).pack(fill="x", padx=24, pady=(0, 4))
         ctk.CTkButton(win, text="Delete shelter", height=32, fg_color="#7a2a2a",
                       command=_delete).pack(fill="x", padx=24, pady=(0, 4))
         ctk.CTkButton(win, text="Cancel", height=32, fg_color="#444",
@@ -11607,9 +11636,21 @@ class BeetentApp(ctk.CTk):
         self._status("Extra pin deleted.")
 
     def _on_manualpin_tap(self, idx):
-        """Click an extra pin → confirm + delete."""
-        if tkinter.messagebox.askyesno("Delete Pin", "Delete this extra shelter pin?"):
-            self._delete_manualpin(idx)
+        """Click an extra pin → convert to a test shelter, or delete."""
+        win = ctk.CTkToplevel(self); win.title("Extra shelter pin"); win.grab_set()
+        ctk.CTkLabel(win, text="Extra shelter pin",
+                     font=ctk.CTkFont(family=FONT_HEADING, size=15)).pack(padx=24, pady=(16, 8))
+        ctk.CTkButton(win, text="Make test shelter", height=34, fg_color="#1E90FF",
+                      command=lambda: (win.destroy(), self._manualpin_to_test(idx))
+                      ).pack(fill="x", padx=24, pady=(0, 4))
+        ctk.CTkButton(win, text="Delete extra pin", height=32, fg_color=UI_DANGER,
+                      command=lambda: (win.destroy(), self._delete_manualpin(idx))
+                      ).pack(fill="x", padx=24, pady=(0, 4))
+        ctk.CTkButton(win, text="Cancel", height=32, fg_color=UI_HOVER,
+                      hover_color=UI_BORDER, text_color=UI_TEXT, command=win.destroy
+                      ).pack(fill="x", padx=24, pady=(0, 16))
+        _center_on_parent(win, self)
+        self.wait_window(win)
 
     # ── Actual (scanned) shelter placement ──────────────────────────────────
     def _parse_shelter_csv(self, path):
@@ -15153,6 +15194,11 @@ class BeetentApp(ctk.CTk):
             try:
                 gpa_f = float(gpa_s); gpt_f = float(gpt_s)
                 tot_gals = gpa_f * acres_f
+                # Fold in test-shelter gals when the toggle is on (default), matching
+                # the Bee Allocation panel; they also show as their own line below.
+                _tg = self._test_gals_total()
+                if _tg and bool(f.get("test_gals_in_total", True)):
+                    tot_gals += _tg
                 total_gals_disp = f"{tot_gals:.1f} gal"
                 if self.shelter_tray_counts and n_shelters:
                     tot_tr = sum(self.shelter_tray_counts)
@@ -15375,6 +15421,14 @@ class BeetentApp(ctk.CTk):
             ("Tray Distribution",      dist_disp),
             ("Shelters in Outside Pass", outside_disp),
         ]
+        # Test-shelter lines — only when the field actually has test shelters.
+        n_test = len(f.get("test_shelters") or [])
+        if n_test >= 1:
+            _tg = self._test_gals_total()
+            _tc_in = "in total" if bool(f.get("test_count_in_total", False)) else "separate"
+            _tg_in = "in total" if bool(f.get("test_gals_in_total", True)) else "separate"
+            right_rows.append(("Test Shelters",     f"{n_test} ({_tc_in})"))
+            right_rows.append(("Test Shelter Gals", f"{_tg:g} gal ({_tg_in})"))
 
         try: _gap_zero = (not gap_s) or float(gap_s) == 0
         except ValueError: _gap_zero = False
@@ -15385,7 +15439,8 @@ class BeetentApp(ctk.CTk):
         elif role in ("flag", "shelter"):
             rm_right.update(["Gals / Acre", "Total Gals", "Gals / Tray",
                              "Trays per Shelter", "Tray Distribution",
-                             "Shelters in Outside Pass"])
+                             "Shelters in Outside Pass",
+                             "Test Shelter Gals"])   # crews/flaggers get the count, not gals
         elif role == "bee":
             rm_left.update(["Planting Angle", "Spraying Angle", "Sprayer Width",
                             "Row Spacing", "Gap Between Bays"])
