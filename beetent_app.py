@@ -5813,6 +5813,7 @@ class BeetentApp(ctk.CTk):
                      ("Numbers: Off",lambda:self._set_pin_mode("off")),
                      ("Toggle Shelter Buffer Zone",self._toggle_shelter_buffers),
                      ("Set Shelter Buffer Size",self._edit_shelter_buffer),
+                     ("Set gals for all test shelters",self._set_test_gals_each),
                      ("Test shelters count in total",self._toggle_test_count),
                      ("Test gals count in total",self._toggle_test_gals),
                      ("Import Actual Shelter Pins (CSV)",self._import_actual_shelters)]},
@@ -11057,14 +11058,21 @@ class BeetentApp(ctk.CTk):
         pins = self.current_field.get("test_shelters") or []
         if not (0 <= idx < len(pins)):
             return
-        cur = (self.current_field.get("test_shelter_gals") or {}).get(str(idx), "")
+        gmap = self.current_field.get("test_shelter_gals") or {}
+        override = gmap.get(str(idx))                 # this pin's own value, or None
+        default = self._test_gals_default()           # field-wide "each" default
         win = ctk.CTkToplevel(self); win.title(f"Test shelter T{idx+1}"); win.grab_set()
         ctk.CTkLabel(win, text=f"Test shelter T{idx+1}",
-                     font=ctk.CTkFont(family=FONT_HEADING, size=15)).pack(padx=24, pady=(16, 4))
+                     font=ctk.CTkFont(family=FONT_HEADING, size=15)).pack(padx=24, pady=(16, 2))
+        ctk.CTkLabel(win, text=(f"Using its own {override:g} gal"
+                                if override is not None else
+                                f"Using the field default ({default:g} gal each)"),
+                     text_color=UI_MUTED, font=ctk.CTkFont(size=12)).pack(padx=24, pady=(0, 6))
         row = ctk.CTkFrame(win, fg_color="transparent"); row.pack(padx=24, pady=4)
         ctk.CTkLabel(row, text="Gals:", width=50, anchor="w").pack(side="left")
-        tv = tk.StringVar(value=(str(cur) if cur != "" else ""))
-        ent = ctk.CTkEntry(row, textvariable=tv, width=90); ent.pack(side="left", padx=4)
+        tv = tk.StringVar(value=(f"{override:g}" if override is not None else ""))
+        ent = ctk.CTkEntry(row, textvariable=tv, width=90,
+                           placeholder_text=f"{default:g}"); ent.pack(side="left", padx=4)
         try: ent.focus_set()
         except Exception: pass
 
@@ -11072,7 +11080,7 @@ class BeetentApp(ctk.CTk):
             s = tv.get().strip()
             g = self.current_field.setdefault("test_shelter_gals", {})
             if s == "":
-                g.pop(str(idx), None)
+                g.pop(str(idx), None)         # blank → fall back to the field default
             else:
                 try: g[str(idx)] = float(s)
                 except (ValueError, TypeError):
@@ -11082,7 +11090,16 @@ class BeetentApp(ctk.CTk):
             self._refresh_bee_summary()
             self._status(f"Test shelter T{idx+1} gals set — Save Field to keep.")
 
+        def _use_default():
+            (self.current_field.get("test_shelter_gals") or {}).pop(str(idx), None)
+            win.destroy(); self._refresh_bee_summary()
+            self._status(f"Test shelter T{idx+1} → field default ({default:g} gal).")
+
         ctk.CTkButton(win, text="Set gals", height=34, command=_set).pack(fill="x", padx=24, pady=(8, 4))
+        if override is not None:
+            ctk.CTkButton(win, text=f"Use field default ({default:g} gal)", height=30,
+                          fg_color=UI_HOVER, hover_color=UI_BORDER, text_color=UI_TEXT,
+                          command=_use_default).pack(fill="x", padx=24, pady=(0, 4))
         ctk.CTkButton(win, text="Make regular shelter", height=32,
                       command=lambda: (win.destroy(), self._testpin_to_regular(idx))
                       ).pack(fill="x", padx=24, pady=(0, 4))
@@ -11095,13 +11112,44 @@ class BeetentApp(ctk.CTk):
         _center_on_parent(win, self)
         self.wait_window(win)
 
+    def _test_gals_default(self):
+        try: return float(self.current_field.get("test_gals_each") or 0)
+        except (ValueError, TypeError): return 0.0
+
+    def _test_gals_for(self, idx):
+        """Effective gallons for test pin idx: its own set value if given, else
+        the field-wide 'test gals each' default."""
+        v = (self.current_field.get("test_shelter_gals") or {}).get(str(idx))
+        if v is None:
+            return self._test_gals_default()
+        try: return float(v)
+        except (ValueError, TypeError): return 0.0
+
     def _test_gals_total(self):
-        """Sum of the manually-entered gallons across all test shelters."""
-        tot = 0.0
-        for v in (self.current_field.get("test_shelter_gals") or {}).values():
-            try: tot += float(v)
-            except (ValueError, TypeError): pass
-        return tot
+        """Total gallons across all test shelters (each own value, else default)."""
+        n = len(self.current_field.get("test_shelters") or [])
+        return sum(self._test_gals_for(i) for i in range(n))
+
+    def _set_test_gals_each(self):
+        """Field-wide default gallons for EVERY test shelter. Individual shelters
+        you set keep their own value; the rest follow this."""
+        self._close_all_popups()
+        cur = self.current_field.get("test_gals_each")
+        val = self._ask_string(
+            "Gals in each test shelter",
+            f"Gallons in EACH test shelter (blank = 0). Shelters you've set "
+            f"individually keep their own value.  Current: {cur if cur not in (None,'') else '0'}")
+        if val is None:
+            return
+        val = val.strip()
+        if val == "":
+            self.current_field.pop("test_gals_each", None)
+        else:
+            try: self.current_field["test_gals_each"] = float(val)
+            except (ValueError, TypeError):
+                self._status("Enter a number of gallons."); return
+        self._refresh_bee_summary()
+        self._status(f"Test shelters: {val or '0'} gal each by default (Save to keep).")
 
     def _toggle_test_count(self):
         self._close_all_popups()
@@ -11910,6 +11958,44 @@ class BeetentApp(ctk.CTk):
         if self.show_crews.get():
             self._redraw_crews()
 
+    def _snake_sort_shelters(self, entries, f):
+        """Sort shelter entries (lat,lon,kind,ident,row) into NW-snake order
+        (W→E columns, alternating N↔S), matching get_tent_positions. Reused to
+        renumber dragged/manual pins AND to interleave test pins into the same
+        draw/z-order. Returns entries unchanged if the pivot isn't set."""
+        try:
+            _plat = float(f.get("PP_Latitude") or 0)
+            _plon = float(f.get("PP_Longitude") or 0)
+            if not (_plat and _plon):
+                return entries
+            _ang = float(f.get("Planting_angle") or f.get("Spray_angle") or 0)
+            _cos_r = math.cos(math.radians(_ang)); _sin_r = math.sin(math.radians(_ang))
+            try:
+                _rs = float(f.get("row_spacing_in") or 22)
+                _nf = int(float(f.get("num_female_rows") or 0))
+                _nm = int(float(f.get("num_male_rows") or 0))
+                _gap = float(f.get("bay_gap_in") or 0) * 0.0254
+                _col_w = (_nf+1)*_rs*0.0254 + (_nm+1)*_rs*0.0254 + 2.0*_gap
+            except (ValueError, TypeError):
+                _col_w = 0.0
+            if _col_w <= 0:
+                try: _col_w = float(f.get("Sprayer_width") or 0) * 0.3048
+                except (ValueError, TypeError): _col_w = 0.0
+            if _col_w <= 0:
+                _col_w = 10.0
+            _first_desc = (-_sin_r + _cos_r) > 0
+            def _key(entry):
+                la, lo = entry[0], entry[1]
+                e, n = latlon_to_enu(la, lo, _plat, _plon)
+                lat_v = e * _cos_r + n * _sin_r
+                trn_v = -e * _sin_r + n * _cos_r
+                col = round(lat_v / _col_w)
+                desc = (col % 2 == 0 and _first_desc) or (col % 2 == 1 and not _first_desc)
+                return (col, -trn_v if desc else trn_v)
+            return sorted(entries, key=_key)
+        except Exception:
+            return entries
+
     def _redraw_shelters(self):
         if getattr(self, "_reexporting", False):
             return                          # bulk export: never draw mid-run
@@ -11986,45 +12072,10 @@ class BeetentApp(ctk.CTk):
             self._refresh_bee_summary()
             return
 
-        # Re-sort visible by NW-snake order (W→E columns, alternating N↔S
-        # within each column) based on current lat/lon.  This renumbers dragged
-        # and manually-added pins into the correct position rather than keeping
-        # their original algorithm index, matching what get_tent_positions does.
-        try:
-            _plat = float(f.get("PP_Latitude") or 0)
-            _plon = float(f.get("PP_Longitude") or 0)
-            if _plat and _plon:
-                _ang = float(f.get("Planting_angle") or f.get("Spray_angle") or 0)
-                _cos_r = math.cos(math.radians(_ang))
-                _sin_r = math.sin(math.radians(_ang))
-                # Column width: matches get_tent_positions bay logic (2× gap_m).
-                try:
-                    _rs   = float(f.get("row_spacing_in") or 22)
-                    _nf   = int(float(f.get("num_female_rows") or 0))
-                    _nm   = int(float(f.get("num_male_rows")  or 0))
-                    _gap  = float(f.get("bay_gap_in") or 0) * 0.0254
-                    _col_w = (_nf+1)*_rs*0.0254 + (_nm+1)*_rs*0.0254 + 2.0*_gap
-                except (ValueError, TypeError):
-                    _col_w = 0.0
-                if _col_w <= 0:
-                    try: _col_w = float(f.get("Sprayer_width") or 0) * 0.3048
-                    except (ValueError, TypeError): _col_w = 0.0
-                if _col_w <= 0:
-                    _col_w = 10.0
-                _first_desc = (-_sin_r + _cos_r) > 0  # travel_nw > 0
-
-                def _snake_key(entry):
-                    la, lo = entry[0], entry[1]
-                    e, n = latlon_to_enu(la, lo, _plat, _plon)
-                    lat_v =  e * _cos_r + n * _sin_r   # lateral (E→W field axis)
-                    trn_v = -e * _sin_r + n * _cos_r   # transverse (N→S field axis)
-                    col = round(lat_v / _col_w)
-                    desc = (col%2==0 and _first_desc) or (col%2==1 and not _first_desc)
-                    return (col, -trn_v if desc else trn_v)
-
-                visible.sort(key=_snake_key)
-        except Exception:
-            pass  # on any error keep original order
+        # Re-sort visible by NW-snake order — renumbers dragged/manual pins into
+        # position order, matching get_tent_positions. (Shared helper; reused
+        # below to interleave the test pins into the same z-order.)
+        visible = self._snake_sort_shelters(visible, f)
 
         vis_positions=[(v[0],v[1]) for v in visible]
         vis_rows=[v[4] for v in visible]
@@ -12049,10 +12100,15 @@ class BeetentApp(ctk.CTk):
             if seq < len(self.shelter_tray_counts):
                 self._tray_count_by_ident[ident] = self.shelter_tray_counts[seq]
         self._update_tray_alloc_readout(total_trays)
-        # ── Test shelters (blue). Appended AFTER the regular bee/tray distribution
-        # so they never alter it; their bees are the manual per-pin gals only.
-        # Numbered T1.. when they don't count toward the total, or continuing the
-        # regular count when test_count_in_total is on. ──
+        # ── Test shelters (blue). Bees are the manual per-pin gals only, so they
+        # stay OUT of the regular bee/tray distribution above. Number + tray
+        # lookups for the REGULAR pins are captured now (keyed by kind+ident) so
+        # interleaving the test pins for z-order can't shift regular numbering. ──
+        reg_num = {}; reg_tray = {}
+        for _s, (_la, _lo, _k, _id, _r) in enumerate(visible):
+            reg_num[(_k, _id)] = _s + 1
+            reg_tray[(_k, _id)] = (self.shelter_tray_counts[_s]
+                                   if _s < len(self.shelter_tray_counts) else 0)
         n_regular = len(visible)
         test_pins = list(self.current_field.get("test_shelters") or [])
         test_in_total = bool(self.current_field.get("test_count_in_total", False))
@@ -12060,35 +12116,34 @@ class BeetentApp(ctk.CTk):
             try: _tla, _tlo = float(_tp[0]), float(_tp[1])
             except (TypeError, ValueError, IndexError): continue
             visible.append((_tla, _tlo, "test", _tj, -1))
-        if len(self.shelter_tray_counts) < len(visible):
-            self.shelter_tray_counts += [0] * (len(visible) - len(self.shelter_tray_counts))
+        # Re-sort the FULL list so test pins draw in position order (share the
+        # regular pins' z-order) rather than always on top.
+        visible = self._snake_sort_shelters(visible, f)
         mode=self.pin_label_mode
         try: BUFFER_M=float(self.current_field.get("shelter_buffer_m") or 0)
         except (ValueError,TypeError): BUFFER_M=0.0
         show_circles=self.shelter_circle_var.get() and BUFFER_M>0   # 0 size = no buffer
-        for seq,(lat,lon,kind,ident,row) in enumerate(visible):
+        _test_disp = 0
+        for (lat,lon,kind,ident,row) in visible:
             if kind=="test":
                 cc="#1E90FF"; oc="#0A3D7A"          # blue test shelter
+                _test_disp += 1
                 if mode=="off":            lbl=""
-                elif test_in_total:        lbl=str(seq+1)        # continues regular #s
-                else:                      lbl="T"+str(ident+1)  # separate T1.. #s
-            else:
-                cc="#FFD700"; oc="#B8860B"
-                if mode=="shelters":
-                    lbl=str(seq+1)
-                elif mode=="trays" and self.shelter_tray_counts:
-                    lbl=str(self.shelter_tray_counts[seq])
-                else:
-                    lbl=""
-            if kind=="manual":
-                drag_key=f"manualpin_{ident}"
-                drag_cb=(lambda la,lo,j=ident: self._on_manualpin_drag(j,la,lo))
-            elif kind=="test":
+                elif test_in_total:        lbl=str(n_regular + _test_disp)  # continues regular #s
+                else:                      lbl="T"+str(ident+1)             # stable T1.. per pin
                 drag_key=f"testpin_{ident}"
                 drag_cb=(lambda la,lo,j=ident: self._on_testpin_drag(j,la,lo))
             else:
-                drag_key=f"shelter_{ident}"
-                drag_cb=(lambda la,lo,i=ident: self._on_shelter_drag(i,la,lo))
+                cc="#FFD700"; oc="#B8860B"
+                if mode=="shelters":   lbl=str(reg_num.get((kind,ident), 0))
+                elif mode=="trays":    lbl=str(reg_tray.get((kind,ident), 0))
+                else:                  lbl=""
+                if kind=="manual":
+                    drag_key=f"manualpin_{ident}"
+                    drag_cb=(lambda la,lo,j=ident: self._on_manualpin_drag(j,la,lo))
+                else:
+                    drag_key=f"shelter_{ident}"
+                    drag_cb=(lambda la,lo,i=ident: self._on_shelter_drag(i,la,lo))
             try:
                 m=self.map_widget.set_marker(lat,lon,text=lbl,
                                               marker_color_circle=cc,
