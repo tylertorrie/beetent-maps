@@ -15649,7 +15649,8 @@ class BeetentApp(ctk.CTk):
         rm_left, rm_right = set(), set()
         if role == "agronomist":
             if _gap_zero: rm_left.add("Gap Between Bays")
-            rm_right.add("Shelters in Outside Pass")
+            rm_right.update(["Shelters in Outside Pass",
+                             "Trays per Shelter", "Tray Distribution"])
         elif role in ("flag", "shelter"):
             rm_right.update(["Gals / Acre", "Total Gals", "Gals / Tray",
                              "Trays per Shelter", "Tray Distribution",
