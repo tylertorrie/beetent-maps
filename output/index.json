@@ -2071,5 +2071,27 @@
     "role": "bee",
     "generated": "2026-06-26T10:12:35",
     "size": 749121
+  },
+  {
+    "id": "exports/Shelter Maps_BASF_v6",
+    "kind": "export",
+    "name": "Shelter Maps_BASF_v6",
+    "relpath": "exports/Shelter Maps_BASF_v6",
+    "is_dir": true,
+    "companies": [
+      "BASF"
+    ],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "Stolk NE-12-11-15"
+    ],
+    "types": [
+      "Boundary"
+    ],
+    "role": null,
+    "generated": "2026-07-08T09:56:10",
+    "size": 12362
   }
 ]
