@@ -1014,13 +1014,14 @@ def _center_on_parent(dialog, parent):
 class _ExportFieldPicker(ctk.CTkToplevel):
     """Modal dialog — step 1 of export: choose which fields to export."""
 
-    def __init__(self, parent):
+    def __init__(self, parent, default_checked=True):
         super().__init__(parent)
         self.title("Export — Select Fields")
         self.resizable(True, True)
         self.grab_set()
         self.result = None          # [(co, yr, name), ...] or None if cancelled
         self._checkboxes = {}       # (co, yr, name) -> BooleanVar
+        self._default_checked = default_checked   # start fields checked or not
 
         # ── Company / Year filter row ──────────────────────────────────────
         top = ctk.CTkFrame(self, fg_color="transparent")
@@ -1103,7 +1104,7 @@ class _ExportFieldPicker(ctk.CTkToplevel):
         multi = (self._co_var.get() == ALL_COMPANIES or
                  self._yr_var.get() == ALL_YEARS)
         for co, yr, name in scope:
-            var = ctk.BooleanVar(value=True)
+            var = ctk.BooleanVar(value=self._default_checked)
             label = "%s  (%s / %s)" % (name, co, yr) if multi else name
             ctk.CTkCheckBox(self._scroll, text=label, variable=var,
                             command=self._update_count).pack(anchor="w", pady=2)
@@ -14922,7 +14923,7 @@ class BeetentApp(ctk.CTk):
     # ── Field Summary PDF ──────────────────────────────────────────────────────
     def _export_field_pdf(self):
         """Step 1 — Field picker (same pattern as Generate Output Files)."""
-        dlg1 = _ExportFieldPicker(self)
+        dlg1 = _ExportFieldPicker(self, default_checked=False)   # PDF: start all deselected
         self.wait_window(dlg1)
         if not dlg1.result: return
         selected = dlg1.result   # [(company, year, name), ...]
