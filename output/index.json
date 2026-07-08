@@ -2203,5 +2203,27 @@
     "role": "agronomist",
     "generated": "2026-07-08T14:33:06",
     "size": 553769
+  },
+  {
+    "id": "pdfs/Stolk SE 9-11-14 Agronomist Map 6.pdf",
+    "kind": "pdf",
+    "name": "Stolk SE 9-11-14 Agronomist Map 6.pdf",
+    "relpath": "pdfs/Stolk SE 9-11-14 Agronomist Map 6.pdf",
+    "is_dir": false,
+    "companies": [
+      "Corteva"
+    ],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "Stolk SE 9-11-14"
+    ],
+    "types": [
+      "PDF"
+    ],
+    "role": "agronomist",
+    "generated": "2026-07-08T14:41:17",
+    "size": 548364
   }
 ]
