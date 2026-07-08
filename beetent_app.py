@@ -13626,6 +13626,25 @@ class BeetentApp(ctk.CTk):
             f["year"]=yr
         if not f.get("boundary_polygon"):
             self._status("⚠ No boundary drawn — field saved but cannot generate without one.")
+        # Anti-gutting confirm (manual-Save counterpart of the autosave guard):
+        # if this save would wipe ALL geometry that exists on disk, make sure
+        # it's intentional rather than a glitched-blank field.
+        def _has_geom(d):
+            return bool(d.get("boundary_polygon") or d.get("pivot_tracks")
+                        or d.get("pivot_tracks2") or d.get("corner_arms")
+                        or d.get("boundary_inner") or d.get("manual_shelter_pins")
+                        or d.get("test_shelters"))
+        if not _has_geom(f):
+            try: _disk = load_field(co, yr, f.get("Name")) or {}
+            except Exception: _disk = {}
+            if _has_geom(_disk):
+                if not tkinter.messagebox.askyesno(
+                        "Wipe saved boundary?",
+                        f"“{f.get('Name')}” has a boundary/geometry saved, but what "
+                        f"you're about to save has NONE (no boundary, tracks, or pins).\n\n"
+                        f"Saving will WIPE the saved boundary and geometry. Are you sure?"):
+                    self._status("Save cancelled — kept the saved boundary.")
+                    return
         # save_field creates the company/year folder via _field_dir, so a
         # brand-new company name appears on disk for the first time here.
         new_company = co not in list_companies()
