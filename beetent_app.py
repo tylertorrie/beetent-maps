@@ -16,6 +16,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import maketentgrid
 import utmish
+import supabase_sync   # optional Supabase mirror (no-op unless configured)
 
 # Hide the brief cmd-window flash that subprocess.run shows by default when
 # launched from a pythonw process (git pull / push / fetch on save & startup).
@@ -7720,6 +7721,7 @@ class BeetentApp(ctk.CTk):
         co,yr,name=row
         if tkinter.messagebox.askyesno("Delete",f"Delete '{name}' ({co} {yr})?"):
             delete_field_file(co,yr,name); self._refresh_field_list(); self._git_push(f"delete field: {name}")
+            supabase_sync.delete_field(co,yr,name)   # mirror deletion to Supabase
 
     # ── Inline field rename (double-click the Field cell) ──────────────────────
     def _on_field_double_click(self, event):
@@ -13588,6 +13590,7 @@ class BeetentApp(ctk.CTk):
         self._autosave_last = snap
         self._refresh_field_list()
         self._git_push(f"auto-save: {name}")
+        supabase_sync.upsert_field(f)          # mirror to Supabase (best-effort)
 
     def _save_field(self):
         f=self._field_from_form()
@@ -13664,6 +13667,7 @@ class BeetentApp(ctk.CTk):
         except Exception as e:
             self._log(f"Tablet export skipped: {e}")
         self._git_push(f"save field: {f['Name']}")
+        supabase_sync.upsert_field(f)          # mirror to Supabase (best-effort)
         try: self._autosave_last = json.dumps(f, sort_keys=True, default=str)
         except Exception: self._autosave_last = None
 
