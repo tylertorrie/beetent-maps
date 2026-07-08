@@ -15196,63 +15196,98 @@ class BeetentApp(ctk.CTk):
         self.after(500, self._pdf_do_screenshot)
 
     def _capture_canvas_gdi(self, canvas):
-        """Capture a tkinter Canvas via Windows GDI PrintWindow.
-        Works even when other windows (taskbar, etc.) overlap the widget.
-        Falls back to PIL ImageGrab if GDI fails."""
+        """Capture the map canvas by GDI PrintWindow-ing the whole APP WINDOW
+        (offscreen, so it works even when the app is occluded or in the
+        background — no window raising needed), then cropping to the canvas.
+        PrintWindow is only reliable on top-level windows, hence capturing the
+        toplevel rather than the child canvas. The on-map overlay widgets
+        (zoom / refresh buttons, legend, field-name label) are hidden during the
+        grab so they don't land in the PDF. Falls back to a front-most screen
+        grab only if GDI fails."""
+        # Hide on-map overlay widgets so only the map (tiles + pins) is captured.
+        overlays, hidden = (getattr(self, "zoom_in_btn", None),
+                            getattr(self, "zoom_out_btn", None),
+                            getattr(self, "refresh_img_btn", None),
+                            getattr(self, "map_legend", None),
+                            getattr(self, "map_field_label", None)), []
+        for w in overlays:
+            try:
+                if w is not None and w.winfo_ismapped():
+                    hidden.append((w, w.place_info())); w.place_forget()
+            except Exception:
+                pass
         try:
+            canvas.update_idletasks()
             import ctypes, struct
             from PIL import Image as _PIL
-            hwnd = canvas.winfo_id()
-            try:
-                scale = self.winfo_fpixels('1i') / 96.0
-            except Exception:
-                scale = 1.0
-            w = max(1, int(canvas.winfo_width()  * scale))
-            h = max(1, int(canvas.winfo_height() * scale))
+            top = canvas.winfo_toplevel()
+            hwnd = top.winfo_id()
+            try: scale = self.winfo_fpixels('1i') / 96.0
+            except Exception: scale = 1.0
+            W = max(1, int(top.winfo_width()  * scale))
+            H = max(1, int(top.winfo_height() * scale))
             gdi32  = ctypes.windll.gdi32
             user32 = ctypes.windll.user32
             hdc_src = user32.GetDC(hwnd)
             hdc_mem = gdi32.CreateCompatibleDC(hdc_src)
-            hbm     = gdi32.CreateCompatibleBitmap(hdc_src, w, h)
+            hbm     = gdi32.CreateCompatibleBitmap(hdc_src, W, H)
             old_bm  = gdi32.SelectObject(hdc_mem, hbm)
-            # PW_CLIENTONLY=1 | PW_RENDERFULLCONTENT=2 (Win8+)
-            user32.PrintWindow(hwnd, hdc_mem, 3)
-            # DIB header: 32-bit top-down
-            bmi = struct.pack('=IIIHHIIIIII', 40, w, -h, 1, 32, 0, 0, 0, 0, 0, 0)
-            buf = ctypes.create_string_buffer(w * h * 4)
-            gdi32.GetDIBits(hdc_mem, hbm, 0, h, buf, bmi, 0)
+            # PW_CLIENTONLY=1 | PW_RENDERFULLCONTENT=2 (Win8.1+) — renders GPU /
+            # DirectComposition child content even while the window is offscreen.
+            ok = user32.PrintWindow(hwnd, hdc_mem, 3)
+            bmi = struct.pack('=IIIHHIIIIII', 40, W, -H, 1, 32, 0, 0, 0, 0, 0, 0)
+            buf = ctypes.create_string_buffer(W * H * 4)
+            gdi32.GetDIBits(hdc_mem, hbm, 0, H, buf, bmi, 0)
             gdi32.SelectObject(hdc_mem, old_bm)
-            gdi32.DeleteObject(hbm)
-            gdi32.DeleteDC(hdc_mem)
-            user32.ReleaseDC(hwnd, hdc_src)
-            return _PIL.frombuffer('RGBA', (w, h), buf.raw, 'raw', 'BGRA', 0, 1).convert('RGB')
+            gdi32.DeleteObject(hbm); gdi32.DeleteDC(hdc_mem); user32.ReleaseDC(hwnd, hdc_src)
+            if not ok:
+                raise RuntimeError("PrintWindow failed")
+            full = _PIL.frombuffer('RGBA', (W, H), buf.raw, 'raw', 'BGRA', 0, 1).convert('RGB')
+            # Crop to the map canvas within the window's client area.
+            ox = max(0, int((canvas.winfo_rootx() - top.winfo_rootx()) * scale))
+            oy = max(0, int((canvas.winfo_rooty() - top.winfo_rooty()) * scale))
+            cw = int(canvas.winfo_width()  * scale)
+            ch = int(canvas.winfo_height() * scale)
+            crop = full.crop((ox, oy, min(W, ox + cw), min(H, oy + ch)))
+            if crop.getbbox() is None:      # all black → PrintWindow gave nothing
+                raise RuntimeError("PrintWindow produced an empty image")
+            return crop
         except Exception:
-            # Fallback: plain screen grab
+            # Last resort: raise the app to the front, then plain screen grab.
             from PIL import ImageGrab
-            try: scale = self.winfo_fpixels('1i') / 96.0
-            except Exception: scale = 1.0
-            x = canvas.winfo_rootx(); y = canvas.winfo_rooty()
-            w = canvas.winfo_width();  h = canvas.winfo_height()
-            return ImageGrab.grab(bbox=(
-                int(x*scale), int(y*scale),
-                int((x+w)*scale), int((y+h)*scale)))
+            try:
+                self.deiconify(); self.lift()
+                self.attributes("-topmost", True)
+                self.update_idletasks(); self.update()
+            except Exception:
+                pass
+            try:
+                try: scale = self.winfo_fpixels('1i') / 96.0
+                except Exception: scale = 1.0
+                x = canvas.winfo_rootx(); y = canvas.winfo_rooty()
+                w = canvas.winfo_width();  h = canvas.winfo_height()
+                return ImageGrab.grab(bbox=(
+                    int(x*scale), int(y*scale),
+                    int((x+w)*scale), int((y+h)*scale)))
+            finally:
+                try: self.attributes("-topmost", False)
+                except Exception: pass
+        finally:
+            # Restore the on-map overlay widgets.
+            for w, info in hidden:
+                try: w.place(**{k: v for k, v in info.items() if v != ""})
+                except Exception:
+                    pass
 
     def _pdf_do_screenshot(self):
         """Capture the map widget and build the PDF, then advance the queue."""
         co, yr, name = self._pdf_queue[0]
         save_path = self._pdf_paths.get((co,yr,name),"")
 
-        # Force the app window to the FRONT before grabbing. The GDI capture
-        # falls back to a raw screen grab (ImageGrab reads whatever pixels are at
-        # the map's coordinates), so if another window (browser/chat) is on top
-        # the PDF would show THAT. Lifting + topmost guarantees the map is what's
-        # captured. Restored to non-topmost immediately after.
-        try:
-            self.deiconify(); self.lift()
-            self.attributes("-topmost", True)
-            self.update_idletasks(); self.update()
-        except Exception:
-            pass
+        # No window-raising needed: _capture_canvas_gdi PrintWindow-s the app
+        # window offscreen, so this captures the map even when the app is behind
+        # another window. (It self-recovers with a front-most grab only if GDI
+        # fails.)
         try:
             cw = self.map_widget
             cw.canvas.update()
@@ -15260,9 +15295,6 @@ class BeetentApp(ctk.CTk):
         except Exception as ex:
             tkinter.messagebox.showerror("Screenshot Failed", str(ex))
             map_img = None
-        finally:
-            try: self.attributes("-topmost", False)
-            except Exception: pass
 
         # Restore label mode + wet-zone / field-info toggles immediately
         self.pin_label_mode = self._pdf_old_mode
