@@ -5804,6 +5804,7 @@ class BeetentApp(ctk.CTk):
             {"key":"shelters","label":"🐝 Shelters",
              "var":self.shelters_visible_var,"fn":self._set_shelters_visible,
              "primary":[("Add Shelter Pin",self._mode_add_shelter),
+                        ("Add Test Shelter Pin",self._mode_add_test_shelter),
                         ("Toggle Alignment Lines",self._toggle_shelter_lines),
                         ("Show Planned / Actual",self._toggle_shelter_view)],
              "more":[("Numbers: Tray count",lambda:self._set_pin_mode("trays")),
@@ -5811,6 +5812,8 @@ class BeetentApp(ctk.CTk):
                      ("Numbers: Off",lambda:self._set_pin_mode("off")),
                      ("Toggle Shelter Buffer Zone",self._toggle_shelter_buffers),
                      ("Set Shelter Buffer Size",self._edit_shelter_buffer),
+                     ("Test shelters count in total",self._toggle_test_count),
+                     ("Test gals count in total",self._toggle_test_gals),
                      ("Import Actual Shelter Pins (CSV)",self._import_actual_shelters)]},
             {"key":"crews","label":"🚜 Crews",
              "var":self.crews_visible_var,"fn":self._set_crews_visible,
@@ -5839,6 +5842,8 @@ class BeetentApp(ctk.CTk):
             "Number Planter Passes":      lambda: bool(self.show_planter_numbers.get()),
             "Toggle Bays Through Inner":  lambda: bool(self.current_field.get("bays_through_inner", False)),
             "Toggle Two Pivots":          lambda: bool(self.two_pivots_var.get()),
+            "Test shelters count in total": lambda: bool(self.current_field.get("test_count_in_total", False)),
+            "Test gals count in total":     lambda: bool(self.current_field.get("test_gals_in_total", True)),
         }
 
         # Row 1 — LAYERS visibility chips.
@@ -6290,6 +6295,10 @@ class BeetentApp(ctk.CTk):
 
         self.bee_total_gals_lbl  = ctk.CTkLabel(ba,text="Total gals:   —", anchor="w",text_color=UI_ACCENT)
         self.bee_total_gals_lbl.pack(fill="x")
+        # Test-shelter lines (blue) — packed by _refresh_bee_summary only when the
+        # field has at least one test shelter.
+        self.bee_test_count_lbl = ctk.CTkLabel(ba,text="", anchor="w",text_color="#1E90FF")
+        self.bee_test_gals_lbl  = ctk.CTkLabel(ba,text="", anchor="w",text_color="#1E90FF")
         self.bee_total_trays_lbl = ctk.CTkLabel(ba,text="Total trays:  —", anchor="w",text_color=UI_ACCENT)
         self.bee_total_trays_lbl.pack(fill="x")
         self.bee_per_shelter_lbl = ctk.CTkLabel(ba,text="Per shelter:  —", anchor="w",text_color=UI_ACCENT)
@@ -7332,13 +7341,35 @@ class BeetentApp(ctk.CTk):
         acres = _num("acres")
         gpt = _num("gals_per_tray")
 
-        # Total gallons line (needs gpa + acres only).
+        # Test shelters: count + summed manual gals (blue lines below the total).
+        n_test = len(self.current_field.get("test_shelters") or [])
+        test_gals = self._test_gals_total()
+        test_gals_in = bool(self.current_field.get("test_gals_in_total", True))
+        test_count_in = bool(self.current_field.get("test_count_in_total", False))
+
+        # Total gallons line (needs gpa + acres only). Includes test gals when the
+        # "test gals in total" toggle is on (default).
         if gpa is not None and acres is not None:
             total_gals = gpa * acres
-            self.bee_total_gals_lbl.configure(text=f"Total gals:   {total_gals:g}")
+            disp_gals = total_gals + (test_gals if test_gals_in else 0.0)
+            self.bee_total_gals_lbl.configure(text=f"Total gals:   {disp_gals:g}")
         else:
             total_gals = None
-            self.bee_total_gals_lbl.configure(text="Total gals:   —")
+            self.bee_total_gals_lbl.configure(
+                text=(f"Total gals:   {test_gals:g}" if (test_gals_in and test_gals) else "Total gals:   —"))
+
+        # Test lines — shown only when the field has at least one test shelter.
+        if n_test >= 1:
+            self.bee_test_count_lbl.configure(
+                text=f"Test shelters: {n_test}  ({'in total' if test_count_in else 'separate'})")
+            self.bee_test_gals_lbl.configure(
+                text=f"Test gals:   {test_gals:g}  ({'in total' if test_gals_in else 'separate'})")
+            if not self.bee_test_count_lbl.winfo_ismapped():
+                self.bee_test_count_lbl.pack(fill="x", before=self.bee_total_trays_lbl)
+                self.bee_test_gals_lbl.pack(fill="x", before=self.bee_total_trays_lbl)
+        else:
+            self.bee_test_count_lbl.pack_forget()
+            self.bee_test_gals_lbl.pack_forget()
 
         # Total trays line (needs gpa + acres + gpt). Math-only baseline; if
         # there are more shelters than that, the per-shelter pass bumps each
@@ -9108,6 +9139,15 @@ class BeetentApp(ctk.CTk):
             self.show_shelters.set(True)
             self._redraw_shelters()
             self._status(f"Added extra pin #{len(pins)} — keep clicking, ✔ Done when finished.")
+
+        elif mode=="add_test_shelter":
+            # Append a blue TEST shelter pin (tracked separately). Stays in mode
+            # until ✔ Done so several can be dropped in one session.
+            pins = self.current_field.setdefault("test_shelters", [])
+            pins.append([lat, lon])
+            self.show_shelters.set(True)
+            self._redraw_shelters()
+            self._status(f"Added test shelter #{len(pins)} — keep clicking, ✔ Done when finished.")
 
         elif mode=="inner_boundary":
             if not hasattr(self, "inner_pts"): self.inner_pts = []
@@ -10932,6 +10972,126 @@ class BeetentApp(ctk.CTk):
         n = len(self.current_field.get("manual_shelter_pins") or [])
         self._status(f"{n} extra pin(s) added." if n else "Done adding pins.")
 
+    # ── Test shelters (blue; tracked + counted separately) ───────────────────
+    def _mode_add_test_shelter(self):
+        """Click-to-add blue TEST shelter pins (new-design shelters tracked apart
+        from the regular count). Drag to move, click to delete, ✔ Done to exit."""
+        self._close_all_popups()
+        self.click_mode = "add_test_shelter"
+        self.show_shelters.set(True)
+        self._redraw_shelters()
+        self._show_context_btn("✔ Done Test Pins", self._close_add_test_shelter)
+        n = len(self.current_field.get("test_shelters") or [])
+        self._status(f"Click map to add TEST shelter pins ({n} so far). "
+                     "Drag a pin to move it, click a pin to delete it. ✔ Done when finished.")
+
+    def _close_add_test_shelter(self):
+        self.click_mode = None
+        self._hide_context_btn()
+        n = len(self.current_field.get("test_shelters") or [])
+        self._status(f"{n} test shelter(s)." if n else "Done adding test pins.")
+
+    def _on_testpin_drag(self, idx, lat, lon):
+        pins = self.current_field.get("test_shelters") or []
+        if 0 <= idx < len(pins):
+            pins[idx] = [lat, lon]
+        self._redraw_shelters()
+
+    def _delete_testpin(self, idx):
+        """Remove a test pin and re-key the per-pin gals dict to the new indices."""
+        pins = self.current_field.get("test_shelters") or []
+        if not (0 <= idx < len(pins)):
+            return
+        pins.pop(idx)
+        g = self.current_field.get("test_shelter_gals") or {}
+        newg = {}
+        for k, v in g.items():
+            try: ki = int(k)
+            except (ValueError, TypeError): continue
+            if ki == idx: continue
+            newg[str(ki - 1 if ki > idx else ki)] = v
+        self.current_field["test_shelter_gals"] = newg
+        self._redraw_shelters(); self._refresh_bee_summary()
+        self._status("Test shelter deleted.")
+
+    def _testpin_to_regular(self, idx):
+        """Convert a test shelter back to a regular (manual) shelter in place."""
+        pins = self.current_field.get("test_shelters") or []
+        if not (0 <= idx < len(pins)):
+            return
+        pt = pins[idx]
+        self.current_field.setdefault("manual_shelter_pins", []).append([pt[0], pt[1]])
+        self._delete_testpin(idx)
+        self._status("Test shelter → regular shelter (Save Field to keep).")
+
+    def _on_testpin_tap(self, idx):
+        """Tap a blue test pin → set its bee gallons, convert to regular, or delete."""
+        pins = self.current_field.get("test_shelters") or []
+        if not (0 <= idx < len(pins)):
+            return
+        cur = (self.current_field.get("test_shelter_gals") or {}).get(str(idx), "")
+        win = ctk.CTkToplevel(self); win.title(f"Test shelter T{idx+1}"); win.grab_set()
+        ctk.CTkLabel(win, text=f"Test shelter T{idx+1}",
+                     font=ctk.CTkFont(family=FONT_HEADING, size=15)).pack(padx=24, pady=(16, 4))
+        row = ctk.CTkFrame(win, fg_color="transparent"); row.pack(padx=24, pady=4)
+        ctk.CTkLabel(row, text="Gals:", width=50, anchor="w").pack(side="left")
+        tv = tk.StringVar(value=(str(cur) if cur != "" else ""))
+        ent = ctk.CTkEntry(row, textvariable=tv, width=90); ent.pack(side="left", padx=4)
+        try: ent.focus_set()
+        except Exception: pass
+
+        def _set():
+            s = tv.get().strip()
+            g = self.current_field.setdefault("test_shelter_gals", {})
+            if s == "":
+                g.pop(str(idx), None)
+            else:
+                try: g[str(idx)] = float(s)
+                except (ValueError, TypeError):
+                    self._status("Enter a number of gallons."); return
+            win.destroy()
+            if self.show_shelters.get(): self._redraw_shelters()
+            self._refresh_bee_summary()
+            self._status(f"Test shelter T{idx+1} gals set — Save Field to keep.")
+
+        ctk.CTkButton(win, text="Set gals", height=34, command=_set).pack(fill="x", padx=24, pady=(8, 4))
+        ctk.CTkButton(win, text="Make regular shelter", height=32,
+                      command=lambda: (win.destroy(), self._testpin_to_regular(idx))
+                      ).pack(fill="x", padx=24, pady=(0, 4))
+        ctk.CTkButton(win, text="Delete test shelter", height=32, fg_color=UI_DANGER,
+                      command=lambda: (win.destroy(), self._delete_testpin(idx))
+                      ).pack(fill="x", padx=24, pady=(0, 4))
+        ctk.CTkButton(win, text="Cancel", height=32, fg_color=UI_HOVER,
+                      hover_color=UI_BORDER, text_color=UI_TEXT, command=win.destroy
+                      ).pack(fill="x", padx=24, pady=(0, 16))
+        _center_on_parent(win, self)
+        self.wait_window(win)
+
+    def _test_gals_total(self):
+        """Sum of the manually-entered gallons across all test shelters."""
+        tot = 0.0
+        for v in (self.current_field.get("test_shelter_gals") or {}).values():
+            try: tot += float(v)
+            except (ValueError, TypeError): pass
+        return tot
+
+    def _toggle_test_count(self):
+        self._close_all_popups()
+        cur = bool(self.current_field.get("test_count_in_total", False))
+        self.current_field["test_count_in_total"] = not cur
+        if self.show_shelters.get(): self._redraw_shelters()
+        self._refresh_bee_summary()
+        self._status("Test shelters " + ("count toward" if not cur else "are separate from")
+                     + " the total shelter count.")
+
+    def _toggle_test_gals(self):
+        self._close_all_popups()
+        cur = bool(self.current_field.get("test_gals_in_total", True))
+        self.current_field["test_gals_in_total"] = not cur
+        self._refresh_bee_summary()
+        self._status("Test-shelter gals " + ("included in" if not cur else "separate from")
+                     + " the total gals.")
+
     def _set_pin_mode(self, mode):
         """Pin labels: 'trays' (tray count), 'shelters' (sequential #), or 'off'."""
         self.pin_label_mode = mode
@@ -11846,21 +12006,43 @@ class BeetentApp(ctk.CTk):
             if seq < len(self.shelter_tray_counts):
                 self._tray_count_by_ident[ident] = self.shelter_tray_counts[seq]
         self._update_tray_alloc_readout(total_trays)
+        # ── Test shelters (blue). Appended AFTER the regular bee/tray distribution
+        # so they never alter it; their bees are the manual per-pin gals only.
+        # Numbered T1.. when they don't count toward the total, or continuing the
+        # regular count when test_count_in_total is on. ──
+        n_regular = len(visible)
+        test_pins = list(self.current_field.get("test_shelters") or [])
+        test_in_total = bool(self.current_field.get("test_count_in_total", False))
+        for _tj, _tp in enumerate(test_pins):
+            try: _tla, _tlo = float(_tp[0]), float(_tp[1])
+            except (TypeError, ValueError, IndexError): continue
+            visible.append((_tla, _tlo, "test", _tj, -1))
+        if len(self.shelter_tray_counts) < len(visible):
+            self.shelter_tray_counts += [0] * (len(visible) - len(self.shelter_tray_counts))
         mode=self.pin_label_mode
         try: BUFFER_M=float(self.current_field.get("shelter_buffer_m") or 0)
         except (ValueError,TypeError): BUFFER_M=0.0
         show_circles=self.shelter_circle_var.get() and BUFFER_M>0   # 0 size = no buffer
         for seq,(lat,lon,kind,ident,row) in enumerate(visible):
-            cc="#FFD700"; oc="#B8860B"
-            if mode=="shelters":
-                lbl=str(seq+1)
-            elif mode=="trays" and self.shelter_tray_counts:
-                lbl=str(self.shelter_tray_counts[seq])
+            if kind=="test":
+                cc="#1E90FF"; oc="#0A3D7A"          # blue test shelter
+                if mode=="off":            lbl=""
+                elif test_in_total:        lbl=str(seq+1)        # continues regular #s
+                else:                      lbl="T"+str(ident+1)  # separate T1.. #s
             else:
-                lbl=""
+                cc="#FFD700"; oc="#B8860B"
+                if mode=="shelters":
+                    lbl=str(seq+1)
+                elif mode=="trays" and self.shelter_tray_counts:
+                    lbl=str(self.shelter_tray_counts[seq])
+                else:
+                    lbl=""
             if kind=="manual":
                 drag_key=f"manualpin_{ident}"
                 drag_cb=(lambda la,lo,j=ident: self._on_manualpin_drag(j,la,lo))
+            elif kind=="test":
+                drag_key=f"testpin_{ident}"
+                drag_cb=(lambda la,lo,j=ident: self._on_testpin_drag(j,la,lo))
             else:
                 drag_key=f"shelter_{ident}"
                 drag_cb=(lambda la,lo,i=ident: self._on_shelter_drag(i,la,lo))
@@ -13038,6 +13220,10 @@ class BeetentApp(ctk.CTk):
                self._drag_item and self._drag_item.startswith("manualpin_"):
                 try: self._delete_manualpin(int(self._drag_item.split("_")[1]))
                 except (ValueError, IndexError): pass
+            elif self.click_mode == "add_test_shelter" and was_pin_drag and \
+               self._drag_item and self._drag_item.startswith("testpin_"):
+                try: self._delete_testpin(int(self._drag_item.split("_")[1]))
+                except (ValueError, IndexError): pass
             elif self.click_mode == "add_shelter" and was_pin_drag and \
                self._drag_item and self._drag_item.startswith("shelter_"):
                 try:
@@ -13066,6 +13252,10 @@ class BeetentApp(ctk.CTk):
                 try:
                     idx=int(self._drag_item.split("_")[1])
                     self._on_shelter_tap(idx)
+                except (ValueError,IndexError): pass
+            elif was_pin_drag and self._drag_item and self._drag_item.startswith("testpin_"):
+                # No mode active and a test pin was tapped — gals / delete / convert
+                try: self._on_testpin_tap(int(self._drag_item.split("_")[1]))
                 except (ValueError,IndexError): pass
             elif not was_pin_drag:
                 # Plain map click (no pin nearby, no mode).
