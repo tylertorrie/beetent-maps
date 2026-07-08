@@ -15025,9 +15025,9 @@ class BeetentApp(ctk.CTk):
                 "Flagger":      "flag",
                 "Shelter Crew": "shelter",
                 "Bee Delivery": "bee"}[role_var.get()]
-        # Each role fixes the pin labels: agronomist/bee → tray counts,
-        # flagger/shelter crew → shelter numbers.
-        label_mode = {"agronomist": "trays", "flag": "shelters",
+        # Each role fixes the pin labels: bee → tray counts; agronomist /
+        # flagger / shelter crew → shelter numbers.
+        label_mode = {"agronomist": "shelters", "flag": "shelters",
                       "shelter": "shelters", "bee": "trays"}[role]
 
         if is_single:
