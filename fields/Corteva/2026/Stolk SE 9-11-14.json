@@ -62656,5 +62656,6 @@
   ],
   "test_shelter_gals": {
     "0": 1.0
-  }
+  },
+  "test_gals_in_total": false
 }
