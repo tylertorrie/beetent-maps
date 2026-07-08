@@ -15242,6 +15242,17 @@ class BeetentApp(ctk.CTk):
         co, yr, name = self._pdf_queue[0]
         save_path = self._pdf_paths.get((co,yr,name),"")
 
+        # Force the app window to the FRONT before grabbing. The GDI capture
+        # falls back to a raw screen grab (ImageGrab reads whatever pixels are at
+        # the map's coordinates), so if another window (browser/chat) is on top
+        # the PDF would show THAT. Lifting + topmost guarantees the map is what's
+        # captured. Restored to non-topmost immediately after.
+        try:
+            self.deiconify(); self.lift()
+            self.attributes("-topmost", True)
+            self.update_idletasks(); self.update()
+        except Exception:
+            pass
         try:
             cw = self.map_widget
             cw.canvas.update()
@@ -15249,6 +15260,9 @@ class BeetentApp(ctk.CTk):
         except Exception as ex:
             tkinter.messagebox.showerror("Screenshot Failed", str(ex))
             map_img = None
+        finally:
+            try: self.attributes("-topmost", False)
+            except Exception: pass
 
         # Restore label mode + wet-zone / field-info toggles immediately
         self.pin_label_mode = self._pdf_old_mode
