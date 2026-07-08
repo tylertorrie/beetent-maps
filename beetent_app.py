@@ -13550,6 +13550,36 @@ class BeetentApp(ctk.CTk):
             return
         if snap == self._autosave_last:
             return                                  # nothing changed
+        # ── Anti-gutting guard ──────────────────────────────────────────────
+        # The recurring data-loss glitch: current_field briefly gets reset to a
+        # blank_field (e.g. a transient deactivate) while the form still holds
+        # the field NAME, so _field_from_form() stamps the real name onto empty
+        # geometry and the autosave persists a gutted field (boundary/tracks/
+        # inner/corner/pins all wiped). Never let an AUTO-save wipe geometry
+        # that exists on disk: if the saved field has geometry but this snapshot
+        # has NONE, it's the glitch — skip and reload the good state. (Deleting
+        # one overlay keeps the others, so real edits still auto-save; a truly
+        # intentional full blank-out can still be done via manual Save.)
+        def _has_geom(d):
+            return bool(d.get("boundary_polygon") or d.get("pivot_tracks")
+                        or d.get("pivot_tracks2") or d.get("corner_arms")
+                        or d.get("boundary_inner") or d.get("manual_shelter_pins")
+                        or d.get("test_shelters"))
+        if not _has_geom(f):
+            try: disk = load_field(co, yr, name) or {}
+            except Exception: disk = {}
+            if _has_geom(disk):
+                self._log(f"auto-save BLOCKED for {name}: snapshot had no geometry "
+                          f"but the saved field does (anti-gutting guard).")
+                # Self-heal: the form still names this field, so pull its good
+                # on-disk state back into memory + the form. That fixes the
+                # inconsistency (form says <name>, current_field went blank) and
+                # stops the blank state from being re-attempted every tick.
+                self.current_field = disk
+                try: self._form_from_field()
+                except Exception: pass
+                self._autosave_last = None      # re-baseline off the restored field
+                return
         try: save_field(f)
         except Exception: return
         # Push the change to the field tablet live (same as a manual Save).
