@@ -6547,21 +6547,25 @@ class BeetentApp(ctk.CTk):
         toggled on (layers + action overlays). Colours mirror the live _redraw_*
         colours. Rebuilt whenever a relevant toggle changes; the card hides
         entirely when nothing is on."""
-        # (state-getter -> bool, swatch colour, label). Getters read the same
-        # vars that gate each overlay's drawing, so the key tracks reality.
+        # (getter -> bool, fill colour, label, shape, edge colour). Getters read
+        # the same vars that gate each overlay's drawing, so the key tracks
+        # reality. shape "pin" draws a teardrop matching the map marker (fill +
+        # edge = the marker's circle + outside colours); "square" is a swatch.
         self._legend_spec = [
-            (lambda: self.shelters_visible_var.get(),  "#FFD700", "Shelter"),
-            (lambda: self.pivot_visible_var.get(),     "#FF2A2A", "Pivot & tracks"),
+            (lambda: self.shelters_visible_var.get(), "#FFD700", "Shelter", "pin", "#B8860B"),
+            (lambda: self.shelters_visible_var.get() and bool(self.current_field.get("test_shelters")),
+                                                      "#1E90FF", "Test shelter", "pin", "#0A3D7A"),
+            (lambda: self.pivot_visible_var.get(),    "#FF2A2A", "Pivot & tracks", "square", None),
             (lambda: self.boundary_visible_var.get() and bool(self.current_field.get("boundary_polygon")),
-                                                       "#00CED1", "Boundary"),
-            (lambda: self.planter_visible_var.get(),   "#2E9BF0", "Male bay"),
-            (lambda: self.sprayer_visible_var.get(),   "#33FF66", "Sprayer limit"),
-            (lambda: self.crews_visible_var.get(),     "#A855F7", "Crew route"),
-            (lambda: self.show_shelter_lines.get(),    "#101010", "Alignment lines"),
+                                                      "#00CED1", "Boundary", "square", None),
+            (lambda: self.planter_visible_var.get(),  "#2E9BF0", "Male bay", "square", None),
+            (lambda: self.sprayer_visible_var.get(),  "#33FF66", "Sprayer limit", "square", None),
+            (lambda: self.crews_visible_var.get(),    "#A855F7", "Crew route", "square", None),
+            (lambda: self.show_shelter_lines.get(),   "#101010", "Alignment lines", "square", None),
             (lambda: self.show_wet_zones.get() and bool(self.current_field.get("wet_zones")),
-                                                       "#1E90FF", "Wet zone"),
-            (lambda: self.show_pass_buffer_overlay.get(), "#FF2A2A", "Tire zone"),
-            (lambda: self.show_pass_buffer_overlay.get(), "#22E048", "Edge zone"),
+                                                      "#1E90FF", "Wet zone", "square", None),
+            (lambda: self.show_pass_buffer_overlay.get(), "#FF2A2A", "Tire zone", "square", None),
+            (lambda: self.show_pass_buffer_overlay.get(), "#22E048", "Edge zone", "square", None),
         ]
         card = ctk.CTkFrame(self.map_widget, fg_color=UI_CARD, corner_radius=8,
                             border_width=1, border_color=UI_BORDER)
@@ -6592,7 +6596,7 @@ class BeetentApp(ctk.CTk):
         for w in rows.winfo_children():
             w.destroy()
         any_on = False
-        for getter, color, name in self._legend_spec:
+        for getter, color, name, shape, edge in self._legend_spec:
             try: on = bool(getter())
             except Exception: on = False
             if not on:
@@ -6600,8 +6604,16 @@ class BeetentApp(ctk.CTk):
             any_on = True
             row = ctk.CTkFrame(rows, fg_color="transparent")
             row.pack(fill="x", padx=12, pady=2)
-            sw = ctk.CTkFrame(row, width=14, height=14, corner_radius=3, fg_color=color)
-            sw.pack(side="left"); sw.pack_propagate(False)
+            if shape == "pin":
+                # Teardrop marker matching the map pins (head circle + pointer).
+                cv = tk.Canvas(row, width=16, height=20, bg=UI_CARD,
+                               highlightthickness=0, bd=0)
+                cv.create_polygon(8, 18, 3, 9, 13, 9, fill=color, outline=edge, width=1)
+                cv.create_oval(2, 1, 14, 13, fill=color, outline=edge, width=1)
+                cv.pack(side="left")
+            else:
+                sw = ctk.CTkFrame(row, width=14, height=14, corner_radius=3, fg_color=color)
+                sw.pack(side="left"); sw.pack_propagate(False)
             ctk.CTkLabel(row, text="  " + name, text_color=UI_TEXT, anchor="w",
                          font=ctk.CTkFont(family=FONT_BODY, size=11)).pack(side="left")
         if any_on:
@@ -12232,6 +12244,8 @@ class BeetentApp(ctk.CTk):
         else:
             self._status(f"{n_visible} shelters displayed.")
         self._refresh_bee_summary()
+        try: self._refresh_legend()   # keep "Test shelter" key entry in sync
+        except Exception: pass
 
     # ── Sprayer pass overlay ───────────────────────────────────────────────────
     def _toggle_passes(self):
