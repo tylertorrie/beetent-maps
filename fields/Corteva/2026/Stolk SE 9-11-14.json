@@ -62552,6 +62552,11 @@
     -111.85719234711456
   ],
   "acres_manual": true,
-  "test_shelters": [],
+  "test_shelters": [
+    [
+      49.89486326517655,
+      -111.85622138745117
+    ]
+  ],
   "test_shelter_gals": {}
 }
