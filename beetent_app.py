@@ -7367,8 +7367,9 @@ class BeetentApp(ctk.CTk):
             self.bee_test_gals_lbl.configure(
                 text=f"Test gals:   {test_gals:g}  ({'in total' if test_gals_in else 'separate'})")
             if not self.bee_test_count_lbl.winfo_ismapped():
-                self.bee_test_count_lbl.pack(fill="x", before=self.bee_total_trays_lbl)
-                self.bee_test_gals_lbl.pack(fill="x", before=self.bee_total_trays_lbl)
+                # Sit just below all the regular totals (gals / trays / per-shelter).
+                self.bee_test_count_lbl.pack(fill="x", before=self.bee_short_lbl)
+                self.bee_test_gals_lbl.pack(fill="x", before=self.bee_short_lbl)
         else:
             self.bee_test_count_lbl.pack_forget()
             self.bee_test_gals_lbl.pack_forget()
@@ -7547,8 +7548,48 @@ class BeetentApp(ctk.CTk):
         if not row: return
         self._activate_field(*row)
 
+    def _flush_field_save(self):
+        """Persist the CURRENT field right now if it has unsaved changes, so
+        LEAVING it (deselect, a stray click outside the boundary, or switching to
+        another field) never loses recent edits that the 2.5 s autosave hadn't
+        caught yet. Same validation + anti-gutting guard as the autosave."""
+        if getattr(self, "_loading_field", False) or getattr(self, "_activating_field", False):
+            return
+        try: f = self._field_from_form()
+        except Exception: return
+        name = (f.get("Name") or "").strip(); co = (f.get("company") or "").strip()
+        yr = (f.get("year") or "").strip()
+        if not name or not co or not yr:
+            return
+        if invalid_field_name_chars(name) or invalid_field_name_chars(co):
+            return
+        if not (DATA_DIR / co / str(yr) / (name + ".json")).exists():
+            return
+        def _has_geom(d):
+            return bool(d.get("boundary_polygon") or d.get("pivot_tracks")
+                        or d.get("pivot_tracks2") or d.get("corner_arms")
+                        or d.get("boundary_inner") or d.get("manual_shelter_pins")
+                        or d.get("test_shelters"))
+        if not _has_geom(f):
+            return                                  # never flush a blank/gutted field
+        try: snap = json.dumps(f, sort_keys=True, default=str)
+        except Exception: return
+        if snap == getattr(self, "_autosave_last", None):
+            return                                  # nothing changed since last save
+        try:
+            save_field(f)
+            self._autosave_last = snap
+        except Exception:
+            return
+        try: self._export_tablet_geojson(f)
+        except Exception: pass
+        supabase_sync.upsert_field(f)
+        self._refresh_field_list()
+        self._git_push(f"save field: {name}")
+
     def _deactivate_field(self):
         """Clear the active field and return to the overview (all dim outlines)."""
+        self._flush_field_save()               # don't lose unsaved edits on deselect
         self.field_tree.selection_set([])
         co=self.company_var.get(); yr=self.year_var.get()
         self.current_field=blank_field(
@@ -7565,6 +7606,7 @@ class BeetentApp(ctk.CTk):
         (double-click), from a map boundary click, and from git-pull auto-reload."""
         if getattr(self, '_activating_field', False):
             return
+        self._flush_field_save()               # save the field we're leaving
         self._activating_field = True
         try:
             self._activate_field_impl(co,yr,name)
