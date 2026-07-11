@@ -1528,7 +1528,9 @@ class BeetentApp(ctk.CTk):
         bar.pack(fill="x",side="top")
         # Hamburger menu — opens the left nav drawer (Map / Files). Packed first
         # so it sits at the far left and pushes the LLD search bar to the right.
-        ctk.CTkButton(bar, text="☰", width=42, text_color="#000000",
+        _menu_icon = self._nav_icon("menu", size=20)
+        ctk.CTkButton(bar, text="" if _menu_icon else "☰", width=42, text_color="#000000",
+                      image=_menu_icon,
                       font=ctk.CTkFont(family=FONT_LABEL, size=20),
                       fg_color="transparent", hover_color=UI_HOVER,
                       command=self._toggle_nav_drawer
@@ -1757,6 +1759,29 @@ class BeetentApp(ctk.CTk):
         self._close_all_popups()
 
     # ── Persistent left nav rail + view swapping ────────────────────────────────
+    def _nav_icon(self, name, size=18):
+        """Load a bundled Lucide line-icon PNG (assets/icons/<name>.png) as a
+        CTkImage, cached. Returns None if the file is missing so callers still
+        render (text-only). These are monochrome transparent PNGs (dark ink),
+        matching the Grand Forks Concrete Lucide look."""
+        cache = getattr(self, "_nav_icon_cache", None)
+        if cache is None:
+            cache = self._nav_icon_cache = {}
+        ck = (name, size)
+        if ck in cache:
+            return cache[ck]
+        img = None
+        try:
+            from PIL import Image
+            p = ASSETS_DIR / "icons" / f"{name}.png"
+            if p.exists():
+                im = Image.open(p)
+                img = ctk.CTkImage(light_image=im, dark_image=im, size=(size, size))
+        except Exception:
+            img = None
+        cache[ck] = img
+        return img
+
     def _build_nav_drawer(self):
         """Persistent left navigation rail (redesign v2). Always visible; the ☰
         button collapses/expands it. Packed side=left BEFORE the toolbar so it
@@ -1780,12 +1805,13 @@ class BeetentApp(ctk.CTk):
                      font=ctk.CTkFont(family=FONT_HEADING, size=15)).pack(side="left")
 
         self._nav_buttons = {}
-        for key, text, cmd in [("map",     "🗺   Map View",       self._open_map_view),
-                               ("monitor", "📡   Monitor",         self._open_monitor_view),
-                               ("cost",    "💰   Financial View",  self._open_cost_estimator_view),
-                               ("files",   "📁   Files",           self._open_files_view)]:
-            b = ctk.CTkButton(rail, text=text, anchor="w", height=42,
+        for key, icon, text, cmd in [("map",     "map",         "Map View",       self._open_map_view),
+                                      ("monitor", "activity",    "Monitor",        self._open_monitor_view),
+                                      ("cost",    "dollar-sign", "Financial View", self._open_cost_estimator_view),
+                                      ("files",   "folder",      "Files",          self._open_files_view)]:
+            b = ctk.CTkButton(rail, text="   " + text, anchor="w", height=42,
                               corner_radius=8,
+                              image=self._nav_icon(icon), compound="left",
                               fg_color="transparent", hover_color=UI_HOVER,
                               text_color=UI_TEXT,
                               font=ctk.CTkFont(family=FONT_LABEL, size=14),
@@ -1795,7 +1821,8 @@ class BeetentApp(ctk.CTk):
         self._set_active_nav("map")
 
         # Bottom: Style Guide opener (shows the palette/typography reference).
-        ctk.CTkButton(rail, text="✎  Style Guide", anchor="w", height=36,
+        ctk.CTkButton(rail, text="   Style Guide", anchor="w", height=36,
+                      image=self._nav_icon("palette", size=15), compound="left",
                       fg_color="transparent", hover_color=UI_HOVER,
                       text_color=UI_MUTED,
                       font=ctk.CTkFont(family=FONT_LABEL, size=12),
