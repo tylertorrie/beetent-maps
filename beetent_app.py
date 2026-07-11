@@ -77,12 +77,14 @@ UI_DANGER  = "#DC2626"   # destructive actions (Delete)       (red-600)
 #   Segoe UI Variable Text          → all other text — body, labels, nav, menus,
 #                       buttons, inputs, modals, pop-ups, badges, tooltips
 # (The bundled Inter TTFs are no longer used but harmless if still loaded.)
-# FONT_LABEL is kept as a separate alias for the few "emphasized sub-label"
-# call sites; it now resolves to the same regular weight as FONT_BODY (per the
-# flatter hierarchy: only true headings get weight 500).
+# FONT_LABEL drives buttons / nav / chips / tool strip / table headers — GFC
+# renders those SEMIBOLD (font-semibold), so it uses the Semibold face; body
+# text (FONT_BODY) and inputs stay Regular (400) like GFC's body. Segoe UI
+# Variable has no Medium (500) instance, so labels land on Semibold too — a
+# touch heavier than GFC's medium labels, but matching its semibold buttons.
 FONT_HEADING = "Segoe UI Variable Text Semibold"  # falls back to Tk default if unavailable
 FONT_BODY    = "Segoe UI Variable Text"
-FONT_LABEL   = "Segoe UI Variable Text"
+FONT_LABEL   = "Segoe UI Variable Text Semibold"
 _FONTS_DIR   = Path(__file__).parent / "fonts"
 
 def _load_bundled_fonts():
