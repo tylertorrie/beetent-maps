@@ -69,18 +69,19 @@ UI_SELECT  = "#FEF3C7"   # table/list selection               (amber-100 tint)
 UI_DANGER  = "#DC2626"   # destructive actions (Delete)       (red-600)
 
 # ── Typography ──────────────────────────────────────────────────────────────
-# Desktop equivalent of a Google-Fonts setup: bundled Inter TTFs (fonts/) are
-# loaded into the process at startup so Tk can use them.
-# Single-family rule: Inter everywhere.
-#   Inter Medium → app/page titles + section headings (weight 500)
-#   Inter        → all other text — body, labels, nav, menus, buttons,
-#                  inputs, modals, pop-ups, badges, tooltips (weight 400)
+# Match the Grand Forks Concrete website, which uses the native system font
+# stack (system-ui / -apple-system / Segoe UI / Roboto) — on Windows that is
+# Segoe UI. So: Segoe UI everywhere, Segoe UI Semibold for headings.
+#   Segoe UI Semibold → app/page titles + section headings
+#   Segoe UI          → all other text — body, labels, nav, menus, buttons,
+#                       inputs, modals, pop-ups, badges, tooltips
+# (The bundled Inter TTFs are no longer used but harmless if still loaded.)
 # FONT_LABEL is kept as a separate alias for the few "emphasized sub-label"
 # call sites; it now resolves to the same regular weight as FONT_BODY (per the
 # flatter hierarchy: only true headings get weight 500).
-FONT_HEADING = "Inter Medium"   # falls back to Tk default if unavailable
-FONT_BODY    = "Inter"
-FONT_LABEL   = "Inter"
+FONT_HEADING = "Segoe UI Semibold"   # falls back to Tk default if unavailable
+FONT_BODY    = "Segoe UI"
+FONT_LABEL   = "Segoe UI"
 _FONTS_DIR   = Path(__file__).parent / "fonts"
 
 def _load_bundled_fonts():
