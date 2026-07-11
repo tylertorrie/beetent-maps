@@ -150,7 +150,7 @@
 
   "CTkFont": {
     "macOS":   { "family": "Helvetica Neue", "size": 14, "weight": "normal" },
-    "Windows": { "family": "Segoe UI",       "size": 14, "weight": "normal" },
+    "Windows": { "family": "Segoe UI Variable Text", "size": 14, "weight": "normal" },
     "Linux":   { "family": "Roboto",         "size": 14, "weight": "normal" }
   }
 }

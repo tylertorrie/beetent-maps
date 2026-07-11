@@ -70,18 +70,19 @@ UI_DANGER  = "#DC2626"   # destructive actions (Delete)       (red-600)
 
 # ── Typography ──────────────────────────────────────────────────────────────
 # Match the Grand Forks Concrete website, which uses the native system font
-# stack (system-ui / -apple-system / Segoe UI / Roboto) — on Windows that is
-# Segoe UI. So: Segoe UI everywhere, Segoe UI Semibold for headings.
-#   Segoe UI Semibold → app/page titles + section headings
-#   Segoe UI          → all other text — body, labels, nav, menus, buttons,
-#                       inputs, modals, pop-ups, badges, tooltips
+# stack (`system-ui`). On Windows 11 `system-ui` resolves to Segoe UI VARIABLE
+# (not the older static "Segoe UI"), so we use the Variable "Text" optical size
+# to render identically to the site in a Win11 browser.
+#   Segoe UI Variable Text Semibold → app/page titles + section headings
+#   Segoe UI Variable Text          → all other text — body, labels, nav, menus,
+#                       buttons, inputs, modals, pop-ups, badges, tooltips
 # (The bundled Inter TTFs are no longer used but harmless if still loaded.)
 # FONT_LABEL is kept as a separate alias for the few "emphasized sub-label"
 # call sites; it now resolves to the same regular weight as FONT_BODY (per the
 # flatter hierarchy: only true headings get weight 500).
-FONT_HEADING = "Segoe UI Semibold"   # falls back to Tk default if unavailable
-FONT_BODY    = "Segoe UI"
-FONT_LABEL   = "Segoe UI"
+FONT_HEADING = "Segoe UI Variable Text Semibold"  # falls back to Tk default if unavailable
+FONT_BODY    = "Segoe UI Variable Text"
+FONT_LABEL   = "Segoe UI Variable Text"
 _FONTS_DIR   = Path(__file__).parent / "fonts"
 
 def _load_bundled_fonts():
