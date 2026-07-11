@@ -47,19 +47,22 @@ try:
 except Exception:
     ctk.set_default_color_theme("blue")
 
-# ── Light UI palette (everything outside the map). Map overlay colours are
-# set separately in the _redraw_* methods and are intentionally left alone.
-# Values mirror the redesign palette in design_tokens.py (honey accent on warm
-# paper); kept as literals here so this module has no import-time dependency. ──
-UI_CARD   = "#FFFFFF"   # section cards / popups        (SURFACE)
-UI_BORDER = "#E4DFD4"   # dividers, borders             (BORDER)
-UI_HOVER  = "#EDE8DE"   # hover / header highlight       (warm neutral)
-UI_TEXT   = "#221F1A"   # primary text                  (INK)
-UI_MUTED  = "#5C564B"   # hints / secondary text        (INK_2)
-UI_ACCENT = "#B87514"   # honey — data readouts / accent (ACCENT)
-UI_WARN   = "#D9822B"   # warnings                      (WARNING)
-UI_SELECT = "#FBF1DD"   # table/list selection          (ACCENT_TINT)
-UI_DANGER = "#C4433B"   # destructive actions (Delete)  (DANGER)
+# ── UI palette (everything outside the map). Grand Forks Concrete look: azure-
+# blue PRIMARY on white/slate surfaces, black-ink text; YELLOW is the SECONDARY
+# accent (used for on/active toggles). Map overlay colours are set separately in
+# the _redraw_* methods and are intentionally left alone. ──
+UI_CARD    = "#FFFFFF"   # section cards / popups              (surface)
+UI_BORDER  = "#E2E8F0"   # dividers, borders                   (slate-200)
+UI_HOVER   = "#F1F5F9"   # hover / header highlight            (slate-100)
+UI_TEXT    = "#0F172A"   # primary text                       (slate-900 ink)
+UI_MUTED   = "#475569"   # hints / secondary text             (slate-600)
+UI_ACCENT  = "#0094DA"   # PRIMARY — buttons / readouts / active (GFC blue)
+UI_ACCENT_D = "#0074AD"  # primary hover / deep blue ink
+UI_ACCENT2 = "#EAB308"   # SECONDARY — on/active toggles       (yellow)
+UI_ACCENT2_INK = "#3F2D00"  # readable text on the yellow secondary
+UI_WARN    = "#D97706"   # warnings                           (amber-600)
+UI_SELECT  = "#E6F4FB"   # table/list selection               (blue tint)
+UI_DANGER  = "#DC2626"   # destructive actions (Delete)       (red-600)
 
 # ── Typography ──────────────────────────────────────────────────────────────
 # Desktop equivalent of a Google-Fonts setup: bundled Inter TTFs (fonts/) are
@@ -1803,9 +1806,9 @@ class BeetentApp(ctk.CTk):
         ctk.CTkLabel(win, text="Design system", text_color=UI_TEXT,
                      font=ctk.CTkFont(family=FONT_HEADING, size=18)).pack(
                          anchor="w", padx=18, pady=(16, 8))
-        swatches = [("Paper", "#F4F1EA"), ("Surface", UI_CARD), ("Ink", UI_TEXT),
-                    ("Accent (honey)", UI_ACCENT), ("Profit", "#1FA463"),
-                    ("Warning", UI_WARN), ("Danger", UI_DANGER)]
+        swatches = [("Background", "#F1F5F9"), ("Surface", UI_CARD), ("Ink", UI_TEXT),
+                    ("Primary (blue)", UI_ACCENT), ("Secondary (yellow)", UI_ACCENT2),
+                    ("Profit", "#1FA463"), ("Warning", UI_WARN), ("Danger", UI_DANGER)]
         for name, hexv in swatches:
             row = ctk.CTkFrame(win, fg_color="transparent"); row.pack(fill="x", padx=18, pady=3)
             ctk.CTkFrame(row, width=28, height=20, corner_radius=5,
@@ -1821,7 +1824,7 @@ class BeetentApp(ctk.CTk):
         inactive rows stay transparent. Style-only — navigation is unchanged."""
         for k, b in getattr(self, "_nav_buttons", {}).items():
             if k == key:
-                b.configure(fg_color=UI_SELECT, text_color="#6B4A0E")   # ACCENT_TINT / ACCENT_INK
+                b.configure(fg_color=UI_SELECT, text_color=UI_ACCENT_D)   # blue tint + blue ink
             else:
                 b.configure(fg_color="transparent", text_color=UI_TEXT)
 
@@ -3436,7 +3439,7 @@ class BeetentApp(ctk.CTk):
                                               font=ctk.CTkFont(family=FONT_LABEL, size=13))
         self._mon_mirror_label.pack(side="left", padx=10, pady=4)
         ctk.CTkButton(self._mon_mirror_bar, text="✕ Stop mirroring", width=130,
-                      fg_color="#3a3a3a", command=self._monitor_clear_mirror
+                      fg_color="#64748B", command=self._monitor_clear_mirror
                       ).pack(side="right", padx=8, pady=4)
 
         body = ctk.CTkFrame(self.monitor_view, fg_color="transparent")
@@ -3798,7 +3801,7 @@ class BeetentApp(ctk.CTk):
         cv = tk.Canvas(wrap, width=120, height=120, bg=UI_CARD, highlightthickness=0)
         cv.pack()
         cx, cy, R = 60, 60, 50
-        cv.create_oval(cx - R, cy - R, cx + R, cy + R, outline="#E4DFD4", width=2)
+        cv.create_oval(cx - R, cy - R, cx + R, cy + R, outline=UI_BORDER, width=2)
         th = math.radians(-float(angle_deg))     # screen north-up; +angle clockwise
         dx, dy = math.cos(th), math.sin(th)
         nx, ny = -math.sin(th), math.cos(th)
@@ -3834,7 +3837,7 @@ class BeetentApp(ctk.CTk):
         _line("Planting direction", old_p, new_p)
         _line("Spray direction", old_s, new_s)
         vis = ctk.CTkFrame(win, fg_color="transparent"); vis.pack(pady=(8, 4))
-        self._dir_thumb(vis, "Before", old_p, "#B4AD9E").pack(side="left", padx=14)
+        self._dir_thumb(vis, "Before", old_p, "#94A3B8").pack(side="left", padx=14)
         ctk.CTkLabel(vis, text="→", text_color=UI_MUTED,
                      font=ctk.CTkFont(size=22)).pack(side="left")
         self._dir_thumb(vis, "After", new_p, UI_ACCENT).pack(side="left", padx=14)
@@ -4288,7 +4291,7 @@ class BeetentApp(ctk.CTk):
         act.pack(fill="x", padx=12, pady=(2, 4))
         self._fv_action_row = act
         self._fv_upload_btn = ctk.CTkButton(
-            act, text="⬆ Upload File…", width=120, fg_color="#1a5c8a",
+            act, text="⬆ Upload File…", width=120, fg_color=UI_ACCENT,
             command=self._files_upload)
         self._fv_newfolder_btn = ctk.CTkButton(
             act, text="📁 New Folder…", width=110,
@@ -4298,9 +4301,9 @@ class BeetentApp(ctk.CTk):
         self._fv_selectall_btn.pack(side="left", padx=(0, 6))
         ctk.CTkButton(act, text="Deselect All", width=100,
                       command=self._files_deselect_all).pack(side="left", padx=(0, 6))
-        ctk.CTkButton(act, text="⬇ Export Selected…", fg_color="#1a5c8a",
+        ctk.CTkButton(act, text="⬇ Export Selected…", fg_color=UI_ACCENT,
                       command=self._files_export_selected).pack(side="left", padx=(8, 6))
-        ctk.CTkButton(act, text="🗑 Delete Selected", fg_color="#7a2a2a",
+        ctk.CTkButton(act, text="🗑 Delete Selected", fg_color=UI_DANGER,
                       command=self._files_delete_selected).pack(side="left", padx=(0, 6))
         self._fv_count = ctk.CTkLabel(act, text="", text_color=UI_MUTED)
         self._fv_count.pack(side="right")
@@ -4423,7 +4426,7 @@ class BeetentApp(ctk.CTk):
 
         # "← Back" steps up one folder (disabled at the top all-files list).
         ctk.CTkButton(self._fv_crumb, text="← Back", width=70, height=24,
-                      fg_color="#3a3a3a", hover_color=UI_HOVER,
+                      fg_color="#64748B", hover_color=UI_HOVER,
                       state=("disabled" if self._files_cwd is None else "normal"),
                       command=self._files_back).pack(side="left", padx=(0, 10))
 
@@ -4615,7 +4618,7 @@ class BeetentApp(ctk.CTk):
         for w in self._fv_crumb.winfo_children():
             w.destroy()
         ctk.CTkButton(self._fv_crumb, text="← Back", width=70, height=24,
-                      fg_color="#3a3a3a", hover_color=UI_HOVER,
+                      fg_color="#64748B", hover_color=UI_HOVER,
                       state=("disabled" if not self._files_res_cwd else "normal"),
                       command=self._files_res_back).pack(side="left", padx=(0, 10))
 
@@ -4751,7 +4754,7 @@ class BeetentApp(ctk.CTk):
                          font=ctk.CTkFont(family=FONT_LABEL, size=11)).pack(
                 side="right", padx=10)
         if on_print is not None:
-            ctk.CTkButton(row, text="🖨", width=34, fg_color="#3a3a3a",
+            ctk.CTkButton(row, text="🖨", width=34, fg_color="#64748B",
                           hover_color=UI_HOVER, command=on_print).pack(
                 side="right", padx=(0, 4), pady=4)
 
@@ -4801,7 +4804,7 @@ class BeetentApp(ctk.CTk):
             win.destroy()
         ctk.CTkButton(win, text="Choose folder…", height=34,
                       command=_browse).pack(fill="x", padx=24, pady=3)
-        ctk.CTkButton(win, text="Cancel", height=32, fg_color="#555",
+        ctk.CTkButton(win, text="Cancel", height=32, fg_color="#64748B",
                       command=win.destroy).pack(fill="x", padx=24, pady=(8, 16))
         _center_on_parent(win, self)
         self.wait_window(win)
@@ -5128,7 +5131,7 @@ class BeetentApp(ctk.CTk):
         ctk.CTkButton(flt, text="Columns ▾", width=110,
                       command=self._ov_choose_columns).pack(side="left", padx=(4, 12))
         ctk.CTkButton(flt, text="\U0001F4C4 Export Overview Summary PDF",
-                      fg_color="#1a5c8a",
+                      fg_color=UI_ACCENT,
                       command=self._export_overview_pdf).pack(side="right")
 
         wrap = ctk.CTkFrame(self.overview_view, fg_color="transparent")
@@ -5369,9 +5372,9 @@ class BeetentApp(ctk.CTk):
             return
         on = bool(self._tools_by_key[key]["var"].get())
         if on:
-            # On = FILLED honey (the layer is lit up / visible).
-            chip.configure(fg_color=UI_ACCENT, hover_color=UI_ACCENT,
-                           text_color="#FFFFFF", border_color=UI_ACCENT,
+            # On = FILLED yellow (secondary accent — the layer is lit up).
+            chip.configure(fg_color=UI_ACCENT2, hover_color=UI_ACCENT2,
+                           text_color=UI_ACCENT2_INK, border_color=UI_ACCENT2,
                            border_width=1)
         else:
             # Off = dimmed muted text so a hidden layer reads as "off".
@@ -5498,9 +5501,9 @@ class BeetentApp(ctk.CTk):
         for lbl, cmd in inline:
             state = self._action_on(lbl)      # None=command, True/False=toggle
             kw = dict(akw)
-            if state:                          # toggle currently ON → filled honey
-                kw.update(fg_color=UI_ACCENT, hover_color=UI_ACCENT,
-                          text_color="#FFFFFF", border_color=UI_ACCENT)
+            if state:                          # toggle currently ON → filled yellow
+                kw.update(fg_color=UI_ACCENT2, hover_color=UI_ACCENT2,
+                          text_color=UI_ACCENT2_INK, border_color=UI_ACCENT2)
             rcmd = ((lambda c=cmd: (c(), self._force_reflow_actions()))
                     if state is not None else cmd)   # toggles re-render after click
             ctk.CTkButton(frame, text=lbl, width=self._est_btn_w(lbl), command=rcmd,
@@ -5510,7 +5513,7 @@ class BeetentApp(ctk.CTk):
                                  border_color=UI_BORDER, corner_radius=6)
             for lbl, cmd in overflow:
                 state = self._action_on(lbl)
-                tcol = UI_ACCENT if state else UI_TEXT   # honey label while on
+                tcol = UI_ACCENT if state else UI_TEXT   # blue label while on (readable in menu)
                 if state is not None:
                     rc = (lambda pp=popup, c=cmd:
                           (pp.place_forget(), c(), self._force_reflow_actions()))
@@ -5644,7 +5647,7 @@ class BeetentApp(ctk.CTk):
 
         ctk.CTkButton(win, text="Apply", height=36, command=do_apply).pack(
             fill="x", padx=24, pady=(8, 4))
-        ctk.CTkButton(win, text="Cancel", height=36, fg_color="#555",
+        ctk.CTkButton(win, text="Cancel", height=36, fg_color="#64748B",
                       command=win.destroy).pack(fill="x", padx=24, pady=(0, 18))
         _center_on_parent(win, self)
 
@@ -5983,7 +5986,7 @@ class BeetentApp(ctk.CTk):
                       fieldbackground=UI_CARD,borderwidth=0,rowheight=34,font=(FONT_BODY,11))
         _st.configure("Fields.Treeview.Heading",background=UI_CARD,foreground=UI_MUTED,
                       relief="flat",borderwidth=0,font=(FONT_LABEL,9))
-        _st.map("Fields.Treeview",background=[("selected",UI_SELECT)],foreground=[("selected","#6B4A0E")])
+        _st.map("Fields.Treeview",background=[("selected",UI_SELECT)],foreground=[("selected",UI_ACCENT_D)])
         _st.map("Fields.Treeview.Heading",background=[("active",UI_HOVER)])
         tree_wrap=ctk.CTkFrame(lf,fg_color="transparent")
         tree_wrap.pack(fill="x")
@@ -8300,7 +8303,7 @@ class BeetentApp(ctk.CTk):
             if self.show_bays.get():     self._redraw_bays()
             win.destroy()
             self._status("Access road deleted.")
-        ctk.CTkButton(win, text="Delete Selected", fg_color="#6b1a1a",
+        ctk.CTkButton(win, text="Delete Selected", fg_color=UI_DANGER,
                       command=do_delete).pack(pady=(4, 2))
         ctk.CTkButton(win, text="Cancel", command=win.destroy).pack()
 
@@ -8371,7 +8374,7 @@ class BeetentApp(ctk.CTk):
             if self.show_bays.get():     self._redraw_bays()
             win.destroy()
             self._status("Inner boundary deleted.")
-        ctk.CTkButton(win, text="Delete Selected", fg_color="#6b1a1a",
+        ctk.CTkButton(win, text="Delete Selected", fg_color=UI_DANGER,
                       command=do_delete).pack(pady=(4,2))
         ctk.CTkButton(win, text="Cancel", command=win.destroy).pack()
 
@@ -8434,7 +8437,7 @@ class BeetentApp(ctk.CTk):
             del self.current_field["wet_zones"][sel[0]]
             self._redraw_wet_zones(); win.destroy()
             self._status("Wet zone deleted. Save Field to keep.")
-        ctk.CTkButton(win, text="Delete Selected", fg_color="#6b1a1a",
+        ctk.CTkButton(win, text="Delete Selected", fg_color=UI_DANGER,
                       command=do_delete).pack(pady=(4, 2))
         ctk.CTkButton(win, text="Cancel", command=win.destroy).pack()
 
@@ -8511,7 +8514,7 @@ class BeetentApp(ctk.CTk):
         for k, lbl in have:
             ctk.CTkButton(win, text=lbl, height=34,
                           command=lambda kk=k: rm(kk)).pack(fill="x", padx=24, pady=3)
-        ctk.CTkButton(win, text="Cancel", height=32, fg_color="#555",
+        ctk.CTkButton(win, text="Cancel", height=32, fg_color="#64748B",
                       command=win.destroy).pack(fill="x", padx=24, pady=(8, 16))
         _center_on_parent(win, self)
 
@@ -9904,7 +9907,7 @@ class BeetentApp(ctk.CTk):
             win.destroy()
             self._status(f"Saved {len(new_tracks)} span(s).")
         ctk.CTkButton(btn_row,text="Save",command=do_save).pack(side="left",expand=True,fill="x",padx=(0,4))
-        ctk.CTkButton(btn_row,text="Cancel",fg_color="#555",command=win.destroy).pack(side="left",expand=True,fill="x")
+        ctk.CTkButton(btn_row,text="Cancel",fg_color="#64748B",command=win.destroy).pack(side="left",expand=True,fill="x")
 
     def _redraw_tracks(self, skip_shelters=False):
         for o in self.track_circles:
@@ -10118,10 +10121,10 @@ class BeetentApp(ctk.CTk):
         ctk.CTkButton(win,text="Edit Buffer Zone…",height=40,
                       font=ctk.CTkFont(size=13),
                       command=lambda:act(self._edit_track_exclusion)).pack(fill="x",padx=24,pady=4)
-        ctk.CTkButton(win,text="Delete Track",fg_color="#6b1a1a",height=40,
+        ctk.CTkButton(win,text="Delete Track",fg_color=UI_DANGER,height=40,
                       font=ctk.CTkFont(size=13),
                       command=lambda:act(lambda:self._delete_single_track((pn,idx)))).pack(fill="x",padx=24,pady=4)
-        ctk.CTkButton(win,text="Cancel",fg_color="#555",height=40,
+        ctk.CTkButton(win,text="Cancel",fg_color="#64748B",height=40,
                       font=ctk.CTkFont(size=13),
                       command=win.destroy).pack(fill="x",padx=24,pady=(4,20))
         _center_on_parent(win,self)
@@ -10156,9 +10159,9 @@ class BeetentApp(ctk.CTk):
                       command=lambda:act(self._edit_track_exclusion)).pack(fill="x",padx=18,pady=2)
         ctk.CTkButton(win,text="Edit Path Vertices…",
                       command=lambda:act(lambda:self._start_edit_corner_arm(idx))).pack(fill="x",padx=18,pady=2)
-        ctk.CTkButton(win,text="Delete Corner Track",fg_color="#6b1a1a",
+        ctk.CTkButton(win,text="Delete Corner Track",fg_color=UI_DANGER,
                       command=lambda:act(do_delete)).pack(fill="x",padx=18,pady=2)
-        ctk.CTkButton(win,text="Cancel",fg_color="#555",command=win.destroy).pack(fill="x",padx=18,pady=(2,12))
+        ctk.CTkButton(win,text="Cancel",fg_color="#64748B",command=win.destroy).pack(fill="x",padx=18,pady=(2,12))
         _center_on_parent(win,self)
 
     def _boundary_edge_hit(self, lat, lon, mpp):
@@ -10189,10 +10192,10 @@ class BeetentApp(ctk.CTk):
         def act(fn): win.destroy(); fn()
         ctk.CTkButton(win,text="Edit Boundary",height=38,font=ctk.CTkFont(size=13),
                       command=lambda:act(self._mode_edit_boundary)).pack(fill="x",padx=24,pady=4)
-        ctk.CTkButton(win,text="Delete Boundary",height=38,fg_color="#6b1a1a",
+        ctk.CTkButton(win,text="Delete Boundary",height=38,fg_color=UI_DANGER,
                       font=ctk.CTkFont(size=13),
                       command=lambda:act(self._clear_boundary)).pack(fill="x",padx=24,pady=4)
-        ctk.CTkButton(win,text="Cancel",height=38,fg_color="#555",font=ctk.CTkFont(size=13),
+        ctk.CTkButton(win,text="Cancel",height=38,fg_color="#64748B",font=ctk.CTkFont(size=13),
                       command=win.destroy).pack(fill="x",padx=24,pady=(4,18))
         _center_on_parent(win,self)
 
@@ -10283,7 +10286,7 @@ class BeetentApp(ctk.CTk):
             self._redraw_corner_arms()
             if self.show_shelters.get(): self._redraw_shelters()
             win.destroy(); self._status("Corner zone deleted.")
-        ctk.CTkButton(win,text="Delete Selected",fg_color="#6b1a1a",command=do_delete).pack(pady=(4,2))
+        ctk.CTkButton(win,text="Delete Selected",fg_color=UI_DANGER,command=do_delete).pack(pady=(4,2))
         ctk.CTkButton(win,text="Cancel",command=win.destroy).pack()
 
     # ── Corner path vertex editing ──────────────────────────────────────────────
@@ -10589,7 +10592,7 @@ class BeetentApp(ctk.CTk):
             self._status(f"Shifted {dist:g} {unit} {d}.")
         ctk.CTkButton(win, text="Shift", height=36, command=do_shift).pack(
             fill="x", padx=24, pady=(8, 4))
-        ctk.CTkButton(win, text="Cancel", height=36, fg_color="#555",
+        ctk.CTkButton(win, text="Cancel", height=36, fg_color="#64748B",
                       command=win.destroy).pack(fill="x", padx=24, pady=(0, 18))
         _center_on_parent(win, self)
 
@@ -11683,14 +11686,14 @@ class BeetentApp(ctk.CTk):
 
         ctk.CTkButton(win, text="Set trays", height=34, command=_set).pack(
             fill="x", padx=24, pady=(8, 4))
-        ctk.CTkButton(win, text="Reset to auto", height=32, fg_color="#555",
+        ctk.CTkButton(win, text="Reset to auto", height=32, fg_color="#64748B",
                       command=_reset).pack(fill="x", padx=24, pady=(0, 4))
         ctk.CTkButton(win, text="Make test shelter", height=32, fg_color="#1E90FF",
                       command=lambda: (win.destroy(), self._shelter_to_test(idx))
                       ).pack(fill="x", padx=24, pady=(0, 4))
-        ctk.CTkButton(win, text="Delete shelter", height=32, fg_color="#7a2a2a",
+        ctk.CTkButton(win, text="Delete shelter", height=32, fg_color=UI_DANGER,
                       command=_delete).pack(fill="x", padx=24, pady=(0, 4))
-        ctk.CTkButton(win, text="Cancel", height=32, fg_color="#444",
+        ctk.CTkButton(win, text="Cancel", height=32, fg_color="#64748B",
                       command=win.destroy).pack(fill="x", padx=24, pady=(0, 16))
         _center_on_parent(win, self)
         self.wait_window(win)
@@ -14571,7 +14574,7 @@ class BeetentApp(ctk.CTk):
         def do_ok(): state["ok"] = True; win.destroy()
         btns = ctk.CTkFrame(win, fg_color="transparent"); btns.pack(pady=(10, 12))
         ctk.CTkButton(btns, text="OK — Export", command=do_ok).pack(side="left", padx=4)
-        ctk.CTkButton(btns, text="Cancel", fg_color="#555", command=win.destroy).pack(side="left", padx=4)
+        ctk.CTkButton(btns, text="Cancel", fg_color="#64748B", command=win.destroy).pack(side="left", padx=4)
         _center_on_parent(win, self)
         self.wait_window(win)
         if not state["ok"]:
@@ -14877,7 +14880,7 @@ class BeetentApp(ctk.CTk):
                 chosen["root"] = r; win.destroy()
             ctk.CTkButton(win, text=disp, height=34, command=_pick).pack(
                 fill="x", padx=24, pady=3)
-        ctk.CTkButton(win, text="Skip", height=32, fg_color="#555",
+        ctk.CTkButton(win, text="Skip", height=32, fg_color="#64748B",
                       command=win.destroy).pack(fill="x", padx=24, pady=(8, 16))
         _center_on_parent(win, self)
         self.wait_window(win)
@@ -15014,8 +15017,8 @@ class BeetentApp(ctk.CTk):
         def _ok(): result["go"] = True; dlg.destroy()
         btn_row = ctk.CTkFrame(pad, fg_color="transparent"); btn_row.pack(pady=(12,0))
         ctk.CTkButton(btn_row, text="Generate PDF" if is_single else "Generate PDFs",
-                      fg_color="#1a5c8a", command=_ok).pack(side="left", padx=(0,8))
-        ctk.CTkButton(btn_row, text="Cancel", fg_color="#555",
+                      fg_color=UI_ACCENT, command=_ok).pack(side="left", padx=(0,8))
+        ctk.CTkButton(btn_row, text="Cancel", fg_color="#64748B",
                       command=dlg.destroy).pack(side="left")
 
         self.wait_window(dlg)
