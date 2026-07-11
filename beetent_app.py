@@ -56,12 +56,16 @@ UI_BORDER  = "#E2E8F0"   # dividers, borders                   (slate-200)
 UI_HOVER   = "#F1F5F9"   # hover / header highlight            (slate-100)
 UI_TEXT    = "#0F172A"   # primary text                       (slate-900 ink)
 UI_MUTED   = "#475569"   # hints / secondary text             (slate-600)
-UI_ACCENT  = "#0094DA"   # PRIMARY — buttons / readouts / active (GFC blue)
-UI_ACCENT_D = "#0074AD"  # primary hover / deep blue ink
-UI_ACCENT2 = "#EAB308"   # SECONDARY — on/active toggles       (yellow)
-UI_ACCENT2_INK = "#3F2D00"  # readable text on the yellow secondary
+# PRIMARY = yellow. Bright yellow reads only as a FILL (with dark text); as
+# TEXT on white it's illegible, so accent TEXT uses the darker readable gold.
+UI_ACCENT      = "#EAB308"  # PRIMARY fill — buttons / active / tabs (bright yellow)
+UI_ACCENT_D    = "#CA9A04"  # primary fill hover (deeper yellow)
+UI_ACCENT_INK  = "#26210A"  # dark text ON the yellow primary fills
+UI_ACCENT_TX   = "#A16207"  # readable gold for accent TEXT on white (readouts)
+UI_ACCENT2     = "#0094DA"  # SECONDARY fill — on/active toggles (GFC blue)
+UI_ACCENT2_INK = "#FFFFFF"  # white text on the blue secondary
 UI_WARN    = "#D97706"   # warnings                           (amber-600)
-UI_SELECT  = "#E6F4FB"   # table/list selection               (blue tint)
+UI_SELECT  = "#FEF3C7"   # table/list selection               (amber-100 tint)
 UI_DANGER  = "#DC2626"   # destructive actions (Delete)       (red-600)
 
 # ── Typography ──────────────────────────────────────────────────────────────
@@ -1819,14 +1823,16 @@ class BeetentApp(ctk.CTk):
                          font=ctk.CTkFont(family=FONT_BODY, size=11)).pack(side="right")
 
     def _set_active_nav(self, key):
-        """Highlight the current destination in the nav drawer: honey tint bg +
-        honey-ink text (ACCENT_TINT / ACCENT_INK from the design system);
-        inactive rows stay transparent. Style-only — navigation is unchanged."""
+        """Highlight the current destination as a SOLID filled pill (yellow
+        primary + dark ink), like the Grand Forks Concrete side menu; inactive
+        rows are transparent with dark text. Style-only — navigation unchanged."""
         for k, b in getattr(self, "_nav_buttons", {}).items():
             if k == key:
-                b.configure(fg_color=UI_SELECT, text_color=UI_ACCENT_D)   # blue tint + blue ink
+                b.configure(fg_color=UI_ACCENT, hover_color=UI_ACCENT_D,
+                            text_color=UI_ACCENT_INK)
             else:
-                b.configure(fg_color="transparent", text_color=UI_TEXT)
+                b.configure(fg_color="transparent", hover_color=UI_HOVER,
+                            text_color=UI_TEXT)
 
     def _toggle_nav_drawer(self):
         """☰ collapses / expands the persistent rail (reclaims map width)."""
@@ -2588,7 +2594,7 @@ class BeetentApp(ctk.CTk):
         hi = ctk.CTkFrame(hero, fg_color="transparent"); hi.pack(fill="x", padx=18, pady=14)
         ctk.CTkLabel(hi, text="ESTIMATED TOTAL", text_color=UI_MUTED,
                      font=ctk.CTkFont(family=FONT_LABEL, size=11)).pack(anchor="w")
-        ctk.CTkLabel(hi, text=money(t["total"]), text_color=UI_ACCENT,
+        ctk.CTkLabel(hi, text=money(t["total"]), text_color=UI_ACCENT_TX,
                      font=ctk.CTkFont(family=FONT_HEADING, size=38)).pack(anchor="w")
         ctk.CTkLabel(hi, text="%d field%s  ·  avg %s / field"
                      % (nfld, "" if nfld == 1 else "s", money(t["total"] / max(1, nfld))),
@@ -2694,7 +2700,7 @@ class BeetentApp(ctk.CTk):
                              text_color=UI_TEXT).pack(side="left")
                 ctk.CTkLabel(tp, text=money(lc["total"]), anchor="e",
                              font=ctk.CTkFont(family=FONT_HEADING, size=13),
-                             text_color=UI_ACCENT).pack(side="right")
+                             text_color=UI_ACCENT_TX).pack(side="right")
                 ctk.CTkLabel(fc, text="%s · %.0f ac · %d shelters · %d trays · %.1f crew km · %s/ac"
                              % (co, lc["acres"], lc["shelters"], lc["trays"], lc["route_km"],
                                 self._cost_money(lc.get("cost_per_acre", 0))),
@@ -5445,7 +5451,7 @@ class BeetentApp(ctk.CTk):
                 # deliberately distinct from the FILLED honey of an active LAYERS
                 # chip so the two rows don't read as identical.
                 sel.configure(fg_color=UI_CARD, hover_color=UI_HOVER,
-                              text_color=UI_ACCENT, border_color=UI_ACCENT,
+                              text_color=UI_ACCENT_TX, border_color=UI_ACCENT,
                               border_width=2)
             else:
                 sel.configure(fg_color=UI_CARD, hover_color=UI_HOVER,
@@ -5611,7 +5617,7 @@ class BeetentApp(ctk.CTk):
 
         # Live max: depends on this field's sprayer width and the tire width
         # entered above, so it updates as the tire width changes.
-        maxlbl = ctk.CTkLabel(win, text="", text_color=UI_ACCENT,
+        maxlbl = ctk.CTkLabel(win, text="", text_color=UI_ACCENT_TX,
                               font=ctk.CTkFont(size=12))
         maxlbl.pack(padx=24, pady=(6, 2))
 
@@ -6163,7 +6169,7 @@ class BeetentApp(ctk.CTk):
             ctk.CTkLabel(bc,text=label,anchor="w",font=ctk.CTkFont(family=FONT_LABEL,size=11)).pack(fill="x")
             v=tk.StringVar(); ctk.CTkEntry(bc,textvariable=v).pack(fill="x",pady=(0,4))
             self.fv[key]=v
-        self.planter_pass_lbl=ctk.CTkLabel(bc,text="Planter pass: —",anchor="w",text_color=UI_ACCENT)
+        self.planter_pass_lbl=ctk.CTkLabel(bc,text="Planter pass: —",anchor="w",text_color=UI_ACCENT_TX)
         self.planter_pass_lbl.pack(fill="x")
 
         # Bay-only widgets: female/male row counts (per repeat unit), bay
@@ -6183,16 +6189,16 @@ class BeetentApp(ctk.CTk):
             v=tk.StringVar(); ctk.CTkEntry(self._bay_only_frame,textvariable=v).pack(fill="x",pady=(0,4))
             self.fv[key]=v
         self.repeats_lbl=ctk.CTkLabel(self._bay_only_frame,text="Repeats: —",
-                                       anchor="w",text_color=UI_ACCENT)
+                                       anchor="w",text_color=UI_ACCENT_TX)
         self.repeats_lbl.pack(fill="x")
         self.female_bay_lbl=ctk.CTkLabel(self._bay_only_frame,text="Female bay width: —",
-                                          anchor="w",text_color=UI_ACCENT)
+                                          anchor="w",text_color=UI_ACCENT_TX)
         self.female_bay_lbl.pack(fill="x")
         self.male_bay_lbl=ctk.CTkLabel(self._bay_only_frame,text="Male bay width: —",
-                                        anchor="w",text_color=UI_ACCENT)
+                                        anchor="w",text_color=UI_ACCENT_TX)
         self.male_bay_lbl.pack(fill="x")
         self.bay_gap_lbl=ctk.CTkLabel(self._bay_only_frame,text="Gap: none",
-                                       anchor="w",text_color=UI_ACCENT)
+                                       anchor="w",text_color=UI_ACCENT_TX)
         self.bay_gap_lbl.pack(fill="x")
 
         ctk.CTkLabel(self._bay_only_frame,text="Row layout",anchor="w",
@@ -6213,7 +6219,7 @@ class BeetentApp(ctk.CTk):
         self.custom_mask_entry=ctk.CTkEntry(self._bay_only_frame,textvariable=self.custom_mask_var,
                                              placeholder_text="e.g. MMFFFFFFFFFFFFFFFFMM")
         self.row_mask_lbl=ctk.CTkLabel(self._bay_only_frame,text="Mask: —",anchor="w",
-                                        text_color=UI_ACCENT,
+                                        text_color=UI_ACCENT_TX,
                                         font=ctk.CTkFont(family=FONT_BODY,size=10))
         self.row_mask_lbl.pack(fill="x",pady=(2,4))
 
@@ -6299,21 +6305,21 @@ class BeetentApp(ctk.CTk):
             v=tk.StringVar(); ctk.CTkEntry(ba,textvariable=v).pack(fill="x",pady=(0,4))
             self.fv[key]=v
 
-        self.bee_total_gals_lbl  = ctk.CTkLabel(ba,text="Total gals:   —", anchor="w",text_color=UI_ACCENT)
+        self.bee_total_gals_lbl  = ctk.CTkLabel(ba,text="Total gals:   —", anchor="w",text_color=UI_ACCENT_TX)
         self.bee_total_gals_lbl.pack(fill="x")
         # Test-shelter lines (blue) — packed by _refresh_bee_summary only when the
         # field has at least one test shelter.
         self.bee_test_count_lbl = ctk.CTkLabel(ba,text="", anchor="w",text_color="#1E90FF")
         self.bee_test_gals_lbl  = ctk.CTkLabel(ba,text="", anchor="w",text_color="#1E90FF")
-        self.bee_total_trays_lbl = ctk.CTkLabel(ba,text="Total trays:  —", anchor="w",text_color=UI_ACCENT)
+        self.bee_total_trays_lbl = ctk.CTkLabel(ba,text="Total trays:  —", anchor="w",text_color=UI_ACCENT_TX)
         self.bee_total_trays_lbl.pack(fill="x")
-        self.bee_per_shelter_lbl = ctk.CTkLabel(ba,text="Per shelter:  —", anchor="w",text_color=UI_ACCENT)
+        self.bee_per_shelter_lbl = ctk.CTkLabel(ba,text="Per shelter:  —", anchor="w",text_color=UI_ACCENT_TX)
         self.bee_per_shelter_lbl.pack(fill="x")
         self.bee_short_lbl       = ctk.CTkLabel(ba,text="", anchor="w",text_color=UI_WARN)
         self.bee_short_lbl.pack(fill="x",pady=(0,4))
         # Live tray allocation: trays placed (auto + manual per-shelter
         # overrides) vs trays needed, with a short/over readout.
-        self.bee_alloc_lbl       = ctk.CTkLabel(ba,text="", anchor="w",text_color=UI_ACCENT)
+        self.bee_alloc_lbl       = ctk.CTkLabel(ba,text="", anchor="w",text_color=UI_ACCENT_TX)
         self.bee_alloc_lbl.pack(fill="x",pady=(0,4))
 
         ctk.CTkLabel(ba,text="Distribution:",anchor="w",font=ctk.CTkFont(family=FONT_LABEL,size=11)).pack(fill="x")
@@ -11879,7 +11885,7 @@ class BeetentApp(ctk.CTk):
         if getattr(self, "bee_alloc_lbl", None) is not None:
             self.bee_alloc_lbl.configure(
                 text=f"ACTUAL placement — {len(self.shelter_positions)} shelters scanned",
-                text_color=UI_ACCENT)
+                text_color=UI_ACCENT_TX)
         self._status(f"Showing ACTUAL placement — {len(self.shelter_positions)} scanned pins.")
 
     def _on_actual_shelter_tap(self, seq):
@@ -12553,7 +12559,7 @@ class BeetentApp(ctk.CTk):
                 text=f"Mask: {mask}   ⚠ {_mask_len} rows (overrides total_rows={_form_total_rows})",
                 text_color="#E0A030")
         else:
-            self.row_mask_lbl.configure(text=f"Mask: {mask or '—'}", text_color=UI_ACCENT)
+            self.row_mask_lbl.configure(text=f"Mask: {mask or '—'}", text_color=UI_ACCENT_TX)
         # The first-pass-swap option only does anything for an ASYMMETRIC mask
         # (a symmetric one reads the same reversed). Show the checkbox only then.
         asymmetric = bool(mask) and mask != mask[::-1]
