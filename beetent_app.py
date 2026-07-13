@@ -1623,6 +1623,11 @@ class BeetentApp(ctk.CTk):
                                        command=self._undo_shelter_move, **_tb_tool_kw)
         self._tb_measure = ctk.CTkButton(bar, text="📏 Measure", width=100,
                                          command=self._mode_measure, **_tb_tool_kw)
+        # Manual "☁ Refresh" — force an immediate git pull + list/field reload
+        # outside of save events (roadmap item; the button was dropped in an old
+        # toolbar cleanup while its _manual_sync handler stayed behind).
+        self._sync_btn = ctk.CTkButton(bar, text="☁ Refresh", width=100,
+                                       command=self._manual_sync, **_tb_tool_kw)
         # ── Left-side status label (no fixed width — shrinks before buttons do) ──
         self.status_lbl=ctk.CTkLabel(bar,text="",text_color=UI_MUTED,anchor="w")
         self._apply_toolbar_for_view("map")
@@ -1631,8 +1636,8 @@ class BeetentApp(ctk.CTk):
         """Show only the toolbar controls relevant to the current view.
         Map: LLD + Generate + PDF + Units. Overview: Units only. Files: none.
         ☰, logo and the status label are always visible."""
-        for w in (self._tb_lld_btn, self._tb_reset, self._tb_measure, self._tb_units,
-                  self._tb_generate, self._tb_pdf, self.status_lbl):
+        for w in (self._tb_lld_btn, self._tb_reset, self._tb_measure, self._sync_btn,
+                  self._tb_units, self._tb_generate, self._tb_pdf, self.status_lbl):
             try: w.pack_forget()
             except Exception: pass
         # Hide the floating LLD popup whenever the view changes.
@@ -1643,6 +1648,7 @@ class BeetentApp(ctk.CTk):
             self._tb_lld_btn.pack(side="left", padx=(4,0), pady=6)
             self._tb_reset.pack(side="left", padx=(8,0), pady=6)
             self._tb_measure.pack(side="left", padx=(6,0), pady=6)
+            self._sync_btn.pack(side="left", padx=(6,0), pady=6)
         self.status_lbl.pack(side="left", padx=16)
         # Right side: first packed = rightmost. Units → Generate → PDF gives the
         # visual order PDF · Generate · Units (Units furthest right). Roomy gaps
@@ -5804,6 +5810,7 @@ class BeetentApp(ctk.CTk):
                         ("Add Corner Path",self._mode_add_corner_path)],
              "more":[("Edit Span Lengths",self._mode_edit_track_measurements),
                      ("Set Buffer Zone (ft)",self._edit_track_exclusion),
+                     ("Toggle Tracks",self._toggle_tracks),
                      ("Toggle Two Pivots",self._toggle_two_pivots),
                      ("Set 2nd Pivot Point",self._mode_pivot2)]},
             {"key":"boundary","label":"◌ Boundary",
@@ -5842,7 +5849,8 @@ class BeetentApp(ctk.CTk):
                         ("Toggle Male Bays",self._toggle_bays),
                         ("Import Planter Data",self._import_planter_data),
                         ("Number Planter Passes",self._toggle_planter_pass_numbers)],
-             "more":[("Clear Planter Data",self._clear_planter_passes),
+             "more":[("Toggle Planter Paths",self._toggle_planter_passes),
+                     ("Clear Planter Data",self._clear_planter_passes),
                      ("Toggle Bays Through Inner",self._toggle_bays_through_inner)]},
             {"key":"shelters","label":"🐝 Shelters",
              "var":self.shelters_visible_var,"fn":self._set_shelters_visible,
@@ -5885,6 +5893,8 @@ class BeetentApp(ctk.CTk):
             "Toggle Pass Through Inner":  lambda: bool(self.current_field.get("sprayer_routes_around_inner", True)),
             "Number Planter Passes":      lambda: bool(self.show_planter_numbers.get()),
             "Toggle Male Bays":           lambda: bool(self.show_bays.get()),
+            "Toggle Planter Paths":       lambda: bool(self.show_planter_passes.get()),
+            "Toggle Tracks":              lambda: bool(self.show_tracks.get()),
             "Toggle Bays Through Inner":  lambda: bool(self.current_field.get("bays_through_inner", False)),
             "Toggle Two Pivots":          lambda: bool(self.two_pivots_var.get()),
             "Test shelters count in total": lambda: bool(self.current_field.get("test_count_in_total", False)),
