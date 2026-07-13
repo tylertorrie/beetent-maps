@@ -5381,15 +5381,6 @@ class BeetentApp(ctk.CTk):
         updates)."""
         self._render_tool_actions()
 
-    def _clear_tool_more_popup(self):
-        """Drop the current overflow popup (rebuilt fresh on every strip render)."""
-        old = getattr(self, "_tool_more_popup", None)
-        if old is not None:
-            try:
-                if old in self._all_popups: self._all_popups.remove(old)
-                old.destroy()
-            except Exception: pass
-        self._tool_more_popup = None
 
     def _build_layers_inset(self):
         """Floating 'Layers' card on the map (top-left, like the reference
@@ -5475,8 +5466,14 @@ class BeetentApp(ctk.CTk):
         self._strip_title = ctk.CTkLabel(strip, text="", text_color=UI_MUTED, anchor="w",
                                          font=ctk.CTkFont(family=FONT_LABEL, size=10))
         self._strip_title.pack(anchor="w", padx=12)
-        self._strip_body = ctk.CTkFrame(strip, fg_color="transparent")
-        self._strip_body.pack(fill="x", padx=6, pady=(2, 6))
+        # ALL of the active layer's actions stack here (no More overflow). A
+        # scrollable frame so a long list (e.g. Boundary) scrolls instead of
+        # running off the bottom of the map; _render_tool_actions sizes it to the
+        # content, capped to the map height, so short lists stay compact.
+        self._strip_body = ctk.CTkScrollableFrame(
+            strip, fg_color="transparent", width=196, height=120,
+            scrollbar_button_color=UI_BORDER, scrollbar_button_hover_color=UI_MUTED)
+        self._strip_body.pack(fill="x", padx=4, pady=(2, 6))
 
     def _select_tool(self, key):
         """Highlight a layer (single active): tint its row in the layers card
@@ -5492,23 +5489,23 @@ class BeetentApp(ctk.CTk):
         self._render_tool_actions()
 
     def _render_tool_actions(self):
-        """Fill the side strip with the highlighted layer's actions: primary
-        actions as stacked buttons, the long tail under one 'More ▾' popup
-        (opened to the strip's left so it stays over the map)."""
+        """Fill the side strip with ALL of the highlighted layer's actions
+        (primary + the former 'More' tail), stacked vertically. The strip scrolls
+        when the list is taller than the map."""
         key = getattr(self, "_active_tool", None)
         body = getattr(self, "_strip_body", None)
         if body is None or not key or key not in getattr(self, "_tools_by_key", {}):
             return
         for w in body.winfo_children():
             w.destroy()
-        self._clear_tool_more_popup()
         t = self._tools_by_key[key]
         self._strip_title.configure(text=t["label"].upper())
         akw = dict(height=28, corner_radius=8, border_width=1,
                    fg_color=UI_CARD, hover_color=UI_HOVER, text_color=UI_TEXT,
                    border_color=UI_BORDER, anchor="w",
                    font=ctk.CTkFont(family=FONT_LABEL, size=12))
-        for lbl, cmd in t["primary"]:
+        actions = list(t["primary"]) + list(t["more"])   # everything, no overflow
+        for lbl, cmd in actions:
             state = self._action_on(lbl)      # None=command, True/False=toggle
             kw = dict(akw)
             if state:                          # toggle currently ON → filled yellow
@@ -5517,28 +5514,15 @@ class BeetentApp(ctk.CTk):
             rcmd = ((lambda c=cmd: (c(), self._force_reflow_actions()))
                     if state is not None else cmd)   # toggles re-render after click
             ctk.CTkButton(body, text=lbl, command=rcmd, **kw).pack(fill="x", pady=(0, 3))
-        overflow = list(t["more"])
-        if overflow:
-            popup = ctk.CTkFrame(self, fg_color=UI_CARD, border_width=1,
-                                 border_color=UI_BORDER, corner_radius=6)
-            for lbl, cmd in overflow:
-                state = self._action_on(lbl)
-                tcol = UI_ACCENT if state else UI_TEXT   # accent label while on
-                if state is not None:
-                    rc = (lambda pp=popup, c=cmd:
-                          (pp.place_forget(), c(), self._force_reflow_actions()))
-                else:
-                    rc = (lambda pp=popup, c=cmd: (pp.place_forget(), c()))
-                ctk.CTkButton(popup, text=lbl, anchor="w", height=30,
-                              fg_color="transparent", hover_color=UI_HOVER,
-                              text_color=tcol, command=rc
-                              ).pack(fill="x", padx=2, pady=1)
-            self._all_popups.append(popup)
-            self._tool_more_popup = popup
-            mbtn = ctk.CTkButton(body, text="More ▾", **akw)
-            mbtn.configure(command=lambda p=popup, c=mbtn:
-                           self._toggle_popup(p, c, align="left"))
-            mbtn.pack(fill="x")
+        # Size the scroll viewport to the content, capped to the map height so a
+        # long list scrolls rather than overflowing off the bottom.
+        try:
+            needed = len(actions) * 31 + 4
+            map_h = self.map_widget.winfo_height() or 700
+            avail = max(150, map_h - 52 - 118 - 16)   # top offset, globals block, pad
+            body.configure(height=min(needed, avail))
+        except Exception:
+            pass
 
     # ── Themed text-input popup (matches the light theme + fonts) ────────────
     def _ask_string(self, title, prompt):
@@ -6518,25 +6502,27 @@ class BeetentApp(ctk.CTk):
         (layers + action overlays), inside the layers inset under a divider.
         Colours mirror the live _redraw_* colours. Rebuilt whenever a relevant
         toggle changes; the key section collapses when nothing is on."""
-        # (getter -> bool, fill colour, label, shape, edge colour). Getters read
-        # the same vars that gate each overlay's drawing, so the key tracks
-        # reality. shape "pin" draws a teardrop matching the map marker (fill +
-        # edge = the marker's circle + outside colours); "square" is a swatch.
+        # (getter, colour, label, kind, extra). Getters read the same vars that
+        # gate each overlay's drawing, so the key tracks reality. kind:
+        #   "pin"  → the actual tkintermapview map marker (extra = outside colour)
+        #   "line" → a horizontal line matching the map stroke (extra = px width)
+        #   "box"  → a filled swatch (for area/fill overlays only)
+        # Colours + line widths mirror the live _redraw_* draw calls exactly.
         self._legend_spec = [
             (lambda: self.shelters_visible_var.get(), "#FFD700", "Shelter", "pin", "#B8860B"),
             (lambda: self.shelters_visible_var.get() and bool(self.current_field.get("test_shelters")),
                                                       "#1E90FF", "Test shelter", "pin", "#0A3D7A"),
-            (lambda: self.pivot_visible_var.get(),    "#FF2A2A", "Pivot & tracks", "square", None),
+            (lambda: self.pivot_visible_var.get(),    "#FF2A2A", "Pivot track", "line", 2),
             (lambda: self.boundary_visible_var.get() and bool(self.current_field.get("boundary_polygon")),
-                                                      "#00CED1", "Boundary", "square", None),
-            (lambda: self.planter_visible_var.get(),  "#2E9BF0", "Male bay", "square", None),
-            (lambda: self.sprayer_visible_var.get(),  "#33FF66", "Sprayer limit", "square", None),
-            (lambda: self.crews_visible_var.get(),    "#A855F7", "Crew route", "square", None),
-            (lambda: self.show_shelter_lines.get(),   "#101010", "Alignment lines", "square", None),
+                                                      "#00CED1", "Boundary", "line", 2),
+            (lambda: self.planter_visible_var.get(),  "#2E9BF0", "Male bay", "box", None),
+            (lambda: self.sprayer_visible_var.get(),  "#33FF66", "Sprayer limit", "line", 2),
+            (lambda: self.crews_visible_var.get(),    "#A855F7", "Crew route", "line", 3),
+            (lambda: self.show_shelter_lines.get(),   "#101010", "Alignment lines", "line", 2),
             (lambda: self.show_wet_zones.get() and bool(self.current_field.get("wet_zones")),
-                                                      "#1E90FF", "Wet zone", "square", None),
-            (lambda: self.show_pass_buffer_overlay.get(), "#FF2A2A", "Tire zone", "square", None),
-            (lambda: self.show_pass_buffer_overlay.get(), "#22E048", "Edge zone", "square", None),
+                                                      "#1E90FF", "Wet zone", "box", None),
+            (lambda: self.show_pass_buffer_overlay.get(), "#FF2A2A", "Tire zone", "box", None),
+            (lambda: self.show_pass_buffer_overlay.get(), "#22E048", "Edge zone", "box", None),
         ]
         # Containers (_legend_divider/_legend_head/_legend_rows) were created by
         # _build_layers_inset inside the layers card; here we only define the
@@ -6561,7 +6547,7 @@ class BeetentApp(ctk.CTk):
         for w in rows.winfo_children():
             w.destroy()
         any_on = False
-        for getter, color, name, shape, edge in self._legend_spec:
+        for getter, color, name, kind, extra in self._legend_spec:
             try: on = bool(getter())
             except Exception: on = False
             if not on:
@@ -6569,12 +6555,22 @@ class BeetentApp(ctk.CTk):
             any_on = True
             row = ctk.CTkFrame(rows, fg_color="transparent")
             row.pack(fill="x", padx=12, pady=2)
-            if shape == "pin":
-                # Teardrop marker matching the map pins (head circle + pointer).
-                cv = tk.Canvas(row, width=16, height=20, bg=UI_CARD,
+            if kind == "pin":
+                # The exact tkintermapview map marker: circle head (fill = marker
+                # colour, ring = outside colour) sitting on a downward pointer
+                # (filled outside colour), scaled down from its canvas geometry.
+                edge = extra
+                cv = tk.Canvas(row, width=18, height=22, bg=UI_CARD,
                                highlightthickness=0, bd=0)
-                cv.create_polygon(8, 18, 3, 9, 13, 9, fill=color, outline=edge, width=1)
-                cv.create_oval(2, 1, 14, 13, fill=color, outline=edge, width=1)
+                cv.create_polygon(2, 9, 9, 21, 16, 9, fill=edge, outline=edge)
+                cv.create_oval(1, 0, 17, 14, fill=color, outline=edge, width=2)
+                cv.pack(side="left")
+            elif kind == "line":
+                # Horizontal stroke matching the map line's colour + pixel width.
+                w = int(extra or 2)
+                cv = tk.Canvas(row, width=18, height=18, bg=UI_CARD,
+                               highlightthickness=0, bd=0)
+                cv.create_line(0, 9, 18, 9, fill=color, width=w)
                 cv.pack(side="left")
             else:
                 sw = ctk.CTkFrame(row, width=14, height=14, corner_radius=3, fg_color=color)
