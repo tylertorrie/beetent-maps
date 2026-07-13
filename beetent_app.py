@@ -13024,9 +13024,14 @@ class BeetentApp(ctk.CTk):
             runs = runs_fwd if ((i + phase) % 2 == 0) else runs_rev
             for (s, e) in runs:
                 # M run covers rows s..e-1; band spans the run, gap_m inset each side.
+                # Check the INTENDED width first (xc-free, so float noise in the
+                # per-pass centre can't flip a collapsed bay's sign). When bay_gap_in
+                # is >= half the male-bay width the band shrinks to ~0 — draw nothing
+                # consistently instead of letting sub-precision rounding leak phantom
+                # hairlines on one side of the pivot (see Wordmans Carrots gap=33").
+                if (e - s) * rs_m - 2 * gap_m <= 1e-4: continue
                 x1 = xc + (s - half) * rs_m + gap_m
                 x2 = xc + (e - half) * rs_m - gap_m
-                if x2 - x1 <= 0: continue
                 bands = self._band_polygon_enu(
                     x1, x2, g["tdx"], g["tdy"], g["ldx"], g["ldy"],
                     g["poly_enu"], inner_polys_enu=inner_polys_enu)
@@ -14196,10 +14201,13 @@ class BeetentApp(ctk.CTk):
             xc = (i + 0.5) * pass_w + g["lat_shift"]
             runs = runs_fwd if ((i + phase) % 2 == 0) else runs_rev
             for (s, e) in runs:
+                # Intended width first (xc-free) so a gap that collapses the bay
+                # skips consistently instead of leaking float-noise hairlines — mirrors
+                # the same guard in _redraw_bays.
+                if (e - s) * rs_m - 2 * gap_m <= 1e-4:
+                    continue
                 x1 = xc + (s - half) * rs_m + gap_m
                 x2 = xc + (e - half) * rs_m - gap_m
-                if x2 - x1 <= 0:
-                    continue
                 for band in self._band_polygon_enu(x1, x2, g["tdx"], g["tdy"], g["ldx"], g["ldy"],
                                                    g["poly_enu"], inner_polys_enu=inner_polys_enu):
                     lpts = [enu_to_latlon(en, no, g["plat"], g["plon"]) for en, no in band]
