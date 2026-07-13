@@ -180,7 +180,7 @@
   "corner_arms": [],
   "boundary_inner": [],
   "sprayer_routes_around_inner": true,
-  "bays_through_inner": false,
+  "bays_through_inner": true,
   "manual_shelter_pins": [
     [
       49.780437155475546,
