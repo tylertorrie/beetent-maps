@@ -5354,6 +5354,11 @@ class BeetentApp(ctk.CTk):
             strip.place_forget()
 
     def _show_context_btn(self, text, cmd):
+        # A mode needs its Done/Save button visible — if the strip is collapsed,
+        # open it first so the button isn't hidden inside the collapsed wrap.
+        wrap = getattr(self, "_strip_wrap", None)
+        if wrap is not None and not wrap.winfo_ismapped():
+            self._toggle_strip_collapse()
         self.btn_context.configure(text=text, command=cmd, state="normal", fg_color=UI_ACCENT)
         if not self.btn_context.winfo_ismapped():
             # Top of the side tool strip so it's always beside the map action
@@ -5391,13 +5396,27 @@ class BeetentApp(ctk.CTk):
         card = ctk.CTkFrame(self.map_widget, fg_color=UI_CARD, corner_radius=8,
                             border_width=1, border_color=UI_BORDER)
         self._layers_inset = card
-        ctk.CTkLabel(card, text="Layers", text_color=UI_TEXT, anchor="w",
+        # Header: title + a disclosure arrow that collapses the card to just this
+        # bar (◂ = collapse toward the left edge, ▸ = expand).
+        head = ctk.CTkFrame(card, fg_color="transparent")
+        head.pack(fill="x", padx=(12, 6), pady=(6, 2))
+        ctk.CTkLabel(head, text="Layers", text_color=UI_TEXT, anchor="w",
                      font=ctk.CTkFont(family=FONT_HEADING, size=13, weight="bold")
-                     ).pack(anchor="w", padx=12, pady=(8, 2))
+                     ).pack(side="left")
+        self._layers_collapse_btn = ctk.CTkButton(
+            head, text="◂", width=22, height=22, corner_radius=6,
+            fg_color="transparent", hover_color=UI_HOVER, text_color=UI_MUTED,
+            font=ctk.CTkFont(family=FONT_LABEL, size=13),
+            command=self._toggle_layers_collapse)
+        self._layers_collapse_btn.pack(side="right")
+        # Collapsible body: the layer rows + the legend key.
+        body = ctk.CTkFrame(card, fg_color="transparent")
+        body.pack(fill="x")
+        self._layers_body = body
         self._layer_rows = {}
         for t in self._tools:
             key = t["key"]
-            row = ctk.CTkFrame(card, fg_color="transparent", corner_radius=6)
+            row = ctk.CTkFrame(body, fg_color="transparent", corner_radius=6)
             row.pack(fill="x", padx=6, pady=0)
             cb = ctk.CTkCheckBox(row, text="", variable=t["var"], width=18,
                                  checkbox_width=17, checkbox_height=17,
@@ -5410,14 +5429,26 @@ class BeetentApp(ctk.CTk):
                                 command=lambda k=key: self._select_tool(k))
             lbl.pack(side="left", fill="x", expand=True, pady=1)
             self._layer_rows[key] = (row, lbl)
-        ctk.CTkFrame(card, height=4, fg_color="transparent").pack()
+        ctk.CTkFrame(body, height=4, fg_color="transparent").pack()
         # Legend key (colour swatches) under a divider — same card, like the
         # reference mock's Stockpiles section. Rows filled by _refresh_legend.
-        self._legend_divider = ctk.CTkFrame(card, height=1, fg_color=UI_BORDER)
-        self._legend_head = ctk.CTkLabel(card, text="KEY", text_color=UI_MUTED,
+        self._legend_divider = ctk.CTkFrame(body, height=1, fg_color=UI_BORDER)
+        self._legend_head = ctk.CTkLabel(body, text="KEY", text_color=UI_MUTED,
                                          font=ctk.CTkFont(family=FONT_LABEL, size=10))
-        self._legend_rows = ctk.CTkFrame(card, fg_color="transparent")
+        self._legend_rows = ctk.CTkFrame(body, fg_color="transparent")
         # (packed/hidden by _refresh_legend so an all-off key collapses)
+
+    def _toggle_layers_collapse(self):
+        """Collapse the layers/legend card to just its header bar, or expand it."""
+        body = getattr(self, "_layers_body", None)
+        if body is None:
+            return
+        if body.winfo_ismapped():
+            body.pack_forget()
+            self._layers_collapse_btn.configure(text="▸")
+        else:
+            body.pack(fill="x")
+            self._layers_collapse_btn.configure(text="◂")
 
     def _on_layer_check(self, key):
         """A layer checkbox flipped: run the layer's visibility fn (the var is
@@ -5440,14 +5471,30 @@ class BeetentApp(ctk.CTk):
         strip = ctk.CTkFrame(self.map_widget, fg_color=UI_CARD, corner_radius=8,
                              border_width=1, border_color=UI_BORDER)
         self._side_strip = strip
+        # Header: a disclosure arrow (always visible) that collapses the strip to
+        # just this bar (▸ = collapse toward the right edge, ◂ = expand).
+        hdr = ctk.CTkFrame(strip, fg_color="transparent")
+        hdr.pack(fill="x", padx=6, pady=(4, 0))
+        ctk.CTkLabel(hdr, text="Tools", text_color=UI_MUTED, anchor="w",
+                     font=ctk.CTkFont(family=FONT_LABEL, size=10)).pack(side="left", padx=(4, 0))
+        self._strip_collapse_btn = ctk.CTkButton(
+            hdr, text="▸", width=22, height=22, corner_radius=6,
+            fg_color="transparent", hover_color=UI_HOVER, text_color=UI_MUTED,
+            font=ctk.CTkFont(family=FONT_LABEL, size=13),
+            command=self._toggle_strip_collapse)
+        self._strip_collapse_btn.pack(side="right")
+        # Collapsible body wrap: everything below the header.
+        wrap = ctk.CTkFrame(strip, fg_color="transparent")
+        wrap.pack(fill="x")
+        self._strip_wrap = wrap
         # Context action (Done/Save) — created here, packed on demand at the top.
-        self.btn_context = ctk.CTkButton(strip, text="", height=30, fg_color=UI_ACCENT,
+        self.btn_context = ctk.CTkButton(wrap, text="", height=30, fg_color=UI_ACCENT,
                                          state="disabled", command=lambda: None)
         _tool_kw = dict(height=28, corner_radius=8, border_width=1,
                         fg_color=UI_HOVER, hover_color=UI_BORDER, text_color=UI_TEXT,
                         border_color=UI_BORDER, anchor="w",
                         font=ctk.CTkFont(family=FONT_LABEL, size=12))
-        gt = ctk.CTkFrame(strip, fg_color="transparent")
+        gt = ctk.CTkFrame(wrap, fg_color="transparent")
         gt.pack(fill="x", padx=6, pady=(6, 0))
         self._strip_top = gt        # anchor for the on-demand context button
         ctk.CTkButton(gt, text="📏 Measure", command=self._mode_measure,
@@ -5461,9 +5508,9 @@ class BeetentApp(ctk.CTk):
                                               command=self._undo_shelter_move,
                                               **_tool_kw)
         self._strip_reset_btn.pack(fill="x")
-        ctk.CTkFrame(strip, height=1, fg_color=UI_BORDER).pack(fill="x", padx=8, pady=6)
+        ctk.CTkFrame(wrap, height=1, fg_color=UI_BORDER).pack(fill="x", padx=8, pady=6)
         # Active layer's header + action buttons (rebuilt by _render_tool_actions).
-        self._strip_title = ctk.CTkLabel(strip, text="", text_color=UI_MUTED, anchor="w",
+        self._strip_title = ctk.CTkLabel(wrap, text="", text_color=UI_MUTED, anchor="w",
                                          font=ctk.CTkFont(family=FONT_LABEL, size=10))
         self._strip_title.pack(anchor="w", padx=12)
         # ALL of the active layer's actions stack here (no More overflow). A
@@ -5471,9 +5518,21 @@ class BeetentApp(ctk.CTk):
         # running off the bottom of the map; _render_tool_actions sizes it to the
         # content, capped to the map height, so short lists stay compact.
         self._strip_body = ctk.CTkScrollableFrame(
-            strip, fg_color="transparent", width=196, height=120,
+            wrap, fg_color="transparent", width=196, height=120,
             scrollbar_button_color=UI_BORDER, scrollbar_button_hover_color=UI_MUTED)
         self._strip_body.pack(fill="x", padx=4, pady=(2, 6))
+
+    def _toggle_strip_collapse(self):
+        """Collapse the side tool strip to just its arrow tab, or expand it."""
+        wrap = getattr(self, "_strip_wrap", None)
+        if wrap is None:
+            return
+        if wrap.winfo_ismapped():
+            wrap.pack_forget()
+            self._strip_collapse_btn.configure(text="◂")
+        else:
+            wrap.pack(fill="x")
+            self._strip_collapse_btn.configure(text="▸")
 
     def _select_tool(self, key):
         """Highlight a layer (single active): tint its row in the layers card
