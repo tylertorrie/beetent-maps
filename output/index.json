@@ -2247,5 +2247,27 @@
     "role": null,
     "generated": "2026-07-13T15:06:06",
     "size": 9722
+  },
+  {
+    "id": "pdfs/Wordmans Carrots Flagger Map.pdf",
+    "kind": "pdf",
+    "name": "Wordmans Carrots Flagger Map.pdf",
+    "relpath": "pdfs/Wordmans Carrots Flagger Map.pdf",
+    "is_dir": false,
+    "companies": [
+      "Hytech"
+    ],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "Wordmans Carrots"
+    ],
+    "types": [
+      "PDF"
+    ],
+    "role": "flag",
+    "generated": "2026-07-13T15:07:05",
+    "size": 568646
   }
 ]
