@@ -5839,6 +5839,7 @@ class BeetentApp(ctk.CTk):
             {"key":"planter","label":"🌱 Planter",
              "var":self.planter_visible_var,"fn":self._set_planter_visible,
              "primary":[("Shift",self._mode_shift_planter),
+                        ("Toggle Male Bays",self._toggle_bays),
                         ("Import Planter Data",self._import_planter_data),
                         ("Number Planter Passes",self._toggle_planter_pass_numbers)],
              "more":[("Clear Planter Data",self._clear_planter_passes),
@@ -5883,6 +5884,7 @@ class BeetentApp(ctk.CTk):
             "Toggle Tire & Edge Zone":    lambda: bool(self.show_pass_buffer_overlay.get()),
             "Toggle Pass Through Inner":  lambda: bool(self.current_field.get("sprayer_routes_around_inner", True)),
             "Number Planter Passes":      lambda: bool(self.show_planter_numbers.get()),
+            "Toggle Male Bays":           lambda: bool(self.show_bays.get()),
             "Toggle Bays Through Inner":  lambda: bool(self.current_field.get("bays_through_inner", False)),
             "Toggle Two Pivots":          lambda: bool(self.two_pivots_var.get()),
             "Test shelters count in total": lambda: bool(self.current_field.get("test_count_in_total", False)),
@@ -11363,6 +11365,25 @@ class BeetentApp(ctk.CTk):
             sse, ssn = self._field_combined_shift(self.current_field)
             if (sse or ssn) and positions:
                 positions = [self._shift_pt(la, lo, sse, ssn) for la, lo in positions]
+            # Fit the lattice to the pins the user actually SEES: apply the manual
+            # shelter_overrides (absolute, post-shift — same merge as
+            # _redraw_shelters). On a normal field a few dragged outliers are
+            # gated out of the fit anyway, so the mesh is unchanged; on a field
+            # where the crew has re-dragged MOST pins (e.g. Wordmans Carrots, all
+            # 16 overridden) the old raw-engine input made the mesh fit a grid
+            # that wasn't on screen — guide lines missed every visible pin.
+            ov = f.get("shelter_overrides") or {}
+            if ov and positions:
+                merged = list(positions); dele = set()
+                for k, val in ov.items():
+                    try:
+                        idx = int(k)
+                        if 0 <= idx < len(merged):
+                            if val is None: dele.add(idx)
+                            else: merged[idx] = (float(val[0]), float(val[1]))
+                    except (ValueError, TypeError, IndexError):
+                        pass
+                positions = [p for i, p in enumerate(merged) if i not in dele]
             if len(positions) < 8:
                 return
 
