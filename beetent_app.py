@@ -10824,7 +10824,24 @@ class BeetentApp(ctk.CTk):
         if not bp or len(bp) < 3:
             return None
         rs_m = rs * 0.0254
-        pass_w = total_rows * rs_m
+        if rs_m <= 0:
+            return None
+        # Gap-aware tiling: bay_gap_in inserts a real unplanted gap at every
+        # male/female boundary, so the planter pass is wider than total_rows*rs.
+        # gap 0 → pass_w = total_rows*rs_m (all gap-free fields unchanged).
+        try:
+            gap_m = max(0.0, float(self.fv["bay_gap_in"].get() or 0)) * 0.0254
+        except (ValueError, TypeError):
+            gap_m = 0.0
+        layout = self._row_layout_labels.get(self.row_layout_var.get(), "centered")
+        mask = self._resolve_row_mask(nf, nm, layout, self.custom_mask_var.get(),
+                                      total_rows=total_rows)
+        if not mask:
+            # No bay structure (e.g. nf=nm=0) → uniform tiling so planter-pass
+            # numbering still works; there are simply no male runs to draw.
+            mask = "F" * max(1, total_rows)
+        lefts_fwd, pass_w = maketentgrid.bay_slot_lefts(mask, rs_m, gap_m)
+        lefts_rev, _ = maketentgrid.bay_slot_lefts(mask[::-1], rs_m, gap_m)
         if pass_w <= 0:
             return None
         poly_enu = [latlon_to_enu(lat, lon, plat, plon) for lat, lon in bp]
@@ -10836,6 +10853,7 @@ class BeetentApp(ctk.CTk):
         return {
             "plat": plat, "plon": plon, "angle": angle, "rs_m": rs_m,
             "nf": nf, "nm": nm, "total_rows": total_rows, "pass_w": pass_w,
+            "gap_m": gap_m, "mask": mask, "lefts_fwd": lefts_fwd, "lefts_rev": lefts_rev,
             "poly_enu": poly_enu, "max_r": max_r,
             "tdx": -sin_r, "tdy": cos_r, "ldx": ldx, "ldy": ldy,
             "lat_shift": bse * ldx + bsn * ldy,
@@ -13005,33 +13023,29 @@ class BeetentApp(ctk.CTk):
                 if not inner or len(inner) < 3: continue
                 inner_polys_enu.append(
                     [latlon_to_enu(pt[0], pt[1], g["plat"], g["plon"]) for pt in inner])
-        layout = self._row_layout_labels.get(self.row_layout_var.get(), "centered")
-        mask = self._resolve_row_mask(g["nf"], g["nm"], layout,
-                                      self.custom_mask_var.get(),
-                                      total_rows=g["total_rows"])
-        if not mask: return
+        mask = g["mask"]
         # Planter snakes: odd passes are mirrored (see male_bay_shelter_laterals).
         # Both flip on i % 2 so male bays and shelter rows stay locked together.
         runs_fwd = maketentgrid.mask_runs(mask, 'M')
         runs_rev = maketentgrid.mask_runs(mask[::-1], 'M')
         if not runs_fwd: return
-        rs_m = g["rs_m"]; tr = g["total_rows"]; pass_w = g["pass_w"]
-        half = tr / 2.0
+        rs_m = g["rs_m"]; pass_w = g["pass_w"]
+        half = pass_w / 2.0                          # gap-aware pass centre offset
+        lefts_fwd = g["lefts_fwd"]; lefts_rev = g["lefts_rev"]
         # phase chooses which side the planter started on (see pass_phase_swap).
         phase = 1 if self.current_field.get("pass_phase_swap") else 0
         for i in range(-g["n_pass"], g["n_pass"] + 1):
             xc = (i + 0.5) * pass_w + g["lat_shift"]      # pass centre
-            runs = runs_fwd if ((i + phase) % 2 == 0) else runs_rev
+            even = ((i + phase) % 2 == 0)
+            runs = runs_fwd if even else runs_rev
+            lefts = lefts_fwd if even else lefts_rev
             for (s, e) in runs:
-                # M run covers rows s..e-1; band spans the run, gap_m inset each side.
-                # Check the INTENDED width first (xc-free, so float noise in the
-                # per-pass centre can't flip a collapsed bay's sign). When bay_gap_in
-                # is >= half the male-bay width the band shrinks to ~0 — draw nothing
-                # consistently instead of letting sub-precision rounding leak phantom
-                # hairlines on one side of the pivot (see Wordmans Carrots gap=33").
-                if (e - s) * rs_m - 2 * gap_m <= 1e-4: continue
-                x1 = xc + (s - half) * rs_m + gap_m
-                x2 = xc + (e - half) * rs_m - gap_m
+                # M run covers rows s..e-1; band spans lefts[s]..lefts[e-1]+rs_m. The
+                # inter-bay gap now lives OUTSIDE the band (in bay_slot_lefts), so the
+                # male band is its true width and a big gap no longer collapses it.
+                x1 = xc + lefts[s] - half
+                x2 = xc + lefts[e - 1] + rs_m - half
+                if x2 - x1 <= 1e-4: continue
                 bands = self._band_polygon_enu(
                     x1, x2, g["tdx"], g["tdy"], g["ldx"], g["ldy"],
                     g["poly_enu"], inner_polys_enu=inner_polys_enu)
@@ -14189,25 +14203,25 @@ class BeetentApp(ctk.CTk):
                     continue
                 inner_polys_enu.append(
                     [latlon_to_enu(pt[0], pt[1], g["plat"], g["plon"]) for pt in inner])
-        mask = self._resolve_row_mask(g["nf"], g["nm"], layout, self.custom_mask_var.get(),
-                                      total_rows=g["total_rows"])
+        mask = g["mask"]
         runs_fwd = maketentgrid.mask_runs(mask, 'M') if mask else []
         runs_rev = maketentgrid.mask_runs(mask[::-1], 'M') if mask else []
         if not runs_fwd:
             return []
-        rs_m = g["rs_m"]; half = g["total_rows"] / 2.0; pass_w = g["pass_w"]
+        rs_m = g["rs_m"]; half = g["pass_w"] / 2.0; pass_w = g["pass_w"]
+        lefts_fwd = g["lefts_fwd"]; lefts_rev = g["lefts_rev"]
         phase = 1 if f.get("pass_phase_swap") else 0
         for i in range(-g["n_pass"], g["n_pass"] + 1):
             xc = (i + 0.5) * pass_w + g["lat_shift"]
-            runs = runs_fwd if ((i + phase) % 2 == 0) else runs_rev
+            even = ((i + phase) % 2 == 0)
+            runs = runs_fwd if even else runs_rev
+            lefts = lefts_fwd if even else lefts_rev
             for (s, e) in runs:
-                # Intended width first (xc-free) so a gap that collapses the bay
-                # skips consistently instead of leaking float-noise hairlines — mirrors
-                # the same guard in _redraw_bays.
-                if (e - s) * rs_m - 2 * gap_m <= 1e-4:
+                # Gap-aware band: lefts[s]..lefts[e-1]+rs_m (gap lives outside the band).
+                x1 = xc + lefts[s] - half
+                x2 = xc + lefts[e - 1] + rs_m - half
+                if x2 - x1 <= 1e-4:
                     continue
-                x1 = xc + (s - half) * rs_m + gap_m
-                x2 = xc + (e - half) * rs_m - gap_m
                 for band in self._band_polygon_enu(x1, x2, g["tdx"], g["tdy"], g["ldx"], g["ldy"],
                                                    g["poly_enu"], inner_polys_enu=inner_polys_enu):
                     lpts = [enu_to_latlon(en, no, g["plat"], g["plon"]) for en, no in band]

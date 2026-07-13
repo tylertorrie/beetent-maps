@@ -1220,21 +1220,58 @@ def mask_runs(mask, char):
     return runs
 
 
+def bay_slot_lefts(mask, rs_m, gap_m):
+    """Lateral left-edge position (metres, +x = east) of each planter row slot,
+    with gap_m of empty space inserted at EVERY male/female boundary — the real
+    unplanted gap between a male bay and its neighbouring female bay.
+
+    Returns (lefts, pass_w): lefts[k] = left edge of row slot k; pass_w = the full
+    planter-pass width (last slot's right edge, + a wrap gap only when the mask's
+    two ends differ so the pattern tiles seamlessly — never for the standard
+    'centered'/'outer' layouts, which start and end on the same bay type).
+
+    gap_m = 0 reproduces the old uniform tiling EXACTLY (lefts[k] = k·rs_m,
+    pass_w = len(mask)·rs_m), so gap-free fields render byte-for-byte unchanged.
+
+    A male run (s, e) then spans lefts[s] .. lefts[e-1] + rs_m — its OWN width
+    (no internal transitions) stays (e-s)·rs_m; the gaps land OUTSIDE it, pushing
+    the adjacent female rows apart. This is what stops a large gap from collapsing
+    the male band (it used to be *subtracted* from the band; now it's inserted
+    between bays, matching the bay calculator's period = female + male + 2·gap)."""
+    n = len(mask)
+    if n == 0:
+        return ([], 0.0)
+    lefts = [0.0] * n
+    x = 0.0
+    for k in range(1, n):
+        x += rs_m
+        if mask[k - 1] != mask[k]:
+            x += gap_m
+        lefts[k] = x
+    pass_w = lefts[-1] + rs_m
+    if mask[0] != mask[-1]:
+        pass_w += gap_m                  # wrap gap so a mixed-end mask tiles cleanly
+    return (lefts, pass_w)
+
+
 MALE_BAY_OFFSET_FT = 5.0   # shelter row sits this far WEST of each male bay's west edge
 
 
 def male_bay_shelter_laterals(nf, nm, layout, custom, total_rows, rs_m, offset_m, radius,
-                              phase=0):
+                              phase=0, gap_m=0.0):
     """Sorted lateral (pre-rotation, +x = east) positions of shelter rows — ONE per
     male bay — each placed offset_m WEST of its male bay's west edge so the shelter's
-    east-facing opening points into the male bay. Passes tile at pass_w = total_rows*rs_m
-    with the pivot on a pass boundary, matching the bay overlay (_redraw_bays). Returns
-    [] if the row mask has no male runs (caller then falls back to the old grid).
+    east-facing opening points into the male bay. Passes tile at the gap-aware
+    pass_w (see bay_slot_lefts) with the pivot on a pass boundary, matching the bay
+    overlay (_redraw_bays). Returns [] if the row mask has no male runs (caller then
+    falls back to the old grid).
 
     `phase` (0 or 1) chooses which parity of pass uses the forward (vs mirrored)
     mask — i.e. which side the planter started on. Only meaningful for an
     asymmetric mask; for a symmetric one the reversed runs equal the forward
-    ones so phase has no effect. Must match the bay overlay's phase."""
+    ones so phase has no effect. Must match the bay overlay's phase.
+    `gap_m` inserts the real inter-bay gap (bay_gap_in) between male and female
+    bays; 0 keeps the old uniform tiling."""
     mask = resolve_row_mask(nf, nm, layout, custom, total_rows)
     runs = mask_runs(mask, 'M') if mask else []
     if not runs or total_rows <= 0 or rs_m <= 0:
@@ -1245,15 +1282,18 @@ def male_bay_shelter_laterals(nf, nm, layout, custom, total_rows, rs_m, offset_m
     # structure. Odd passes use the reversed mask; both this and the bay overlay
     # (_redraw_bays) flip on i % 2 so shelters and male bays stay locked.
     runs_rev = mask_runs(mask[::-1], 'M')
-    pass_w = total_rows * rs_m
-    half = total_rows / 2.0
+    lefts_fwd, pass_w = bay_slot_lefts(mask, rs_m, gap_m)
+    lefts_rev, _ = bay_slot_lefts(mask[::-1], rs_m, gap_m)
+    half = pass_w / 2.0
     n_pass = int(radius / pass_w) + 2
     xs = []
     for i in range(-n_pass, n_pass + 1):
         xc = (i + 0.5) * pass_w                 # pass centre (pivot sits on a boundary)
-        runs_i = runs if ((i + phase) % 2 == 0) else runs_rev
+        even = ((i + phase) % 2 == 0)
+        runs_i = runs if even else runs_rev
+        lefts_i = lefts_fwd if even else lefts_rev
         for (s, e) in runs_i:
-            xs.append(xc + (s - half) * rs_m - offset_m)   # male-bay west edge − offset
+            xs.append(xc + lefts_i[s] - half - offset_m)   # male-bay west edge − offset
     return sorted(set(round(x, 4) for x in xs))
 
 
@@ -1291,10 +1331,15 @@ def crew_route(field_dict, use_metric=True, shelters=None):
     mask = resolve_row_mask(nf, nm, layout, custom, total_rows)
     runs_fwd = mask_runs(mask, 'M') if mask else []
     runs_rev = mask_runs(mask[::-1], 'M') if mask else []
-    pass_w = total_rows * rs_m
+    try:
+        gap_m = max(0.0, float(field_dict.get('bay_gap_in') or 0)) * 0.0254
+    except (TypeError, ValueError):
+        gap_m = 0.0
+    lefts_fwd, pass_w = bay_slot_lefts(mask, rs_m, gap_m) if mask else ([], 0.0)
+    lefts_rev, _ = bay_slot_lefts(mask[::-1], rs_m, gap_m) if mask else ([], 0.0)
     if not runs_fwd or pass_w <= 0:
         return ([], 0.0)
-    half = total_rows / 2.0
+    half = pass_w / 2.0
     angle = float(field_dict.get('Planting_angle') or field_dict.get('Spray_angle') or 0)
     rot = math.radians((180 - angle) % 360 - 180)
     cos_r, sin_r = math.cos(rot), math.sin(rot)
@@ -1314,8 +1359,13 @@ def crew_route(field_dict, use_metric=True, shelters=None):
 
     # Male-bay CENTRE laterals (centre of each M run in each pass), mirroring the
     # x1..x2 band _redraw_bays draws; the snake also flips the mask on odd passes.
-    centres = sorted({round((i + 0.5) * pass_w + lat_shift
-                             + ((s + e) / 2.0 - half) * rs_m, 3)
+    # A male run (s,e) spans lefts[s] .. lefts[e-1]+rs_m; its centre is the midpoint
+    # (gap-aware via bay_slot_lefts).
+    def _centre(i, s, e):
+        lefts_i = lefts_fwd if ((i + phase) % 2 == 0) else lefts_rev
+        return round((i + 0.5) * pass_w + lat_shift
+                     + (lefts_i[s] + lefts_i[e - 1] + rs_m) / 2.0 - half, 3)
+    centres = sorted({_centre(i, s, e)
                       for i in range(-n_pass, n_pass + 1)
                       for (s, e) in (runs_fwd if ((i + phase) % 2 == 0) else runs_rev)})
     if not centres:
@@ -1897,8 +1947,12 @@ def _get_tent_positions_impl(field_dict, use_metric=True, return_rows=False):
                     total_rows_i = len(_cm)
             offset_m = MALE_BAY_OFFSET_FT * 0.3048
             phase = 1 if field_dict.get('pass_phase_swap') else 0
+            try:
+                gap_m = max(0.0, float(field_dict.get('bay_gap_in') or 0)) * 0.0254
+            except (TypeError, ValueError):
+                gap_m = 0.0
             bay_laterals = male_bay_shelter_laterals(
-                nf_i, nm_i, layout, custom, total_rows_i, rs_m, offset_m, radius, phase)
+                nf_i, nm_i, layout, custom, total_rows_i, rs_m, offset_m, radius, phase, gap_m)
             if bay_laterals:
                 # Shelter COLUMNS are spaced at the sprayer-boom width (one row per
                 # sprayer pass — the "at the edge of sprayer booms" rule), and each
