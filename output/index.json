@@ -2225,5 +2225,27 @@
     "role": "agronomist",
     "generated": "2026-07-08T14:41:17",
     "size": 548364
+  },
+  {
+    "id": "exports/Shelter Maps_Hytech_v2",
+    "kind": "export",
+    "name": "Shelter Maps_Hytech_v2",
+    "relpath": "exports/Shelter Maps_Hytech_v2",
+    "is_dir": true,
+    "companies": [
+      "Hytech"
+    ],
+    "years": [
+      "2026"
+    ],
+    "fields": [
+      "Wordmans Carrots"
+    ],
+    "types": [
+      "AgGPS"
+    ],
+    "role": null,
+    "generated": "2026-07-13T15:06:06",
+    "size": 9722
   }
 ]
