@@ -6502,24 +6502,51 @@ class BeetentApp(ctk.CTk):
         (layers + action overlays), inside the layers inset under a divider.
         Colours mirror the live _redraw_* colours. Rebuilt whenever a relevant
         toggle changes; the key section collapses when nothing is on."""
-        # (getter, colour, label, kind, extra). Getters read the same vars that
-        # gate each overlay's drawing, so the key tracks reality. kind:
+        # (getter, colour, label, kind, extra). Each getter reads the SPECIFIC
+        # show_* var that gates that overlay's own draw (so a sub-overlay toggled
+        # off individually drops from the key), plus a data-presence check where
+        # the overlay only draws when the field has that data. kind:
         #   "pin"  → the actual tkintermapview map marker (extra = outside colour)
-        #   "line" → a horizontal line matching the map stroke (extra = px width)
-        #   "box"  → a filled swatch (for area/fill overlays only)
-        # Colours + line widths mirror the live _redraw_* draw calls exactly.
+        #   "line" → a horizontal stroke matching the map line (extra = px width)
+        #   "ring" → a hollow square outline (buffer zones; extra = px width)
+        #   "box"  → a filled swatch (area/fill overlays)
+        # Colours + widths mirror the live _redraw_* draw calls exactly.
+        cf = lambda k: bool(self.current_field.get(k))
+        def _buf_on():
+            try: return self.show_shelters.get() and self.shelter_circle_var.get() and \
+                        float(self.current_field.get("shelter_buffer_m") or 0) > 0
+            except Exception: return False
         self._legend_spec = [
-            (lambda: self.shelters_visible_var.get(), "#FFD700", "Shelter", "pin", "#B8860B"),
-            (lambda: self.shelters_visible_var.get() and bool(self.current_field.get("test_shelters")),
+            # pins
+            (lambda: self.show_shelters.get(),        "#FFD700", "Shelter", "pin", "#B8860B"),
+            (lambda: self.show_shelters.get() and cf("test_shelters"),
                                                       "#1E90FF", "Test shelter", "pin", "#0A3D7A"),
-            (lambda: self.pivot_visible_var.get(),    "#FF2A2A", "Pivot track", "line", 2),
-            (lambda: self.boundary_visible_var.get() and bool(self.current_field.get("boundary_polygon")),
+            (lambda: self.show_pivot.get(),           "red",     "Pivot point", "pin", "darkred"),
+            (lambda: self.show_field_info.get() and cf("entrance_pin"),
+                                                      "#16A34A", "Entrance", "pin", "#0B5D27"),
+            (lambda: self.show_field_info.get() and cf("parking_pin"),
+                                                      "#F59E0B", "Parking", "pin", "#8A5E00"),
+            (lambda: self.show_field_info.get() and bool(getattr(self, "_home_pin", None)),
+                                                      "#2563EB", "Home / depot", "pin", "#163E8A"),
+            # lines
+            (lambda: self.show_tracks.get(),          "#FF2A2A", "Pivot track", "line", 2),
+            (lambda: self.show_corner_arms.get() and cf("corner_arms"),
+                                                      "#FF2A2A", "Corner arm", "line", 2),
+            (lambda: self.show_boundary.get() and cf("boundary_polygon"),
                                                       "#00CED1", "Boundary", "line", 2),
-            (lambda: self.planter_visible_var.get(),  "#2E9BF0", "Male bay", "box", None),
-            (lambda: self.sprayer_visible_var.get(),  "#33FF66", "Sprayer limit", "line", 2),
-            (lambda: self.crews_visible_var.get(),    "#A855F7", "Crew route", "line", 3),
+            (lambda: self.show_planter_numbers.get(), "#FFB000", "Planter pass", "line", 1),
+            (lambda: self.show_planter_passes.get() and cf("planter_passes"),
+                                                      "#1E90FF", "Planter path (imported)", "line", 1),
+            (lambda: self.show_passes.get(),          "#33FF66", "Sprayer limit / passes", "line", 2),
+            (lambda: self.show_sprayer_passes.get() and cf("sprayer_passes"),
+                                                      "#FF8C00", "Sprayer path (imported)", "line", 1),
+            (lambda: self.show_crews.get(),           "#A855F7", "Crew route", "line", 3),
             (lambda: self.show_shelter_lines.get(),   "#101010", "Alignment lines", "line", 2),
-            (lambda: self.show_wet_zones.get() and bool(self.current_field.get("wet_zones")),
+            # buffer-zone outlines
+            (_buf_on,                                 "#1E90FF", "Shelter buffer", "ring", 1),
+            # filled zones
+            (lambda: self.show_bays.get(),            "#2E9BF0", "Male bay", "box", None),
+            (lambda: self.show_wet_zones.get() and cf("wet_zones"),
                                                       "#1E90FF", "Wet zone", "box", None),
             (lambda: self.show_pass_buffer_overlay.get(), "#FF2A2A", "Tire zone", "box", None),
             (lambda: self.show_pass_buffer_overlay.get(), "#22E048", "Edge zone", "box", None),
@@ -6527,13 +6554,16 @@ class BeetentApp(ctk.CTk):
         # Containers (_legend_divider/_legend_head/_legend_rows) were created by
         # _build_layers_inset inside the layers card; here we only define the
         # spec and wire the refresh traces.
-        # Refresh the key whenever any overlay toggle flips (from a layer
-        # checkbox OR an ACTIONS toggle — both write these vars).
-        for var in (self.shelters_visible_var, self.pivot_visible_var,
-                    self.boundary_visible_var, self.planter_visible_var,
-                    self.sprayer_visible_var, self.crews_visible_var,
-                    self.show_shelter_lines, self.show_wet_zones,
-                    self.show_pass_buffer_overlay):
+        # Refresh the key whenever any overlay toggle flips — trace every specific
+        # draw-gate var (layer chips AND the individual ACTIONS toggles all write
+        # these), so the key adds/drops the exact row that changed.
+        for var in (self.show_shelters, self.show_pivot, self.show_tracks,
+                    self.show_corner_arms, self.show_boundary, self.show_bays,
+                    self.show_planter_numbers, self.show_planter_passes,
+                    self.show_passes, self.show_sprayer_passes,
+                    self.show_pass_buffer_overlay, self.show_wet_zones,
+                    self.show_shelter_lines, self.show_crews, self.show_field_info,
+                    self.shelter_circle_var):
             try: var.trace_add("write", lambda *a: self._refresh_legend())
             except Exception: pass
         self._refresh_legend()
@@ -6571,6 +6601,14 @@ class BeetentApp(ctk.CTk):
                 cv = tk.Canvas(row, width=18, height=18, bg=UI_CARD,
                                highlightthickness=0, bd=0)
                 cv.create_line(0, 9, 18, 9, fill=color, width=w)
+                cv.pack(side="left")
+            elif kind == "ring":
+                # Hollow square outline — matches a buffer-zone drawn on the map
+                # (fill_color=None, coloured outline).
+                w = int(extra or 1)
+                cv = tk.Canvas(row, width=18, height=18, bg=UI_CARD,
+                               highlightthickness=0, bd=0)
+                cv.create_rectangle(2, 2, 15, 15, outline=color, width=w)
                 cv.pack(side="left")
             else:
                 sw = ctk.CTkFrame(row, width=14, height=14, corner_radius=3, fg_color=color)
@@ -12958,6 +12996,11 @@ class BeetentApp(ctk.CTk):
                 getattr(self, _name)()
             except Exception as _e:
                 self._log(f"{_name} failed: {_e}")
+        # Rebuild the key too: field data (imported paths, corner arms, entrance/
+        # parking pins, wet zones…) can change on load without a show_* var
+        # flipping, so the trace-driven refresh alone would miss those rows.
+        try: self._refresh_legend()
+        except Exception: pass
 
     def _clear_all_overlays(self):
         if self.pivot_marker: self.pivot_marker.delete(); self.pivot_marker=None
