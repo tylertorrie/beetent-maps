@@ -1616,13 +1616,9 @@ class BeetentApp(ctk.CTk):
                                         fg_color="#1FA463",width=160,
                                         command=self._restart_app)
         # intentionally NOT packed here — shown on demand
-        # Map-only tool buttons (moved up from the map toolbar). Neutral style.
+        # (Reset Move + Measure moved into the map's side tool strip.)
         _tb_tool_kw = dict(fg_color=UI_HOVER, hover_color=UI_BORDER, text_color=UI_TEXT,
                            font=ctk.CTkFont(family=FONT_LABEL, size=12))
-        self._tb_reset = ctk.CTkButton(bar, text="↶ Reset Move", width=110,
-                                       command=self._undo_shelter_move, **_tb_tool_kw)
-        self._tb_measure = ctk.CTkButton(bar, text="📏 Measure", width=100,
-                                         command=self._mode_measure, **_tb_tool_kw)
         # Manual "☁ Refresh" — force an immediate git pull + list/field reload
         # outside of save events (roadmap item; the button was dropped in an old
         # toolbar cleanup while its _manual_sync handler stayed behind).
@@ -1636,7 +1632,7 @@ class BeetentApp(ctk.CTk):
         """Show only the toolbar controls relevant to the current view.
         Map: LLD + Generate + PDF + Units. Overview: Units only. Files: none.
         ☰, logo and the status label are always visible."""
-        for w in (self._tb_lld_btn, self._tb_reset, self._tb_measure, self._sync_btn,
+        for w in (self._tb_lld_btn, self._sync_btn,
                   self._tb_units, self._tb_generate, self._tb_pdf, self.status_lbl):
             try: w.pack_forget()
             except Exception: pass
@@ -1646,9 +1642,7 @@ class BeetentApp(ctk.CTk):
         # Left side: LLD opener + map tools (map only), then the status label.
         if view == "map":
             self._tb_lld_btn.pack(side="left", padx=(4,0), pady=6)
-            self._tb_reset.pack(side="left", padx=(8,0), pady=6)
-            self._tb_measure.pack(side="left", padx=(6,0), pady=6)
-            self._sync_btn.pack(side="left", padx=(6,0), pady=6)
+            self._sync_btn.pack(side="left", padx=(8,0), pady=6)
         self.status_lbl.pack(side="left", padx=16)
         # Right side: first packed = rightmost. Units → Generate → PDF gives the
         # visual order PDF · Generate · Units (Units furthest right). Roomy gaps
@@ -1708,7 +1702,7 @@ class BeetentApp(ctk.CTk):
 
         return container
 
-    def _toggle_popup(self, popup, btn):
+    def _toggle_popup(self, popup, btn, align="below"):
         # Set a one-shot flag so the global ButtonRelease handler (which fires
         # on the same event, one level up) knows not to immediately close the
         # popup we're about to open.
@@ -1719,9 +1713,17 @@ class BeetentApp(ctk.CTk):
             if p.winfo_exists(): p.place_forget()
         if btn is None: return
         btn.update_idletasks()
-        rx = btn.winfo_rootx() - self.winfo_rootx()
-        ry = btn.winfo_rooty() - self.winfo_rooty() + btn.winfo_height() + 2
-        popup.place(x=rx, y=ry)
+        if align == "left":
+            # Open to the button's LEFT, top-aligned (side tool strip sits on
+            # the map's right edge, so a below-popup would clip off-window).
+            popup.update_idletasks()
+            rx = (btn.winfo_rootx() - self.winfo_rootx()
+                  - popup.winfo_reqwidth() - 6)
+            ry = btn.winfo_rooty() - self.winfo_rooty()
+        else:
+            rx = btn.winfo_rootx() - self.winfo_rootx()
+            ry = btn.winfo_rooty() - self.winfo_rooty() + btn.winfo_height() + 2
+        popup.place(x=max(0, rx), y=max(0, ry))
         popup.lift()
 
     def _toggle_lld_popup(self):
@@ -5381,76 +5383,36 @@ class BeetentApp(ctk.CTk):
         self._set_map_toolbar_visible(visible)
 
     def _set_map_toolbar_visible(self, visible):
-        """Show/hide the map's LAYERS/TOOL/ACTIONS bar. When shown it re-packs
-        ABOVE the map widget; when hidden the map reclaims the space."""
-        tb = getattr(self, "_map_toolbar", None)
-        if tb is None:
+        """Show/hide the floating map insets (layers card top-left + side tool
+        strip right edge). Only meaningful once a field is active — bare map
+        browsing keeps the imagery clean."""
+        layers = getattr(self, "_layers_inset", None)
+        strip = getattr(self, "_side_strip", None)
+        if layers is None or strip is None:
             return
         if visible:
-            if not tb.winfo_ismapped():
-                mw = getattr(self, "map_widget", None)
-                if mw is not None and mw.winfo_exists():
-                    tb.pack(fill="x", padx=6, pady=(6, 2), before=mw)
-                else:
-                    tb.pack(fill="x", padx=6, pady=(6, 2))
+            layers.place(relx=0.0, rely=0.0, x=12, y=12, anchor="nw")
+            layers.lift()
+            # Right edge, below the on-map field name label (top-right, y≈12).
+            strip.place(relx=1.0, rely=0.0, x=-12, y=52, anchor="ne")
+            strip.lift()
         else:
-            tb.pack_forget()
+            layers.place_forget()
+            strip.place_forget()
 
     def _show_context_btn(self, text, cmd):
         self.btn_context.configure(text=text, command=cmd, state="normal", fg_color=UI_ACCENT)
         if not self.btn_context.winfo_ismapped():
-            self.btn_context.pack(side="right", padx=(4,0))
+            # Top of the side tool strip so it's always beside the map action
+            # the user is mid-way through (Done / Save etc.).
+            self.btn_context.pack(fill="x", padx=6, pady=(6, 2),
+                                  before=self._strip_top)
 
     def _hide_context_btn(self):
         self.btn_context.configure(state="disabled", text="", command=lambda: None)
         self.btn_context.pack_forget()   # remove entirely so no empty grey box shows
 
-    # ── Two-row map toolbar: LAYERS chips + TOOL strip (redesign v2) ─────────
-    def _style_layer_chip(self, key):
-        """Colour a LAYERS chip by its visibility var: honey when on, neutral
-        surface when off. Driven by a var trace so it stays in sync no matter
-        who flips the var."""
-        chip = getattr(self, "_layer_chips", {}).get(key)
-        if chip is None:
-            return
-        on = bool(self._tools_by_key[key]["var"].get())
-        if on:
-            # On = FILLED yellow (secondary accent — the layer is lit up).
-            chip.configure(fg_color=UI_ACCENT2, hover_color=UI_ACCENT2,
-                           text_color=UI_ACCENT2_INK, border_color=UI_ACCENT2,
-                           border_width=1)
-        else:
-            # Off = dimmed muted text so a hidden layer reads as "off".
-            chip.configure(fg_color=UI_CARD, hover_color=UI_HOVER,
-                           text_color=UI_MUTED, border_color=UI_BORDER,
-                           border_width=1)
-
-    def _toggle_layer(self, key):
-        """Flip a layer's visibility (same var + redraw fn the old master-toggle
-        checkbox used). The var trace restyles the chip."""
-        t = self._tools_by_key[key]
-        newval = not bool(t["var"].get())
-        t["var"].set(newval)
-        try:
-            t["fn"](newval)
-        except Exception:
-            pass
-
-    @staticmethod
-    def _est_btn_w(text):
-        """Rough pixel width of an action button sized to its label (emoji-safe
-        enough for layout). Used to fit as many buttons as possible per row."""
-        return max(44, int(len(str(text)) * 7.3) + 22)
-
-    def _on_actions_configure(self, event=None):
-        """Debounced reflow of the ACTIONS row when its width changes (window
-        resize / panel collapse). Avoids re-packing on every Configure tick."""
-        job = getattr(self, "_actions_reflow_job", None)
-        if job:
-            try: self.after_cancel(job)
-            except Exception: pass
-        self._actions_reflow_job = self.after(100, self._render_tool_actions)
-
+    # ── Map insets: layers card (top-left) + side tool strip (right edge) ────
     def _action_on(self, lbl):
         """True if action `lbl` is a toggle that's currently on (else False)."""
         st = getattr(self, "_action_states", {}).get(lbl)
@@ -5462,14 +5424,12 @@ class BeetentApp(ctk.CTk):
             return False
 
     def _force_reflow_actions(self):
-        """Re-render the ACTIONS row even at the same width (used after a toggle
-        so its highlight updates); bypasses the (tool, width) signature guard."""
-        self._actions_last_sig = None
+        """Re-render the side strip (used after a toggle so its highlight
+        updates)."""
         self._render_tool_actions()
 
     def _clear_tool_more_popup(self):
-        """Drop the current overflow popup (rebuilt fresh on every reflow since
-        which items overflow depends on the available width)."""
+        """Drop the current overflow popup (rebuilt fresh on every strip render)."""
         old = getattr(self, "_tool_more_popup", None)
         if old is not None:
             try:
@@ -5478,70 +5438,124 @@ class BeetentApp(ctk.CTk):
             except Exception: pass
         self._tool_more_popup = None
 
+    def _build_layers_inset(self):
+        """Floating 'Layers' card on the map (top-left, like the reference
+        mock): one row per layer — a checkbox that flips visibility (any number
+        on at once) + a clickable name that HIGHLIGHTS the layer, pulling its
+        tools up in the side strip. The legend key lives in the same card,
+        under a divider (only the overlays currently on)."""
+        card = ctk.CTkFrame(self.map_widget, fg_color=UI_CARD, corner_radius=8,
+                            border_width=1, border_color=UI_BORDER)
+        self._layers_inset = card
+        ctk.CTkLabel(card, text="Layers", text_color=UI_TEXT, anchor="w",
+                     font=ctk.CTkFont(family=FONT_HEADING, size=13, weight="bold")
+                     ).pack(anchor="w", padx=12, pady=(8, 2))
+        self._layer_rows = {}
+        for t in self._tools:
+            key = t["key"]
+            row = ctk.CTkFrame(card, fg_color="transparent", corner_radius=6)
+            row.pack(fill="x", padx=6, pady=0)
+            cb = ctk.CTkCheckBox(row, text="", variable=t["var"], width=18,
+                                 checkbox_width=17, checkbox_height=17,
+                                 command=lambda k=key: self._on_layer_check(k))
+            cb.pack(side="left", padx=(6, 0), pady=2)
+            lbl = ctk.CTkButton(row, text=t["label"], anchor="w", height=24,
+                                fg_color="transparent", hover_color=UI_HOVER,
+                                text_color=UI_TEXT, corner_radius=6,
+                                font=ctk.CTkFont(family=FONT_LABEL, size=12),
+                                command=lambda k=key: self._select_tool(k))
+            lbl.pack(side="left", fill="x", expand=True, pady=1)
+            self._layer_rows[key] = (row, lbl)
+        ctk.CTkFrame(card, height=4, fg_color="transparent").pack()
+        # Legend key (colour swatches) under a divider — same card, like the
+        # reference mock's Stockpiles section. Rows filled by _refresh_legend.
+        self._legend_divider = ctk.CTkFrame(card, height=1, fg_color=UI_BORDER)
+        self._legend_head = ctk.CTkLabel(card, text="KEY", text_color=UI_MUTED,
+                                         font=ctk.CTkFont(family=FONT_LABEL, size=10))
+        self._legend_rows = ctk.CTkFrame(card, fg_color="transparent")
+        # (packed/hidden by _refresh_legend so an all-off key collapses)
+
+    def _on_layer_check(self, key):
+        """A layer checkbox flipped: run the layer's visibility fn (the var is
+        already updated by the checkbox) and highlight the layer so its tools
+        come up — ticking a layer on is a strong signal you're working on it."""
+        t = self._tools_by_key[key]
+        on = bool(t["var"].get())
+        try:
+            t["fn"](on)
+        except Exception:
+            pass
+        if on:
+            self._select_tool(key)
+
+    def _build_side_tools(self):
+        """Vertical tool strip floating on the map's right edge: global tools
+        (Measure / Reset Move) on top, then the highlighted layer's actions.
+        The context Done/Save button packs above everything when a mode is
+        active; the measure unit toggle appears under Measure in measure mode."""
+        strip = ctk.CTkFrame(self.map_widget, fg_color=UI_CARD, corner_radius=8,
+                             border_width=1, border_color=UI_BORDER)
+        self._side_strip = strip
+        # Context action (Done/Save) — created here, packed on demand at the top.
+        self.btn_context = ctk.CTkButton(strip, text="", height=30, fg_color=UI_ACCENT,
+                                         state="disabled", command=lambda: None)
+        _tool_kw = dict(height=28, corner_radius=8, border_width=1,
+                        fg_color=UI_HOVER, hover_color=UI_BORDER, text_color=UI_TEXT,
+                        border_color=UI_BORDER, anchor="w",
+                        font=ctk.CTkFont(family=FONT_LABEL, size=12))
+        gt = ctk.CTkFrame(strip, fg_color="transparent")
+        gt.pack(fill="x", padx=6, pady=(6, 0))
+        self._strip_top = gt        # anchor for the on-demand context button
+        ctk.CTkButton(gt, text="📏 Measure", command=self._mode_measure,
+                      **_tool_kw).pack(fill="x", pady=(0, 3))
+        # Measure sub-unit toggle (ft↔in / m↔cm) — shown only in measure mode,
+        # packed under Measure (before Reset Move).
+        self._measure_unit_btn = ctk.CTkButton(gt, text="Unit: ft",
+                                               command=self._measure_unit_cycle,
+                                               **_tool_kw)
+        self._strip_reset_btn = ctk.CTkButton(gt, text="↶ Reset Move",
+                                              command=self._undo_shelter_move,
+                                              **_tool_kw)
+        self._strip_reset_btn.pack(fill="x")
+        ctk.CTkFrame(strip, height=1, fg_color=UI_BORDER).pack(fill="x", padx=8, pady=6)
+        # Active layer's header + action buttons (rebuilt by _render_tool_actions).
+        self._strip_title = ctk.CTkLabel(strip, text="", text_color=UI_MUTED, anchor="w",
+                                         font=ctk.CTkFont(family=FONT_LABEL, size=10))
+        self._strip_title.pack(anchor="w", padx=12)
+        self._strip_body = ctk.CTkFrame(strip, fg_color="transparent")
+        self._strip_body.pack(fill="x", padx=6, pady=(2, 6))
+
     def _select_tool(self, key):
-        """Select a TOOL: highlight its chip and render its actions. Does not
-        invoke any command — it only reveals the tool's actions."""
+        """Highlight a layer (single active): tint its row in the layers card
+        and pull its tools up in the side strip. Does not invoke any command."""
         self._active_tool = key
-        for k, sel in self._tool_selectors.items():
+        for k, (row, lbl) in getattr(self, "_layer_rows", {}).items():
             if k == key:
-                # Selected TOOL = OUTLINED honey (a 2px honey ring + honey text),
-                # deliberately distinct from the FILLED honey of an active LAYERS
-                # chip so the two rows don't read as identical.
-                sel.configure(fg_color=UI_CARD, hover_color=UI_HOVER,
-                              text_color=UI_ACCENT_TX, border_color=UI_ACCENT,
-                              border_width=2)
+                row.configure(fg_color=UI_SELECT)
+                lbl.configure(text_color=UI_ACCENT_D, hover_color=UI_SELECT)
             else:
-                sel.configure(fg_color=UI_CARD, hover_color=UI_HOVER,
-                              text_color=UI_TEXT, border_color=UI_BORDER,
-                              border_width=1)
+                row.configure(fg_color="transparent")
+                lbl.configure(text_color=UI_TEXT, hover_color=UI_HOVER)
         self._render_tool_actions()
 
     def _render_tool_actions(self):
-        """Fill the ACTIONS row with as many of the active tool's action buttons
-        as fit the current width, spilling the remainder into a single 'More ▾'
-        overflow only when space actually runs out. Re-runs on resize."""
-        self._actions_reflow_job = None
+        """Fill the side strip with the highlighted layer's actions: primary
+        actions as stacked buttons, the long tail under one 'More ▾' popup
+        (opened to the strip's left so it stays over the map)."""
         key = getattr(self, "_active_tool", None)
-        if not key or key not in getattr(self, "_tools_by_key", {}):
+        body = getattr(self, "_strip_body", None)
+        if body is None or not key or key not in getattr(self, "_tools_by_key", {}):
             return
-        try:
-            self._tool_actions_row.update_idletasks()
-            avail = self._tool_actions_row.winfo_width() - 84   # ACTIONS label + pads
-        except Exception:
-            avail = 0
-        # Skip if nothing that affects the layout changed (avoids re-pack churn
-        # when Configure fires repeatedly at the same width).
-        sig = (key, avail if avail >= 120 else -1)
-        if sig == getattr(self, "_actions_last_sig", None):
-            return
-        self._actions_last_sig = sig
-        frame = self._tool_actions
-        for w in frame.winfo_children():
+        for w in body.winfo_children():
             w.destroy()
         self._clear_tool_more_popup()
         t = self._tools_by_key[key]
-        actions = list(t["primary"]) + list(t["more"])   # full ordered list
+        self._strip_title.configure(text=t["label"].upper())
         akw = dict(height=28, corner_radius=8, border_width=1,
                    fg_color=UI_CARD, hover_color=UI_HOVER, text_color=UI_TEXT,
-                   border_color=UI_BORDER,
+                   border_color=UI_BORDER, anchor="w",
                    font=ctk.CTkFont(family=FONT_LABEL, size=12))
-        PAD = 4
-        more_w = self._est_btn_w("More ▾") + PAD
-        if avail < 120:
-            # Row not realised yet (build time): safe fallback = curated primary
-            # inline + the rest under More. The Configure event reflows it to the
-            # real width a moment later.
-            inline = list(t["primary"]); overflow = list(t["more"])
-        else:
-            inline, overflow, used = [], [], 0
-            for i, (lbl, cmd) in enumerate(actions):
-                bw = self._est_btn_w(lbl) + PAD
-                reserve = more_w if (len(actions) - (i + 1)) > 0 else 0
-                if not inline or used + bw + reserve <= avail:
-                    inline.append((lbl, cmd)); used += bw
-                else:
-                    overflow = actions[i:]; break
-        for lbl, cmd in inline:
+        for lbl, cmd in t["primary"]:
             state = self._action_on(lbl)      # None=command, True/False=toggle
             kw = dict(akw)
             if state:                          # toggle currently ON → filled yellow
@@ -5549,14 +5563,14 @@ class BeetentApp(ctk.CTk):
                           text_color=UI_ACCENT2_INK, border_color=UI_ACCENT2)
             rcmd = ((lambda c=cmd: (c(), self._force_reflow_actions()))
                     if state is not None else cmd)   # toggles re-render after click
-            ctk.CTkButton(frame, text=lbl, width=self._est_btn_w(lbl), command=rcmd,
-                          **kw).pack(side="left", padx=(0, PAD))
+            ctk.CTkButton(body, text=lbl, command=rcmd, **kw).pack(fill="x", pady=(0, 3))
+        overflow = list(t["more"])
         if overflow:
             popup = ctk.CTkFrame(self, fg_color=UI_CARD, border_width=1,
                                  border_color=UI_BORDER, corner_radius=6)
             for lbl, cmd in overflow:
                 state = self._action_on(lbl)
-                tcol = UI_ACCENT if state else UI_TEXT   # blue label while on (readable in menu)
+                tcol = UI_ACCENT if state else UI_TEXT   # accent label while on
                 if state is not None:
                     rc = (lambda pp=popup, c=cmd:
                           (pp.place_forget(), c(), self._force_reflow_actions()))
@@ -5568,13 +5582,10 @@ class BeetentApp(ctk.CTk):
                               ).pack(fill="x", padx=2, pady=1)
             self._all_popups.append(popup)
             self._tool_more_popup = popup
-            mbtn = ctk.CTkButton(frame, text="More ▾", width=self._est_btn_w("More ▾"),
-                                 height=28, corner_radius=8, border_width=1,
-                                 fg_color=UI_CARD, hover_color=UI_HOVER,
-                                 text_color=UI_MUTED, border_color=UI_BORDER,
-                                 font=ctk.CTkFont(family=FONT_LABEL, size=12))
-            mbtn.configure(command=lambda p=popup, c=mbtn: self._toggle_popup(p, c))
-            mbtn.pack(side="left", padx=(0, PAD))
+            mbtn = ctk.CTkButton(body, text="More ▾", **akw)
+            mbtn.configure(command=lambda p=popup, c=mbtn:
+                           self._toggle_popup(p, c, align="left"))
+            mbtn.pack(fill="x")
 
     # ── Themed text-input popup (matches the light theme + fonts) ────────────
     def _ask_string(self, title, prompt):
@@ -5793,15 +5804,10 @@ class BeetentApp(ctk.CTk):
         mf.grid(row=0,column=0,sticky="nsew",padx=(8,4),pady=8)
 
         # ── Dropdown button bar ──
-        bb=ctk.CTkFrame(mf,fg_color="transparent")
-        bb.pack(fill="x",padx=6,pady=(6,2))
-        self._map_toolbar = bb   # LAYERS/TOOL/ACTIONS — shown only when a field is active
-
-        # ── Two-row map toolbar (redesign v2) ──────────────────────────────────
-        # Row 1 = LAYERS visibility chips (reuse the existing *_visible_var/fn).
-        # Row 2 = a TOOL strip whose selected tool reveals its primary actions
-        # inline, with a "More ▾" overflow for the long tail. Every command and
-        # visibility var below is reused verbatim from the old dropdown menus.
+        # ── Map insets (redesign v3) ────────────────────────────────────────────
+        # Every command and visibility var below is reused verbatim from the old
+        # dropdown menus / two-row toolbar. The UI lives in floating cards ON the
+        # map (built in _init_map): layers inset (top-left) + tool strip (right).
         self._tools = [
             {"key":"pivot","label":"🎯 Pivot",
              "var":self.pivot_visible_var,"fn":self._set_pivot_visible,
@@ -5901,61 +5907,14 @@ class BeetentApp(ctk.CTk):
             "Test gals count in total":     lambda: bool(self.current_field.get("test_gals_in_total", True)),
         }
 
-        # Row 1 — LAYERS visibility chips.
-        row1 = ctk.CTkFrame(bb, fg_color="transparent"); row1.pack(fill="x")
-        ctk.CTkLabel(row1, text="LAYERS", text_color=UI_MUTED, width=64, anchor="w",
-                     font=ctk.CTkFont(family=FONT_LABEL, size=11)).pack(side="left", padx=(2,10))
-        self._layer_chips = {}
-        for t in self._tools:
-            key = t["key"]
-            chip = ctk.CTkButton(row1, text=t["label"], height=28, corner_radius=8,
-                                 border_width=1,
-                                 font=ctk.CTkFont(family=FONT_LABEL, size=12),
-                                 command=lambda k=key: self._toggle_layer(k))
-            chip.pack(side="left", padx=(0,4))
-            self._layer_chips[key] = chip
-            t["var"].trace_add("write", lambda *a, k=key: self._style_layer_chip(k))
-            self._style_layer_chip(key)
-
-        # Row 2 — TOOL strip: selector chips + inline actions for the active tool.
-        row2 = ctk.CTkFrame(bb, fg_color="transparent"); row2.pack(fill="x", pady=(5,0))
-        ctk.CTkLabel(row2, text="TOOL", text_color=UI_MUTED, width=64, anchor="w",
-                     font=ctk.CTkFont(family=FONT_LABEL, size=11)).pack(side="left", padx=(2,10))
-        self._tool_selectors = {}
-        for t in self._tools:
-            key = t["key"]
-            sel = ctk.CTkButton(row2, text=t["label"], height=28, corner_radius=8,
-                                border_width=1,
-                                font=ctk.CTkFont(family=FONT_LABEL, size=12),
-                                command=lambda k=key: self._select_tool(k))
-            sel.pack(side="left", padx=(0,4))
-            self._tool_selectors[key] = sel
-
-        # Global tools + on-demand buttons live on the right of row 2.
-        _tool_kw = dict(fg_color=UI_CARD, hover_color=UI_HOVER,
-                        text_color=UI_TEXT, border_width=1, border_color=UI_BORDER)
-        # Context action button (shown by _show_context_btn when a mode needs a
-        # "Done"/"Save" action) — honey accent. Created here; packed on demand.
-        self.btn_context = ctk.CTkButton(row2, text="", width=130, fg_color=UI_ACCENT,
-                                          state="disabled", command=lambda: None)
-        # Measure-tool sub-unit toggle (ft↔in / m↔cm) — shown only in measure mode.
-        # (Reset Move + Measure now live in the top bar.)
-        self._measure_unit_btn = ctk.CTkButton(row2, text="Unit: ft", width=90,
-                                               **_tool_kw,
-                                               command=self._measure_unit_cycle)
-
-        # Row 3 — inline actions for the selected tool, on their own full-width
-        # row so they're never squeezed by the selectors/global tools above.
-        row3 = ctk.CTkFrame(bb, fg_color="transparent"); row3.pack(fill="x", pady=(5,0))
-        ctk.CTkLabel(row3, text="ACTIONS", text_color=UI_MUTED, width=64, anchor="w",
-                     font=ctk.CTkFont(family=FONT_LABEL, size=11)).pack(side="left", padx=(2,10))
-        self._tool_actions_row = row3
-        self._tool_actions = ctk.CTkFrame(row3, fg_color="transparent")
-        self._tool_actions.pack(side="left", fill="x", expand=True)
-        # Reflow the inline actions whenever the row's width changes.
-        row3.bind("<Configure>", self._on_actions_configure)
+        # Map-inset redesign: LAYERS + TOOL + ACTIONS no longer live in rows
+        # above the map. Instead _init_map builds two floating insets ON the
+        # imagery (like the reference mock): a top-left "Layers" card with a
+        # visibility checkbox + click-to-highlight row per layer (the legend key
+        # merged below), and a right-edge vertical tool strip showing the
+        # highlighted layer's actions. The _tools/_action_states data above is
+        # consumed verbatim by those builders.
         self._active_tool = None
-        self._select_tool("shelters")   # default tool (matches the mockup)
 
         self.map_frame=mf
 
@@ -6593,13 +6552,19 @@ class BeetentApp(ctk.CTk):
         self.refresh_img_btn.place(relx=1.0, rely=1.0, x=-14, y=-100, anchor="se")
         self.zoom_in_btn.place(relx=1.0, rely=1.0, x=-14, y=-58, anchor="se")
         self.zoom_out_btn.place(relx=1.0, rely=1.0, x=-14, y=-16, anchor="se")
+        # Floating insets over the imagery: layers card (top-left, with the
+        # legend key merged in) + side tool strip (right edge). Hidden until a
+        # field is active (_set_map_toolbar_visible).
+        self._build_layers_inset()
+        self._build_side_tools()
         self._build_map_legend()
+        self._select_tool("shelters")   # default highlighted layer
 
     def _build_map_legend(self):
-        """Dynamic map key (bottom-left): lists ONLY the overlays currently
-        toggled on (layers + action overlays). Colours mirror the live _redraw_*
-        colours. Rebuilt whenever a relevant toggle changes; the card hides
-        entirely when nothing is on."""
+        """Dynamic map key: lists ONLY the overlays currently toggled on
+        (layers + action overlays), inside the layers inset under a divider.
+        Colours mirror the live _redraw_* colours. Rebuilt whenever a relevant
+        toggle changes; the key section collapses when nothing is on."""
         # (getter -> bool, fill colour, label, shape, edge colour). Getters read
         # the same vars that gate each overlay's drawing, so the key tracks
         # reality. shape "pin" draws a teardrop matching the map marker (fill +
@@ -6620,16 +6585,11 @@ class BeetentApp(ctk.CTk):
             (lambda: self.show_pass_buffer_overlay.get(), "#FF2A2A", "Tire zone", "square", None),
             (lambda: self.show_pass_buffer_overlay.get(), "#22E048", "Edge zone", "square", None),
         ]
-        card = ctk.CTkFrame(self.map_widget, fg_color=UI_CARD, corner_radius=8,
-                            border_width=1, border_color=UI_BORDER)
-        ctk.CTkLabel(card, text="LEGEND", text_color=UI_MUTED,
-                     font=ctk.CTkFont(family=FONT_LABEL, size=10)).pack(
-                         anchor="w", padx=12, pady=(8, 2))
-        self._legend_rows = ctk.CTkFrame(card, fg_color="transparent")
-        self._legend_rows.pack(fill="x", pady=(0, 6))
-        self.map_legend = card
-        # Refresh the key whenever any overlay toggle flips (from a LAYERS chip
-        # OR an ACTIONS toggle — both write these vars).
+        # Containers (_legend_divider/_legend_head/_legend_rows) were created by
+        # _build_layers_inset inside the layers card; here we only define the
+        # spec and wire the refresh traces.
+        # Refresh the key whenever any overlay toggle flips (from a layer
+        # checkbox OR an ACTIONS toggle — both write these vars).
         for var in (self.shelters_visible_var, self.pivot_visible_var,
                     self.boundary_visible_var, self.planter_visible_var,
                     self.sprayer_visible_var, self.crews_visible_var,
@@ -6640,11 +6600,10 @@ class BeetentApp(ctk.CTk):
         self._refresh_legend()
 
     def _refresh_legend(self):
-        """Rebuild the legend rows from _legend_spec, showing only on-entries;
-        hide the whole card when nothing is toggled on."""
+        """Rebuild the key rows from _legend_spec (only on-entries) inside the
+        layers card; collapse the whole KEY section when nothing is on."""
         rows = getattr(self, "_legend_rows", None)
-        card = getattr(self, "map_legend", None)
-        if rows is None or card is None:
+        if rows is None:
             return
         for w in rows.winfo_children():
             w.destroy()
@@ -6670,9 +6629,13 @@ class BeetentApp(ctk.CTk):
             ctk.CTkLabel(row, text="  " + name, text_color=UI_TEXT, anchor="w",
                          font=ctk.CTkFont(family=FONT_BODY, size=11)).pack(side="left")
         if any_on:
-            card.place(relx=0.0, rely=1.0, x=12, y=-12, anchor="sw")
+            self._legend_divider.pack(fill="x", padx=8, pady=(6, 0))
+            self._legend_head.pack(anchor="w", padx=12, pady=(4, 0))
+            rows.pack(fill="x", pady=(0, 6))
         else:
-            card.place_forget()
+            self._legend_divider.pack_forget()
+            self._legend_head.pack_forget()
+            rows.pack_forget()
 
     # ── Bay Presets ────────────────────────────────────────────────────────────
     def _load_bay_presets(self):
@@ -9036,7 +8999,9 @@ class BeetentApp(ctk.CTk):
         self._measure_unit = "m" if self.unit_var.get() == "Metric" else "ft"
         self._measure_unit_btn.configure(text=f"Unit: {self._measure_unit}")
         if not self._measure_unit_btn.winfo_ismapped():
-            self._measure_unit_btn.pack(side="right", padx=(4, 0))
+            # Slot into the strip's global-tools block, under 📏 Measure.
+            self._measure_unit_btn.pack(fill="x", pady=(0, 3),
+                                        before=self._strip_reset_btn)
         self._show_context_btn("✔ Done Measuring", self._finish_measure)
         try: self.map_widget.canvas.bind("<Motion>", self._measure_motion)
         except Exception: pass
@@ -15301,7 +15266,8 @@ class BeetentApp(ctk.CTk):
         overlays, hidden = (getattr(self, "zoom_in_btn", None),
                             getattr(self, "zoom_out_btn", None),
                             getattr(self, "refresh_img_btn", None),
-                            getattr(self, "map_legend", None),
+                            getattr(self, "_layers_inset", None),
+                            getattr(self, "_side_strip", None),
                             getattr(self, "map_field_label", None)), []
         for w in overlays:
             try:
