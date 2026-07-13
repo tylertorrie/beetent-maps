@@ -1654,53 +1654,6 @@ class BeetentApp(ctk.CTk):
             self._tb_pdf.pack(side="right", padx=(0,12), pady=4)
 
     # ── Popup menu helpers ─────────────────────────────────────────────────────
-    def _make_menu_btn(self, bar, label, items, color="#2b2b2b",
-                       toggle_var=None, toggle_fn=None):
-        """Compound toolbar button: [☐]  label centred  [▾]
-        toggle_var / toggle_fn drive the master on/off checkbox.
-        The ▾ button opens the item dropdown as before."""
-        popup = ctk.CTkFrame(self, fg_color=UI_CARD, border_width=1,
-                             border_color=UI_BORDER, corner_radius=4)
-        for item_label, item_cmd in items:
-            ctk.CTkButton(popup, text=item_label, anchor="w", height=30,
-                          fg_color="transparent", hover_color=UI_HOVER, text_color=UI_TEXT,
-                          command=lambda p=popup, c=item_cmd: (p.place_forget(), c())
-                          ).pack(fill="x", padx=2, pady=1)
-        self._all_popups.append(popup)
-
-        # Redesign v2: neutral "surface" chip (white + border + dark text) so the
-        # toolbar reads as one coherent set against the honey/paper theme, instead
-        # of the old per-menu dark colours. `color` is kept in the signature for
-        # call-site compatibility but no longer drives the background.
-        container = ctk.CTkFrame(bar, fg_color=UI_CARD, border_width=1,
-                                 border_color=UI_BORDER, corner_radius=8)
-
-        # Right: dropdown trigger (packed first so it anchors right)
-        ctk.CTkButton(container, text="▾", width=26,
-                      fg_color="transparent", hover_color=UI_HOVER,
-                      text_color=UI_MUTED,
-                      command=lambda p=popup, c=container: self._toggle_popup(p, c)
-                      ).pack(side="right", padx=(0, 2), pady=2)
-
-        # Centre: label fills the remaining space, text centred within it
-        lbl = ctk.CTkLabel(container, text=label, text_color=UI_TEXT,
-                           anchor="center", fg_color="transparent")
-        lbl.pack(side="left", fill="x", expand=True, padx=8)
-
-        # Left: master toggle checkbox — starts hidden; shown only when a field
-        # is active.  Packed BEFORE the label (using before=) so layout is correct
-        # when revealed.
-        if toggle_var is not None and toggle_fn is not None:
-            cb = ctk.CTkCheckBox(container, variable=toggle_var, text="",
-                                 width=20, checkbox_width=16, checkbox_height=16,
-                                 border_width=2,
-                                 border_color=UI_BORDER, fg_color=UI_ACCENT,
-                                 checkmark_color="#FFFFFF", hover_color=UI_HOVER,
-                                 command=lambda: toggle_fn(toggle_var.get()))
-            # Don't pack yet — hidden until a field is selected
-            self._menu_checkboxes.append((cb, lbl))
-
-        return container
 
     def _toggle_popup(self, popup, btn, align="below"):
         # Set a one-shot flag so the global ButtonRelease handler (which fires
@@ -7240,15 +7193,6 @@ class BeetentApp(ctk.CTk):
         if mode in ("trays_1", "trays_2", "manual"):
             self._update_shelter_count_widget(mode)
 
-    def _clear_shelter_overrides(self):
-        """Wipe manually-moved positions and the in-session undo stack.
-        Called whenever the shelter grid changes enough that old overrides
-        would place pins in wrong locations (mode switch, count change)."""
-        if self.current_field.get("shelter_overrides"):
-            self.current_field["shelter_overrides"] = {}
-        if self.current_field.get("tray_overrides"):
-            self.current_field["tray_overrides"] = {}
-        self._shelter_undo.clear()
 
     def _combo_key(self):
         """Identity of the current shelter-placement combo: the spacing plan
@@ -8908,20 +8852,6 @@ class BeetentApp(ctk.CTk):
         except Exception as ex:
             tkinter.messagebox.showerror("Upload Error",str(ex))
 
-    def _parse_kml_coords_text(self,text):
-        root=ET.fromstring(text)
-        ns_match=re.match(r'\{[^}]+\}',root.tag)
-        ns=ns_match.group(0) if ns_match else ""
-        for elem in root.iter(f"{ns}coordinates"):
-            raw=elem.text.strip()
-            pts=[]
-            for token in raw.split():
-                parts=token.split(",")
-                if len(parts)>=2:
-                    lon,lat=float(parts[0]),float(parts[1])
-                    pts.append((lat,lon))
-            if pts: return pts
-        return []
 
     def _parse_kml_polygons(self, path):
         with open(path, encoding="utf-8") as fh: text = fh.read()
@@ -9512,14 +9442,6 @@ class BeetentApp(ctk.CTk):
             if self.show_tracks.get(): self._redraw_tracks(skip_shelters=True)
 
     # ── Pivot tracks ───────────────────────────────────────────────────────────
-    def _toggle_pivot(self):
-        """Toggle the pivot point marker, pivot tracks, AND corner tracks
-        together — they're all part of the same conceptual layer (pivot +
-        anything anchored relative to it / around its kill zone)."""
-        self._close_all_popups()
-        on = not self.show_pivot.get()
-        self._set_pivot_visible(on)
-        self._status("Pivot " + ("shown." if on else "hidden."))
 
     # ── Master visibility setters (called by toolbar checkboxes) ──────────────
     def _set_pivot_visible(self, on):
@@ -10276,64 +10198,8 @@ class BeetentApp(ctk.CTk):
             except Exception: pass
         self.corner_arm_temp_markers=[]
 
-    def _mode_delete_corner_ui(self):
-        self._close_all_popups()
-        arms=self.current_field.get("corner_arms") or []
-        if not arms:
-            self._status("No corner zones to delete."); return
-        win=ctk.CTkToplevel(self)
-        win.title("Delete Corner Zone"); win.geometry("360x240"); win.grab_set()
-        ctk.CTkLabel(win,text="Select zone to delete:").pack(pady=(12,4))
-        lb=tk.Listbox(win,bg=UI_CARD,fg=UI_TEXT,selectbackground=UI_SELECT,selectforeground=UI_TEXT,
-                      relief="flat",font=(FONT_BODY,11),height=6,
-                      activestyle="none",highlightthickness=1,highlightbackground=UI_BORDER)
-        for i,arm in enumerate(arms):
-            if arm.get("type")=="circle":
-                lb.insert(tk.END,f"Circle {i+1}: r={arm['radius_m']:.1f} m ({arm['radius_m']/0.3048:.1f} ft)")
-            else:
-                lb.insert(tk.END,f"Path {i+1}: {len(arm.get('pts',[]))} pts")
-        lb.pack(fill="x",padx=10,pady=4)
-        def do_delete():
-            sel=lb.curselection()
-            if not sel: return
-            del self.current_field["corner_arms"][sel[0]]
-            self._redraw_corner_arms()
-            if self.show_shelters.get(): self._redraw_shelters()
-            win.destroy(); self._status("Corner zone deleted.")
-        ctk.CTkButton(win,text="Delete Selected",fg_color=UI_DANGER,command=do_delete).pack(pady=(4,2))
-        ctk.CTkButton(win,text="Cancel",command=win.destroy).pack()
 
     # ── Corner path vertex editing ──────────────────────────────────────────────
-    def _mode_edit_corner_path(self):
-        self._close_all_popups()
-        arms = self.current_field.get("corner_arms") or []
-        path_arms = [(i, arm) for i, arm in enumerate(arms)
-                     if arm.get("type") == "path" and len(arm.get("pts") or []) >= 2]
-        if not path_arms:
-            self._status("No corner paths to edit — use Add Corner Path first.")
-            return
-        if len(path_arms) == 1:
-            self._start_edit_corner_arm(path_arms[0][0])
-            return
-        # Multiple paths — show a picker dialog
-        win = ctk.CTkToplevel(self)
-        win.title("Edit Corner Path")
-        win.grab_set()
-        _center_on_parent(win, self)
-        ctk.CTkLabel(win, text="Select path to edit:").pack(pady=(10, 2))
-        lb = tk.Listbox(win, height=min(6, len(path_arms)), bg="#2b2b2b",
-                        fg="white", selectbackground="#1f6aa5")
-        for i, arm in path_arms:
-            lb.insert(tk.END, f"Path {i+1}: {len(arm.get('pts',[]))} pts")
-        lb.pack(padx=10, pady=4, fill="x")
-        def do_edit():
-            sel = lb.curselection()
-            if not sel: return
-            arm_idx = path_arms[sel[0]][0]
-            win.destroy()
-            self._start_edit_corner_arm(arm_idx)
-        ctk.CTkButton(win, text="Edit Selected", command=do_edit).pack(pady=(4, 2))
-        ctk.CTkButton(win, text="Cancel", command=win.destroy).pack()
 
     def _start_edit_corner_arm(self, arm_idx):
         """Place draggable vertex markers on the selected corner arm path."""
@@ -10490,9 +10356,6 @@ class BeetentApp(ctk.CTk):
                 pass
 
     # ── Sprayer passes extras ──────────────────────────────────────────────────
-    def _mode_edit_passes(self):
-        self._close_all_popups()
-        self._status("Sprayer pass editing: adjust Spray Angle or Sprayer Width in Field Details, then Toggle on/off to refresh.")
 
     # ── Planter passes extras ──────────────────────────────────────────────────
     # ── Shift dialogs / offsets ────────────────────────────────────────────────
@@ -11034,12 +10897,6 @@ class BeetentApp(ctk.CTk):
                 pass
 
     # ── Shelter preview ────────────────────────────────────────────────────────
-    def _toggle_shelters(self):
-        self.show_shelters.set(not self.show_shelters.get())
-        if self.show_shelters.get():
-            self._redraw_shelters(); self._status("Shelter pins shown.")
-        else:
-            self._clear_shelters(); self._status("Shelter pins hidden.")
 
     def _mode_add_shelter(self):
         """Click-to-add-pins mode. Each click drops an EXTRA shelter pin that
@@ -12306,13 +12163,6 @@ class BeetentApp(ctk.CTk):
         except Exception: pass
 
     # ── Sprayer pass overlay ───────────────────────────────────────────────────
-    def _toggle_passes(self):
-        self._close_all_popups()
-        self.show_passes.set(not self.show_passes.get())
-        if self.show_passes.get():
-            self._redraw_passes()
-        else:
-            self._clear_passes()
 
     def _clear_passes(self):
         for p in self.pass_paths:
@@ -14524,42 +14374,6 @@ class BeetentApp(ctk.CTk):
             add(f.get("PP2_Latitude"), f.get("PP2_Longitude"), f.get("pivot_tracks2"))
         return out
 
-    def _export_all_tablet_geojson(self):
-        """Export EVERY saved field to tablet/fields/ so they all show on the
-        tablet's Map view (the per-field export only runs on Save, so older
-        fields were never pushed). Boundary/shelters/tracks come straight from
-        each field file; per-shelter trays are omitted here (they depend on the
-        live bee-allocation of the open field — re-Save a field to include them).
-        Runs in a background thread, then auto-pushes."""
-        self._close_nav_drawer()
-        import sys, threading
-        tablet_dir = Path(__file__).resolve().parent / "tablet"
-        if str(tablet_dir) not in sys.path:
-            sys.path.insert(0, str(tablet_dir))
-        import field_geojson
-        metric = self.unit_var.get() == "Metric"
-        self._status("Exporting all fields to tablet…")
-        def run():
-            count = errors = 0
-            for co in list_companies():
-                for yr in list_years(co):
-                    for name in list_fields(co, yr):
-                        try:
-                            f = load_field(co, yr, name)
-                            if not f:
-                                continue
-                            shelters = self._final_shelter_positions(f, metric)
-                            boundary = f.get("boundary_polygon") or None
-                            tracks = self._field_track_circles(f)
-                            field_geojson.write_field(f, shelters, boundary, tracks=tracks)
-                            count += 1
-                        except Exception:
-                            errors += 1
-            self._git_push("export all fields to tablet")
-            msg = (f"Exported {count} field(s) to tablet"
-                   + (f" ({errors} failed)" if errors else "") + " — Sync on the tablet to see them.")
-            self.after(0, lambda: self._status(msg))
-        threading.Thread(target=run, daemon=True).start()
 
     def _final_shelter_positions(self, f, metric, use_actual=False):
         """Shelter positions exactly as drawn on the map: get_tent_positions
@@ -15118,22 +14932,6 @@ class BeetentApp(ctk.CTk):
         base = Path(__file__).parent / "fields" / co / yr
         return base / f"{name}_map.jpg", base / f"{name}_map.json"
 
-    def _pdf_load_cache(self, co, yr, name):
-        """Return (PIL.Image, True) if a valid cached map image exists, else (None, False)."""
-        try:
-            from PIL import Image as _PI
-            img_p, meta_p = self._pdf_cache_paths(co, yr, name)
-            fld_p = Path(__file__).parent / "fields" / co / yr / f"{name}.json"
-            if not img_p.exists() or not meta_p.exists():
-                return None, False
-            meta = json.loads(meta_p.read_text(encoding='utf-8'))
-            if meta.get('label_mode') != self._pdf_label_mode:
-                return None, False
-            if img_p.stat().st_mtime < fld_p.stat().st_mtime:
-                return None, False          # field updated since cache was saved
-            return _PI.open(str(img_p)).copy(), True
-        except Exception:
-            return None, False
 
     def _pdf_save_cache(self, map_img, co, yr, name):
         """Persist map screenshot so future PDF runs for this field skip tile polling."""
