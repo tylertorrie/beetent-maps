@@ -440,6 +440,27 @@ OWN independent tracks (`pivot_tracks` / `pivot_tracks2`) and radius (`Radius` /
   bound `<Motion>` and caused repeated `_redraw_tracks()` calls during drag.
   Both methods are now no-ops; drag system handles everything.
 
+## Tests (geometry regression suite)
+
+There's now a pytest suite over the pure engine (`maketentgrid.py`) — the source
+of every field-geometry bug this app has hit. **Run it after any change to
+`maketentgrid.py` or the placement/bay code:**
+
+```powershell
+python -m pytest            # ~80s; 100 tests
+```
+
+- `tests/test_geometry.py` — property/unit tests (resolve_row_mask, mask_runs,
+  bay_slot_lefts, male_bay_shelter_laterals, field_warnings) + per-field checks
+  (get_tent_positions finite/deterministic/metric+imperial) + `crew_route`.
+- **Golden regression:** `test_positions_match_baseline` compares live output to
+  `tests/baseline_positions.json` (shelter count + position hash per field). If
+  you INTENTIONALLY change placement geometry, eyeball the new output then
+  regenerate: `python tests/_gen_baseline.py`. An accidental shift fails loudly.
+- `maketentgrid.field_warnings(f)` is the pure save-time validator (mirrored into
+  the GUI by `_field_geometry_warnings`, surfaced as a "Possible field issues"
+  prompt in `_save_field`). Add new degenerate-input checks there (with a test).
+
 ## Syntax check workflow
 
 Always run before copying to main directory:
