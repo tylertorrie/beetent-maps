@@ -1,0 +1,62 @@
+{
+  "fields/BASF Test Plots/2026/BASF 1st Test Plot.json": {
+    "count": 6,
+    "hash": "0b3f1daebd709c82"
+  },
+  "fields/BASF Test Plots/2026/BASF 2nd Test Plot.json": {
+    "count": 4,
+    "hash": "d037963f28c788f0"
+  },
+  "fields/BASF/2026/Giesbricht NW 35-10-16.json": {
+    "count": 79,
+    "hash": "2fce8595d9d537e7"
+  },
+  "fields/BASF/2026/Stolk NE-12-11-15.json": {
+    "count": 115,
+    "hash": "8f17bbe456e9737f"
+  },
+  "fields/Bayer/2026/Bayer NE 1-20-15 (Big Field).json": {
+    "count": 99,
+    "hash": "e2c96f6b663b7f5b"
+  },
+  "fields/Bayer/2026/NW 1-20-15.json": {
+    "count": 61,
+    "hash": "4a22956b0d432ca8"
+  },
+  "fields/Corteva/2026/Stolk SE 9-11-14.json": {
+    "count": 57,
+    "hash": "f98ab861440a2617"
+  },
+  "fields/Hytech/2026/Carrots.json": {
+    "count": 19,
+    "hash": "b2721cd22cf2bcf5"
+  },
+  "fields/Hytech/2026/Wordmans Carrots.json": {
+    "count": 16,
+    "hash": "aff35dc29be824e7"
+  },
+  "fields/Proven Seeds/2026/NW 1-10-15.json": {
+    "count": 86,
+    "hash": "37fe3e5867e1dd4c"
+  },
+  "fields/Proven Seeds/2026/NW 4-10-12.json": {
+    "count": 81,
+    "hash": "3e1f9b000fe546aa"
+  },
+  "fields/Proven Seeds/2026/SE 14-9-15.json": {
+    "count": 78,
+    "hash": "5501771e3856071c"
+  },
+  "fields/Proven Seeds/2026/SE 16-9-13.json": {
+    "count": 79,
+    "hash": "7bd014840fdd922f"
+  },
+  "fields/Proven Seeds/2026/SE 17-9-15.json": {
+    "count": 76,
+    "hash": "6f4d4359829a4e8a"
+  },
+  "fields/Proven Seeds/2026/SW 16-9-15.json": {
+    "count": 80,
+    "hash": "0bb3f69889f4ed73"
+  }
+}

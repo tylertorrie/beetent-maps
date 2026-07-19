@@ -76,3 +76,4 @@ supabase_config.json
 # Transient test/run logs
 _err.log
 _out.log
+.pytest_cache/
