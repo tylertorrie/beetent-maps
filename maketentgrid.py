@@ -1220,6 +1220,60 @@ def mask_runs(mask, char):
     return runs
 
 
+def field_warnings(field_dict):
+    """Pure, parameter-only sanity checks on a field dict → list of human-readable
+    warning strings (empty = looks fine). Catches the *class* of data-entry bug
+    that a stray value causes (e.g. bay_gap_in collapsing a bay, a total_rows that
+    can't fit one bay unit) BEFORE it silently produces a broken grid. The GUI adds
+    compute-based checks (zero shelters, pivot far from field) on top of this."""
+    w = []
+
+    def _num(key, default=0.0):
+        try:
+            return float(field_dict.get(key) or default)
+        except (TypeError, ValueError):
+            return None
+
+    bp = field_dict.get("boundary_polygon") or []
+    if bp and len(bp) < 3:
+        w.append("Boundary has fewer than 3 points — a grid can't be generated.")
+
+    use_bays = field_dict.get("use_bays", True)
+    if isinstance(use_bays, str):
+        use_bays = use_bays.strip().lower() not in ("false", "0", "no", "")
+    if not use_bays:
+        return w                       # blanket-planted: no bay params to check
+
+    nf, nm = _num("num_female_rows"), _num("num_male_rows")
+    rs, gap = _num("row_spacing_in"), _num("bay_gap_in")
+    if nm is None or nf is None or rs is None:
+        w.append("Bay rows / row spacing aren't numeric.")
+        return w
+    nf, nm = int(nf), int(nm)
+    tr_raw = _num("total_rows", nf + nm)
+    tr = int(tr_raw) if tr_raw else (nf + nm)
+
+    if rs <= 0:
+        w.append("Row spacing is 0.")
+    if nm <= 0:
+        w.append("No male rows set — there are no male bays to place shelters against.")
+    if nf < 0:
+        w.append("Female rows is negative.")
+    if nf + nm > 0 and tr < nf + nm:
+        w.append(f"Total rows ({tr}) is smaller than one bay unit "
+                 f"({nf}F+{nm}M = {nf + nm} rows).")
+    cm = "".join(c for c in str(field_dict.get("custom_row_mask") or "").upper()
+                 if c in "MF")
+    if str(field_dict.get("row_layout") or "") == "custom" and cm and len(cm) != tr:
+        w.append(f"Custom mask is {len(cm)} rows but Total rows is {tr}; "
+                 f"the mask length ({len(cm)}) will be used.")
+    # A gap ≥ the female-bay width leaves no room for female rows between bays.
+    if gap and rs and nf > 0 and 2 * gap >= (nf * rs):
+        w.append(f"Bay gap ({gap:.0f} in each side) is as wide as the female bay "
+                 f"({nf * rs:.0f} in) — bays will nearly touch.")
+    return w
+
+
 def bay_slot_lefts(mask, rs_m, gap_m):
     """Lateral left-edge position (metres, +x = east) of each planter row slot,
     with gap_m of empty space inserted at EVERY male/female boundary — the real

@@ -11945,6 +11945,32 @@ class BeetentApp(ctk.CTk):
         try: _center_on_parent(win, self)
         except Exception: pass
 
+    def _field_geometry_warnings(self, f):
+        """Human-readable warnings about a field that looks likely to generate a
+        broken grid — the pure parameter checks (maketentgrid.field_warnings) plus
+        two compute-based ones: zero shelters placed, and pivot far from the field.
+        Non-blocking; surfaced at save time so the user can catch a stray value."""
+        warns = list(maketentgrid.field_warnings(f))
+        bp = f.get("boundary_polygon") or []
+        use_bays = f.get("use_bays", True)
+        if isinstance(use_bays, str):
+            use_bays = use_bays.strip().lower() not in ("false", "0", "no", "")
+        if use_bays and bp and len(bp) >= 3:
+            try:
+                res = self._ensure_tents(f, self.unit_var.get() == "Metric")
+                if res is not None and len(res[0]) == 0:
+                    warns.append("Zero shelters would be placed — check the bay "
+                                 "params, boundary, and pivot position.")
+            except Exception:
+                pass
+        try:
+            if self._pivot_far_from_boundary():
+                warns.append("Pivot point is far from the boundary — the grid may "
+                             "land off the field.")
+        except Exception:
+            pass
+        return warns
+
     def _pivot_far_from_boundary(self):
         """True when the pivot sits implausibly far outside the field boundary —
         mirrors the freeze guard in maketentgrid.get_tent_positions so the UI can
@@ -13766,6 +13792,17 @@ class BeetentApp(ctk.CTk):
                         f"Saving will WIPE the saved boundary and geometry. Are you sure?"):
                     self._status("Save cancelled — kept the saved boundary.")
                     return
+        # Geometry sanity: warn (non-blocking) about a field that looks likely to
+        # generate a broken grid — the gap-collapse class of data-entry mistake.
+        _warns = self._field_geometry_warnings(f)
+        if _warns:
+            if not tkinter.messagebox.askyesno(
+                    "Possible field issues",
+                    "This field may not generate correctly:\n\n• "
+                    + "\n• ".join(_warns)
+                    + "\n\nSave anyway?"):
+                self._status("Save cancelled — review the field settings.")
+                return
         # save_field creates the company/year folder via _field_dir, so a
         # brand-new company name appears on disk for the first time here.
         new_company = co not in list_companies()

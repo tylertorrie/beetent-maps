@@ -157,6 +157,55 @@ def test_positions_match_baseline(rel):
         f"planned positions moved for {rel}. If intentional, rerun _gen_baseline.py.")
 
 
+# ── field_warnings (save-time validation) ──────────────────────────────────
+def _base_field():
+    return {"use_bays": True, "num_female_rows": 6, "num_male_rows": 3,
+            "row_spacing_in": 22, "total_rows": 20, "bay_gap_in": 0,
+            "boundary_polygon": [[0, 0], [0, 1], [1, 1], [1, 0]]}
+
+
+def test_warnings_clean_field_is_silent():
+    assert m.field_warnings(_base_field()) == []
+
+
+def test_warnings_no_male_rows():
+    f = _base_field(); f["num_male_rows"] = 0
+    assert any("male rows" in w.lower() for w in m.field_warnings(f))
+
+
+def test_warnings_total_rows_too_small():
+    f = _base_field(); f["total_rows"] = 5    # < 6+3
+    assert any("total rows" in w.lower() for w in m.field_warnings(f))
+
+
+def test_warnings_custom_mask_length_mismatch():
+    f = _base_field(); f["row_layout"] = "custom"; f["custom_row_mask"] = "MMFF"
+    assert any("mask" in w.lower() for w in m.field_warnings(f))
+
+
+def test_warnings_huge_gap_flagged():
+    # Wordmans-style: gap each side as wide as the female bay.
+    f = _base_field(); f["bay_gap_in"] = 66   # >= 6*22/2 female width
+    assert any("gap" in w.lower() for w in m.field_warnings(f))
+
+
+def test_warnings_boundary_too_few_points():
+    f = _base_field(); f["boundary_polygon"] = [[0, 0], [0, 1]]
+    assert any("boundary" in w.lower() for w in m.field_warnings(f))
+
+
+def test_warnings_blanket_planted_skips_bay_checks():
+    f = _base_field(); f["use_bays"] = False; f["num_male_rows"] = 0
+    assert m.field_warnings(f) == []   # no bays → no male-bay warning
+
+
+def test_warnings_all_real_fields_clean():
+    # None of the shipped fields should trip the validator (Wordmans/Carrots use
+    # the gap-aware geometry now, so gap=33 no longer collapses; 33 < 66 female).
+    for rel, f in FIELDS.items():
+        assert m.field_warnings(f) == [], f"{os.path.basename(rel)}: {m.field_warnings(f)}"
+
+
 # ── crew_route ──────────────────────────────────────────────────────────────
 @pytest.mark.parametrize("rel", sorted(BAY_FIELDS), ids=lambda r: os.path.basename(r))
 def test_crew_route_nonnegative_length(rel):
