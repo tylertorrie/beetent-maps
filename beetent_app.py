@@ -5859,6 +5859,7 @@ class BeetentApp(ctk.CTk):
              "primary":[("Add Shelter Pin",self._mode_add_shelter),
                         ("Add Test Shelter Pin",self._mode_add_test_shelter),
                         ("Toggle Alignment Lines",self._toggle_shelter_lines),
+                        ("Reflow to Grid",self._reflow_shelters_to_grid),
                         ("Show Planned / Actual",self._toggle_shelter_view)],
              "more":[("Numbers: Tray count",lambda:self._set_pin_mode("trays")),
                      ("Numbers: Shelter #",lambda:self._set_pin_mode("shelters")),
@@ -11571,6 +11572,39 @@ class BeetentApp(ctk.CTk):
             self.current_field["sprayer_shift_n_m"] = n - d_n
             self._redraw_sprayer_shift_layers()
 
+    def _reflow_shelters_to_grid(self):
+        """Snap every algorithm shelter back onto the freshly-computed grid by
+        dropping saved drag-moves/deletes for the current settings combo. Use
+        after a bay/geometry change moves the grid out from under old manual moves
+        (e.g. the gap-aware bays). Deliberately-added manual pins are kept."""
+        self._close_all_popups()
+        ov = self.current_field.get("shelter_overrides") or {}
+        tov = self.current_field.get("tray_overrides") or {}
+        n = len(ov)
+        if not n and not tov:
+            self._status("Shelters already match the calculated grid — nothing to reflow.")
+            return
+        if not tkinter.messagebox.askyesno(
+                "Reflow to Grid",
+                f"Snap every shelter back onto the freshly-calculated grid?\n\n"
+                f"This clears {n} manual move(s)/delete(s) for the current settings. "
+                f"Manually ADDED pins are kept.\n\n"
+                f"Useful after a bay or geometry change moved the grid."):
+            self._status("Reflow cancelled — kept the manual moves.")
+            return
+        combo = self._combo_key()
+        self.current_field["shelter_overrides"] = {}
+        self.current_field["tray_overrides"] = {}
+        # Drop this combo's stashed set too, else _sync_combo_adjustments restores it.
+        store = self.current_field.setdefault("adjust_by_combo", {})
+        store.pop(combo, None)
+        self._shelter_undo.clear()
+        self._stale_ov_warned = None
+        if self.show_shelters.get():
+            self._redraw_shelters()
+        self._status(f"Reflowed {n} shelter(s) back onto the calculated grid.")
+        self._save_field()   # persist so reopen keeps the reflow
+
     def _undo_shelter_move(self):
         """Revert the most recent move/delete OR shift; repeat to step further back.
 
@@ -12122,6 +12156,7 @@ class BeetentApp(ctk.CTk):
         overrides=self.current_field.get("shelter_overrides") or {}
         merged=list(positions)
         deleted=set()
+        stale=0
         for k,v in overrides.items():
             try:
                 idx=int(k)
@@ -12130,7 +12165,19 @@ class BeetentApp(ctk.CTk):
                         deleted.add(idx)
                     else:
                         merged[idx]=tuple(v)
+                else:
+                    stale+=1        # override points past the current grid → the
+                                    # base grid shrank under it (stale reindex).
             except (ValueError,TypeError): pass
+        # Reindexing safety: if saved moves now point past the recomputed grid,
+        # the bay/geometry changed under them — hint at Reflow to Grid (once per
+        # field-open so it doesn't spam on every redraw).
+        _fid = (self.current_field.get("company"), self.current_field.get("year"),
+                self.current_field.get("Name"))
+        if stale and getattr(self, "_stale_ov_warned", None) != _fid:
+            self._stale_ov_warned = _fid
+            self._status(f"⚠ {stale} saved shelter move(s) no longer line up with the "
+                         f"grid (bay settings changed). Shelters ▸ Reflow to Grid to re-snap.")
 
         # Manual pins are ADDITIVE on top of the algorithm grid — they let the
         # user drop a few extra shelters without discarding the calculated ones.
