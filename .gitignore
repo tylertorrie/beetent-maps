@@ -77,3 +77,6 @@ supabase_config.json
 _err.log
 _out.log
 .pytest_cache/
+
+# Device-local UI state (collapsed insets, recents, active layer)
+fields/ui_prefs.json

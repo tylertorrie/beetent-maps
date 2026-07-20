@@ -1497,6 +1497,7 @@ class BeetentApp(ctk.CTk):
             self.bind(key, self._on_arrow_key)
         self.bind("<ButtonRelease-1>", self._on_global_popup_click, add="+")
         self.after(300, self._bind_drag_system)
+        self.after(350, self._restore_ui_state)     # collapsed insets + last layer
         self.after(1000, self._git_pull)            # pull latest on startup
         self.after(300_000, self._check_for_app_update)  # then check every 5 min
         self._autosave_last = None                  # auto-save change-detection baseline
@@ -4962,6 +4963,136 @@ class BeetentApp(ctk.CTk):
         return ["company", "year", "acres", "total_gals", "total_trays",
                 "shelters", "gpa"]
 
+    # ── UI state + recents (device-local; ui_prefs.json) ─────────────────────
+    # Remembers the things that are annoying to re-set every launch: which map
+    # insets were collapsed, the highlighted layer, and the recently-opened
+    # fields. Kept OUT of git (device-local preference, not field data).
+    def _ui_prefs_path(self):
+        return DATA_DIR / "ui_prefs.json"
+
+    def _load_ui_prefs(self):
+        self._ui_prefs = {}
+        try:
+            p = self._ui_prefs_path()
+            if p.exists():
+                d = json.loads(p.read_text(encoding="utf-8"))
+                if isinstance(d, dict):
+                    self._ui_prefs = d
+        except Exception:
+            self._ui_prefs = {}
+        return self._ui_prefs
+
+    def _save_ui_prefs(self):
+        try:
+            DATA_DIR.mkdir(parents=True, exist_ok=True)
+            self._ui_prefs_path().write_text(
+                json.dumps(getattr(self, "_ui_prefs", {}), indent=2),
+                encoding="utf-8")
+        except Exception:
+            pass
+
+    def _ui_pref(self, key, default=None):
+        if not hasattr(self, "_ui_prefs"):
+            self._load_ui_prefs()          # lazy — safe whatever the init order
+        return self._ui_prefs.get(key, default)
+
+    def _set_ui_pref(self, key, value):
+        self._ui_prefs = getattr(self, "_ui_prefs", {})
+        if self._ui_prefs.get(key) == value:
+            return
+        self._ui_prefs[key] = value
+        self._save_ui_prefs()
+
+    RECENTS_MAX = 6
+
+    def _push_recent(self, co, yr, name):
+        """Record a field as most-recently-opened (newest first, deduped)."""
+        if not name:
+            return
+        entry = [str(co or ""), str(yr or ""), str(name)]
+        rec = [r for r in (self._ui_pref("recents") or [])
+               if isinstance(r, list) and len(r) == 3 and r != entry]
+        rec.insert(0, entry)
+        self._set_ui_pref("recents", rec[:self.RECENTS_MAX])
+        self._render_recents()
+
+    def _render_recents(self):
+        """Rebuild the recently-opened chips above the field list."""
+        bar = getattr(self, "_recents_bar", None)
+        if bar is None:
+            return
+        for w in bar.winfo_children():
+            w.destroy()
+        rec = [r for r in (self._ui_pref("recents") or [])
+               if isinstance(r, list) and len(r) == 3]
+        # Only offer recents that still exist on disk.
+        rec = [r for r in rec if (r[0], r[1], r[2]) in
+               {(c, y, n) for c, y, n in self._all_field_triples()}]
+        if not rec:
+            bar.pack_forget()
+            return
+        ctk.CTkLabel(bar, text="RECENT", text_color=UI_MUTED, width=48, anchor="w",
+                     font=ctk.CTkFont(family=FONT_LABEL, size=9)).pack(side="left")
+        for co, yr, name in rec[:self.RECENTS_MAX]:
+            ctk.CTkButton(bar, text=name, height=22, corner_radius=6,
+                          fg_color=UI_HOVER, hover_color=UI_BORDER,
+                          text_color=UI_TEXT,
+                          font=ctk.CTkFont(family=FONT_LABEL, size=10),
+                          command=lambda c=co, y=yr, n=name: self._open_recent(c, y, n)
+                          ).pack(side="left", padx=(0, 3))
+        if not bar.winfo_ismapped():
+            bar.pack(fill="x", pady=(0, 4), before=self._field_search_entry.master)
+
+    def _all_field_triples(self):
+        """(company, year, name) for every field on disk — used to prune recents."""
+        out = []
+        try:
+            for co in list_companies():
+                for yr in list_years(co):
+                    for nm in list_fields(co, yr):
+                        out.append((str(co), str(yr), str(nm)))
+        except Exception:
+            pass
+        return out
+
+    def _restore_ui_state(self):
+        """Re-apply the remembered map-inset collapse states + highlighted layer.
+        Runs shortly after startup, once the insets exist."""
+        try:
+            if self._ui_pref("layers_collapsed") and \
+                    getattr(self, "_layers_body", None) is not None and \
+                    self._layers_body.winfo_ismapped():
+                self._toggle_layers_collapse()
+            if self._ui_pref("strip_collapsed") and \
+                    getattr(self, "_strip_wrap", None) is not None and \
+                    self._strip_wrap.winfo_ismapped():
+                self._toggle_strip_collapse()
+            tool = self._ui_pref("active_tool")
+            if tool and tool in getattr(self, "_tools_by_key", {}):
+                self._select_tool(tool)
+        except Exception:
+            pass
+        try:
+            self._render_recents()
+        except Exception:
+            pass
+
+    def _open_recent(self, co, yr, name):
+        """Open a field straight from a recents chip (sets the scope pickers so
+        the list shows it, then activates it)."""
+        try:
+            self.company_var.set(co); self._on_company_change(co)
+            self.year_var.set(yr); self._on_year_change(yr)
+        except Exception:
+            pass
+        self._refresh_field_list()
+        for iid, (c, y, n) in (self._field_rows or {}).items():
+            if (str(c), str(y), str(n)) == (str(co), str(yr), str(name)):
+                self.field_tree.selection_set(iid)
+                self.field_tree.see(iid)
+                return
+        self._status(f"“{name}” isn't in the current list.")
+
     def _ov_load_prefs(self):
         self._ov_widths = {}        # column key -> user-set pixel width
         try:
@@ -5449,6 +5580,7 @@ class BeetentApp(ctk.CTk):
         else:
             body.pack(fill="x")
             self._layers_collapse_btn.configure(text="◂")
+        self._set_ui_pref("layers_collapsed", not body.winfo_ismapped())
 
     def _on_layer_check(self, key):
         """A layer checkbox flipped: run the layer's visibility fn (the var is
@@ -5533,11 +5665,13 @@ class BeetentApp(ctk.CTk):
         else:
             wrap.pack(fill="x")
             self._strip_collapse_btn.configure(text="▸")
+        self._set_ui_pref("strip_collapsed", not wrap.winfo_ismapped())
 
     def _select_tool(self, key):
         """Highlight a layer (single active): tint its row in the layers card
         and pull its tools up in the side strip. Does not invoke any command."""
         self._active_tool = key
+        self._set_ui_pref("active_tool", key)      # reopen on the same layer
         for k, (row, lbl) in getattr(self, "_layer_rows", {}).items():
             if k == key:
                 row.configure(fg_color=UI_SELECT)
@@ -5993,6 +6127,21 @@ class BeetentApp(ctk.CTk):
                       relief="flat",borderwidth=0,font=(FONT_LABEL,9))
         _st.map("Fields.Treeview",background=[("selected",UI_SELECT)],foreground=[("selected",UI_ACCENT_D)])
         _st.map("Fields.Treeview.Heading",background=[("active",UI_HOVER)])
+        # Search box — live-filters the list by field name, company, year or LLD
+        # (on top of the company/year scope pickers above).
+        _srch=ctk.CTkFrame(lf,fg_color="transparent"); _srch.pack(fill="x",pady=(0,4))
+        self.field_search_var=tk.StringVar()
+        self._field_search_entry=ctk.CTkEntry(
+            _srch,textvariable=self.field_search_var,height=28,
+            placeholder_text="🔎 Search fields…",
+            fg_color=UI_CARD,border_color=UI_BORDER,text_color=UI_TEXT)
+        self._field_search_entry.pack(side="left",fill="x",expand=True)
+        ctk.CTkButton(_srch,text="✕",width=28,height=28,fg_color=UI_HOVER,
+                      hover_color=UI_BORDER,text_color=UI_MUTED,
+                      command=lambda:self.field_search_var.set("")).pack(side="left",padx=(4,0))
+        self.field_search_var.trace_add("write",lambda *a:self._refresh_field_list())
+        # Recently-opened chips — one click reopens; kept newest-first per device.
+        self._recents_bar=ctk.CTkFrame(lf,fg_color="transparent")
         tree_wrap=ctk.CTkFrame(lf,fg_color="transparent")
         tree_wrap.pack(fill="x")
         self.field_tree=ttk.Treeview(tree_wrap,columns=("field","company","year"),show="headings",
@@ -7557,12 +7706,43 @@ class BeetentApp(ctk.CTk):
         # _export_scope expands the All-companies / All-years sentinels, so this
         # lists everything when All/All is selected and just the matching
         # company+year otherwise.
+        # Live search filter (name / company / year / LLD), on top of the scope.
+        try:
+            q = (self.field_search_var.get() or "").strip().lower()
+        except Exception:
+            q = ""
+        shown = 0
         for co,yr,name in self._export_scope():
+            if q and not self._field_matches_search(co, yr, name, q):
+                continue
             iid=self.field_tree.insert("","end",values=(name,co,yr))
             self._field_rows[iid]=(co,yr,name)
+            shown += 1
         if self._field_sort_col:
             self._apply_field_sort()
+        if q:
+            self._status(f"{shown} field(s) match “{q}”." if shown
+                         else f"No fields match “{q}”.")
+        self._render_recents()
         self._redraw_overview_boundaries()
+
+    def _field_matches_search(self, co, yr, name, q):
+        """True if a field row matches the search text. Matches the visible
+        columns plus the field's LLD (cheap: read from the saved file, memoised)."""
+        if q in str(name).lower() or q in str(co).lower() or q in str(yr).lower():
+            return True
+        cache = getattr(self, "_lld_cache", None)
+        if cache is None:
+            cache = self._lld_cache = {}
+        key = (co, yr, name)
+        lld = cache.get(key)
+        if lld is None:
+            try:
+                lld = str((load_field(co, yr, name) or {}).get("lld") or "")
+            except Exception:
+                lld = ""
+            cache[key] = lld
+        return q in lld.lower()
 
     def _sort_fields(self,col):
         if self._field_sort_col==col:
@@ -7687,6 +7867,8 @@ class BeetentApp(ctk.CTk):
         f=load_field(co,yr,name)
         if not f: return
         self.current_field=f
+        self._stale_ov_warned = None        # re-arm the stale-override hint
+        self._push_recent(co, yr, name)     # newest-first recents chip
         # Highlight in the list (needed when triggered from a map click)
         for iid,row in self._field_rows.items():
             if row==(co,yr,name):
