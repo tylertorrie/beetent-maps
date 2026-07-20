@@ -67,6 +67,7 @@ UI_ACCENT2_INK = "#FFFFFF"  # white text on the blue secondary
 UI_WARN    = "#D97706"   # warnings                           (amber-600)
 UI_SELECT  = "#FEF3C7"   # table/list selection               (amber-100 tint)
 UI_DANGER  = "#DC2626"   # destructive actions (Delete)       (red-600)
+SEASON_POS = "#16A34A"   # profit / positive delta (matches the Profitability tab)
 
 # ── Typography ──────────────────────────────────────────────────────────────
 # Match the Grand Forks Concrete website, which uses the native system font
@@ -1948,23 +1949,26 @@ class BeetentApp(ctk.CTk):
         ctk.CTkLabel(hdr, text="Financial View", text_color=UI_TEXT,
                      font=ctk.CTkFont(family=FONT_HEADING, size=18)).pack(side="left")
         self._cost_tab_seg = ctk.CTkSegmentedButton(
-            hdr, values=["General Information", "Cost Estimator", "Profitability"],
+            hdr, values=["General Information", "Cost Estimator", "Profitability", "Seasons"],
             command=self._cost_on_tab_select)
         self._cost_tab_seg.set("General Information")
         self._cost_tab_seg.pack(side="right")
         ctk.CTkFrame(self.cost_estimator_view, height=1, fg_color=UI_BORDER).pack(
             fill="x", padx=12, pady=(0, 4))
 
-        # Three content frames toggled by the segmented button.
+        # Four content frames toggled by the segmented button.
         self._cost_general_frame = ctk.CTkScrollableFrame(
             self.cost_estimator_view, fg_color="transparent")
         self._cost_estimate_frame = ctk.CTkFrame(
             self.cost_estimator_view, fg_color="transparent")
         self._cost_profit_frame = ctk.CTkFrame(
             self.cost_estimator_view, fg_color="transparent")
+        self._cost_seasons_frame = ctk.CTkFrame(
+            self.cost_estimator_view, fg_color="transparent")
         self._build_cost_general_tab(self._cost_general_frame)
         self._build_cost_estimate_tab(self._cost_estimate_frame)
         self._build_cost_profit_tab(self._cost_profit_frame)
+        self._build_cost_seasons_tab(self._cost_seasons_frame)
         self._load_cost_prefs()                      # fill the StringVars from disk
         self._cost_switch_tab("general")
 
@@ -2998,9 +3002,188 @@ class BeetentApp(ctk.CTk):
         except Exception:
             pass
 
+    # ── Seasons tab: season-over-season trends ───────────────────────────────
+    def _build_cost_seasons_tab(self, parent):
+        """Year-by-year totals so a season can be compared to the last one:
+        acres, cost, revenue, profit and the per-acre rates that matter."""
+        hd = ctk.CTkFrame(parent, fg_color="transparent")
+        hd.pack(fill="x", pady=(4, 6))
+        ctk.CTkLabel(hd, text="Seasons — year over year", text_color=UI_TEXT,
+                     font=ctk.CTkFont(family=FONT_HEADING, size=15)).pack(side="left")
+        ctk.CTkButton(hd, text="↻ Refresh", width=90, fg_color=UI_HOVER,
+                      hover_color=UI_BORDER, text_color=UI_TEXT,
+                      command=self._seasons_compute).pack(side="right")
+        self._seasons_co = tk.StringVar(value=ALL_COMPANIES)
+        self._seasons_co_cb = ctk.CTkComboBox(
+            hd, variable=self._seasons_co, width=190,
+            values=[ALL_COMPANIES] + list_companies(),
+            command=lambda _v: self._seasons_compute())
+        self._seasons_co_cb.pack(side="right", padx=8)
+        ctk.CTkLabel(hd, text="Company", text_color=UI_MUTED).pack(side="right")
+        self._seasons_body = ctk.CTkScrollableFrame(parent, fg_color="transparent")
+        self._seasons_body.pack(fill="both", expand=True)
+        self._seasons_rows = []
+
+    def _seasons_open(self):
+        """Tab entry: reuse the last result, else compute once."""
+        try:
+            self._seasons_co_cb.configure(values=[ALL_COMPANIES] + list_companies())
+        except Exception:
+            pass
+        if self._seasons_rows:
+            self._seasons_render(self._seasons_rows)
+        else:
+            self._seasons_compute()
+
+    def _seasons_compute(self):
+        """Cost every field in scope with ITS OWN year's prices + contract rate
+        (same rule as Profitability), off-thread, then aggregate by year."""
+        co = self._seasons_co.get()
+        companies = list_companies() if co == ALL_COMPANIES else [co]
+        scope = []
+        for cc in companies:
+            for y in list_years(cc):
+                for name in list_fields(cc, y):
+                    scope.append((cc, y, name))
+        if not scope:
+            self._seasons_render([]); return
+        self._cost_capture_year()
+        yc = {}; rc = {}
+        def inputs_for(y):
+            if y not in yc: yc[y] = self._cost_inputs_for_year(y)
+            return yc[y]
+        def rates_for(y):
+            if y not in rc: rc[y] = self._contract_rates_for_year(y)
+            return rc[y]
+        self._status("Computing seasons for %d field(s)…" % len(scope))
+        def _work():
+            rows = []
+            for i, (cc, y, name) in enumerate(scope):
+                self.after(0, lambda i=i: self._status(
+                    "Computing seasons… %d/%d" % (i + 1, len(scope))))
+                f = load_field(cc, y, name)
+                if not f:
+                    continue
+                fy = str(f.get("year", y))
+                try: lc = self._field_cost(f, inputs_for(fy))
+                except Exception: continue
+                rate = rates_for(fy).get(cc, 0.0)
+                acres = lc.get("acres", 0) or 0
+                revenue = rate * acres
+                cost = lc.get("total", 0) or 0
+                rows.append({"co": cc, "yr": fy, "name": name, "acres": acres,
+                             "cost": cost, "revenue": revenue,
+                             "profit": revenue - cost, "rate": rate})
+            self.after(0, lambda: self._seasons_done(rows))
+        threading.Thread(target=_work, daemon=True).start()
+
+    def _seasons_done(self, rows):
+        self._seasons_rows = rows
+        self._seasons_render(rows)
+        self._status("Seasons ready: %d field(s) across %d year(s)."
+                     % (len(rows), len({r["yr"] for r in rows})))
+
+    def _seasons_render(self, rows):
+        body = getattr(self, "_seasons_body", None)
+        if body is None:
+            return
+        for w in body.winfo_children():
+            w.destroy()
+        if not rows:
+            ctk.CTkLabel(body, text="No fields in that scope.",
+                         text_color=UI_MUTED).pack(anchor="w", padx=4, pady=10)
+            return
+        # Aggregate per year.
+        agg = {}
+        for r in rows:
+            a = agg.setdefault(r["yr"], {"acres": 0.0, "cost": 0.0, "revenue": 0.0,
+                                         "profit": 0.0, "n": 0, "cos": set()})
+            a["acres"] += r["acres"]; a["cost"] += r["cost"]
+            a["revenue"] += r["revenue"]; a["profit"] += r["profit"]
+            a["n"] += 1; a["cos"].add(r["co"])
+        years = sorted(agg, key=lambda y: str(y))
+        for y in years:
+            a = agg[y]
+            a["cpa"] = (a["cost"] / a["acres"]) if a["acres"] else 0.0
+            a["ppa"] = (a["profit"] / a["acres"]) if a["acres"] else 0.0
+
+        # Header row.
+        hdr = ctk.CTkFrame(body, fg_color="transparent"); hdr.pack(fill="x", pady=(2, 2))
+        cols = [("YEAR", 60), ("FIELDS", 60), ("ACRES", 80), ("COST", 100),
+                ("REVENUE", 100), ("PROFIT", 100), ("COST/AC", 80), ("PROFIT/AC", 90)]
+        for label, w in cols:
+            ctk.CTkLabel(hdr, text=label, width=w, anchor="e", text_color=UI_MUTED,
+                         font=ctk.CTkFont(family=FONT_LABEL, size=9)).pack(side="left", padx=2)
+        ctk.CTkFrame(body, height=1, fg_color=UI_BORDER).pack(fill="x", pady=(0, 2))
+
+        prev = None
+        for y in years:
+            a = agg[y]
+            row = ctk.CTkFrame(body, fg_color="transparent"); row.pack(fill="x", pady=1)
+            vals = [str(y), str(a["n"]), f"{a['acres']:,.0f}", f"${a['cost']:,.0f}",
+                    f"${a['revenue']:,.0f}", f"${a['profit']:,.0f}",
+                    f"${a['cpa']:,.2f}", f"${a['ppa']:,.2f}"]
+            for (label, w), v in zip(cols, vals):
+                col = UI_TEXT
+                if label == "PROFIT" or label == "PROFIT/AC":
+                    col = SEASON_POS if a["profit"] >= 0 else UI_DANGER
+                ctk.CTkLabel(row, text=v, width=w, anchor="e", text_color=col,
+                             font=ctk.CTkFont(family=FONT_BODY, size=11)).pack(side="left", padx=2)
+            # Delta vs the previous season — the "how did we do this year" line.
+            if prev is not None:
+                d_ppa = a["ppa"] - prev["ppa"]
+                d_ac = a["acres"] - prev["acres"]
+                sign = "▲" if d_ppa >= 0 else "▼"
+                ctk.CTkLabel(row, text=f"  {sign} ${abs(d_ppa):,.2f}/ac vs prev · "
+                                       f"{d_ac:+,.0f} ac",
+                             anchor="w", text_color=(SEASON_POS if d_ppa >= 0 else UI_DANGER),
+                             font=ctk.CTkFont(family=FONT_LABEL, size=10)).pack(side="left", padx=6)
+            prev = a
+
+        # Simple profit/acre trend bars (no chart lib — proportional frames).
+        ctk.CTkLabel(body, text="PROFIT / ACRE BY SEASON", text_color=UI_MUTED,
+                     font=ctk.CTkFont(family=FONT_LABEL, size=9)
+                     ).pack(anchor="w", padx=4, pady=(14, 4))
+        span = max((abs(agg[y]["ppa"]) for y in years), default=0.0) or 1.0
+        for y in years:
+            a = agg[y]
+            r = ctk.CTkFrame(body, fg_color="transparent"); r.pack(fill="x", pady=1)
+            ctk.CTkLabel(r, text=str(y), width=54, anchor="e", text_color=UI_TEXT,
+                         font=ctk.CTkFont(family=FONT_BODY, size=11)).pack(side="left", padx=(0, 6))
+            track = ctk.CTkFrame(r, fg_color=UI_HOVER, height=16, corner_radius=4)
+            track.pack(side="left", fill="x", expand=True); track.pack_propagate(False)
+            frac = max(0.02, min(1.0, abs(a["ppa"]) / span))
+            bar = ctk.CTkFrame(track, fg_color=(SEASON_POS if a["ppa"] >= 0 else UI_DANGER),
+                               corner_radius=4)
+            bar.place(relx=0, rely=0, relwidth=frac, relheight=1)
+            ctk.CTkLabel(r, text=f"${a['ppa']:,.2f}", width=86, anchor="e",
+                         text_color=UI_TEXT,
+                         font=ctk.CTkFont(family=FONT_BODY, size=11)).pack(side="left", padx=(6, 2))
+
+        # Per-company split within each year (who moved the needle).
+        ctk.CTkLabel(body, text="BY COMPANY", text_color=UI_MUTED,
+                     font=ctk.CTkFont(family=FONT_LABEL, size=9)
+                     ).pack(anchor="w", padx=4, pady=(14, 4))
+        byco = {}
+        for r in rows:
+            k = (r["yr"], r["co"])
+            b = byco.setdefault(k, {"acres": 0.0, "profit": 0.0, "n": 0})
+            b["acres"] += r["acres"]; b["profit"] += r["profit"]; b["n"] += 1
+        for (y, cc) in sorted(byco, key=lambda k: (str(k[0]), k[1])):
+            b = byco[(y, cc)]
+            ppa = (b["profit"] / b["acres"]) if b["acres"] else 0.0
+            line = ctk.CTkFrame(body, fg_color="transparent"); line.pack(fill="x", pady=1)
+            ctk.CTkLabel(line, text=f"{y}  {cc}", anchor="w", text_color=UI_TEXT,
+                         font=ctk.CTkFont(family=FONT_BODY, size=11)).pack(side="left", padx=4)
+            ctk.CTkLabel(line, text=f"{b['n']} field(s) · {b['acres']:,.0f} ac · "
+                                    f"${b['profit']:,.0f} · ${ppa:,.2f}/ac",
+                         anchor="e", text_color=(SEASON_POS if b["profit"] >= 0 else UI_DANGER),
+                         font=ctk.CTkFont(family=FONT_BODY, size=11)).pack(side="right", padx=4)
+
     def _cost_on_tab_select(self, value):
         tab = ("general" if value.startswith("General")
-               else "profit" if value.startswith("Profit") else "estimate")
+               else "profit" if value.startswith("Profit")
+               else "seasons" if value.startswith("Season") else "estimate")
         self._cost_switch_tab(tab)
 
     def _cost_switch_tab(self, tab):
@@ -3008,6 +3191,11 @@ class BeetentApp(ctk.CTk):
         self._cost_general_frame.pack_forget()
         self._cost_estimate_frame.pack_forget()
         self._cost_profit_frame.pack_forget()
+        self._cost_seasons_frame.pack_forget()
+        if tab == "seasons":
+            self._cost_seasons_frame.pack(fill="both", expand=True, padx=12, pady=(0, 8))
+            self.after(30, self._seasons_open)
+            return
         if tab == "general":
             # surface any companies/years added since the view was built (keeps edits)
             self._refresh_cost_year_choices()
