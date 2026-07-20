@@ -1501,6 +1501,17 @@ class BeetentApp(ctk.CTk):
         self.after(1000, self._git_pull)            # pull latest on startup
         self.after(300_000, self._check_for_app_update)  # then check every 5 min
         self._autosave_last = None                  # auto-save change-detection baseline
+        # Whole-field undo/redo. Built on the autosave change-detector rather than
+        # instrumenting every mutation site: when a change is committed, the
+        # PREVIOUS snapshot goes on the undo stack. Side effect: edits inside one
+        # 2.5s tick coalesce into a single step (a whole drag = one undo).
+        self._undo_stack = []      # [(field_key, snapshot_json), ...] oldest→newest
+        self._redo_stack = []
+        self._restoring_undo = False
+        self.bind("<Control-z>", self._field_undo)
+        self.bind("<Control-Z>", self._field_undo)
+        self.bind("<Control-y>", self._field_redo)
+        self.bind("<Control-Shift-Z>", self._field_redo)
         self._loading_field = False                 # True while _form_from_field repopulates widgets
         self._reexporting = False                   # True during a bulk tablet re-export
         self.after(2500, self._autosave_tick)       # quietly persist map/field edits
@@ -5640,6 +5651,15 @@ class BeetentApp(ctk.CTk):
                                               command=self._undo_shelter_move,
                                               **_tool_kw)
         self._strip_reset_btn.pack(fill="x")
+        # Field-wide undo/redo (Ctrl+Z / Ctrl+Y) — covers every edit, not just
+        # shelter moves: pivot, boundary, tracks, zones, shifts…
+        _ur = ctk.CTkFrame(gt, fg_color="transparent")
+        _ur.pack(fill="x", pady=(3, 0))
+        _ur_kw = dict(_tool_kw); _ur_kw["anchor"] = "center"
+        ctk.CTkButton(_ur, text="↶ Undo", command=self._field_undo,
+                      **_ur_kw).pack(side="left", fill="x", expand=True, padx=(0, 2))
+        ctk.CTkButton(_ur, text="↷ Redo", command=self._field_redo,
+                      **_ur_kw).pack(side="left", fill="x", expand=True)
         ctk.CTkFrame(wrap, height=1, fg_color=UI_BORDER).pack(fill="x", padx=8, pady=6)
         # Active layer's header + action buttons (rebuilt by _render_tool_actions).
         self._strip_title = ctk.CTkLabel(wrap, text="", text_color=UI_MUTED, anchor="w",
@@ -11754,6 +11774,101 @@ class BeetentApp(ctk.CTk):
             self.current_field["sprayer_shift_n_m"] = n - d_n
             self._redraw_sprayer_shift_layers()
 
+    # ── Whole-field undo / redo ──────────────────────────────────────────────
+    UNDO_MAX = 40
+
+    def _undo_key(self):
+        f = self.current_field or {}
+        return (f.get("company"), f.get("year"), f.get("Name"))
+
+    def _push_field_undo(self, prev_snapshot):
+        """Record the state that just got replaced. Called by the autosave tick
+        with its previous baseline, so every committed edit is undoable."""
+        if getattr(self, "_restoring_undo", False) or not prev_snapshot:
+            return
+        self._undo_stack.append((self._undo_key(), prev_snapshot))
+        if len(self._undo_stack) > self.UNDO_MAX:
+            self._undo_stack.pop(0)
+        self._redo_stack.clear()      # a new edit invalidates the redo branch
+
+    def _focus_in_text_entry(self):
+        """True when a text field has focus — Ctrl+Z there belongs to the entry,
+        not to the field-wide undo."""
+        try:
+            w = self.focus_get()
+        except Exception:
+            return False
+        if w is None:
+            return False
+        return (isinstance(w, (tk.Entry, tk.Text)) or
+                w.__class__.__name__ in ("Entry", "Text", "Combobox", "Spinbox"))
+
+    def _restore_field_snapshot(self, snap):
+        """Swap the whole field back to a snapshot: reload the dict, repopulate the
+        form (so the next autosave reads the restored values, not stale widgets)
+        and redraw every overlay."""
+        try:
+            data = json.loads(snap)
+        except Exception:
+            return False
+        self._restoring_undo = True
+        try:
+            self.current_field = data
+            try: self._form_from_field()
+            except Exception: pass
+            self._autosave_last = snap      # don't re-log the restore as an edit
+            self._shelter_undo.clear()
+            self._stale_ov_warned = None
+            try: self._redraw_all()
+            except Exception: pass
+        finally:
+            self._restoring_undo = False
+        return True
+
+    def _pop_for_field(self, stack, key):
+        """Pop the newest entry belonging to `key`, leaving other fields' history
+        intact (so switching fields doesn't destroy their undo)."""
+        for i in range(len(stack) - 1, -1, -1):
+            if stack[i][0] == key:
+                return stack.pop(i)
+        return None
+
+    def _field_undo(self, _=None):
+        if self._focus_in_text_entry():
+            return
+        key = self._undo_key()
+        entry = self._pop_for_field(self._undo_stack, key)
+        if entry is None:
+            self._status("Nothing to undo."); return "break"
+        try:
+            cur = json.dumps(self._field_from_form(), sort_keys=True, default=str)
+        except Exception:
+            cur = None
+        if self._restore_field_snapshot(entry[1]):
+            if cur:
+                self._redo_stack.append((key, cur))
+            left = sum(1 for k, _s in self._undo_stack if k == key)
+            self._status(f"↶ Undo — {left} step(s) left.")
+        return "break"
+
+    def _field_redo(self, _=None):
+        if self._focus_in_text_entry():
+            return
+        key = self._undo_key()
+        entry = self._pop_for_field(self._redo_stack, key)
+        if entry is None:
+            self._status("Nothing to redo."); return "break"
+        try:
+            cur = json.dumps(self._field_from_form(), sort_keys=True, default=str)
+        except Exception:
+            cur = None
+        if self._restore_field_snapshot(entry[1]):
+            if cur:
+                self._undo_stack.append((key, cur))
+            left = sum(1 for k, _s in self._redo_stack if k == key)
+            self._status(f"↷ Redo — {left} step(s) left.")
+        return "break"
+
     def _reflow_shelters_to_grid(self):
         """Snap every algorithm shelter back onto the freshly-computed grid by
         dropping saved drag-moves/deletes for the current settings combo. Use
@@ -13960,6 +14075,8 @@ class BeetentApp(ctk.CTk):
         # Push the change to the field tablet live (same as a manual Save).
         try: self._export_tablet_geojson(f)
         except Exception as e: self._log(f"Tablet export (auto-save) skipped: {e}")
+        # The state we're replacing becomes an undo step (see _push_field_undo).
+        self._push_field_undo(self._autosave_last)
         self._autosave_last = snap
         self._refresh_field_list()
         self._git_push(f"auto-save: {name}")
