@@ -13065,7 +13065,13 @@ class BeetentApp(ctk.CTk):
         unit = max(1, nf + nm)
         repeats = total_rows // unit if unit > 0 else 0
         leftover = total_rows - repeats * unit
-        f_in=(nf+1)*rs; m_in=(nm+1)*rs
+        # Bay width = rows × row spacing. Each row "owns" one row-spacing of
+        # ground, so nf+nm rows tile the planter exactly — this is the same
+        # definition the map overlay and the placement engine use (bay_slot_lefts
+        # / male_bay_shelter_laterals). The old (n+1)×rs formula added a full
+        # extra row-spacing per bay, so the panel read one row wider than the map
+        # actually drew and the period didn't tile. Labels only — no geometry.
+        f_in=nf*rs; m_in=nm*rs
         f_ft=f_in/12; m_ft=m_in/12; f_m=f_ft*0.3048; m_m=m_ft*0.3048
         gap_ft=gap_in/12; gap_m=gap_ft*0.3048
         # Bay repeat period = female + male + a gap at EACH male/female edge

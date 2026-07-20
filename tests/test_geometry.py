@@ -157,6 +157,30 @@ def test_positions_match_baseline(rel):
         f"planned positions moved for {rel}. If intentional, rerun _gen_baseline.py.")
 
 
+# ── bay-width label agrees with the geometry (the #4 reconciliation) ───────
+@pytest.mark.parametrize("rel", sorted(BAY_FIELDS), ids=lambda r: os.path.basename(r))
+def test_male_bay_label_matches_effective_bays(rel):
+    """The Bay panel labels a male bay as nm × row-spacing. Verify that IS the
+    effective bay everywhere: each M run is nm rows, except runs touching a pass
+    edge, which pair with the mirrored neighbouring pass's edge run (the planter
+    snake) to form a full nm-row bay. Guards the label from drifting off the map
+    again — the panel used to say (nm+1) × rs, one row wider than it draws."""
+    f = BAY_FIELDS[rel]
+    nf = int(float(f.get("num_female_rows") or 0))
+    nm = int(float(f.get("num_male_rows") or 0))
+    tr = int(float(f.get("total_rows") or (nf + nm)) or (nf + nm))
+    mask = m.resolve_row_mask(nf, nm, str(f.get("row_layout") or "centered"),
+                              str(f.get("custom_row_mask") or ""), tr)
+    runs = m.mask_runs(mask, "M")
+    if not runs:
+        pytest.skip("no male runs")
+    for (s, e) in runs:
+        w = e - s
+        eff = 2 * w if (s == 0 or e == len(mask)) else w   # edge runs pair
+        assert eff == nm, (f"{os.path.basename(rel)}: run {(s, e)} gives an "
+                           f"effective bay of {eff} rows, label claims {nm}")
+
+
 # ── field_warnings (save-time validation) ──────────────────────────────────
 def _base_field():
     return {"use_bays": True, "num_female_rows": 6, "num_male_rows": 3,
