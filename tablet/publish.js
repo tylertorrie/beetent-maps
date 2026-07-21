@@ -106,6 +106,28 @@ window.beePublish = (function () {
       if (!enabled || !dirRef || !fieldId || !rec) return null;
       return dirRef.child(fieldKey(fieldId)).set(rec);
     },
+    // Subscribe to the OTHER crews' live positions (same feed the office Monitor
+    // reads). cb receives an array of crew objects, self excluded and stale nodes
+    // dropped. Returns an unsubscribe fn, or null when the relay is down.
+    onCrews(cb, staleMs) {
+      if (!enabled || typeof cb !== "function") return null;
+      const maxAge = (staleMs || 90000) / 1000;
+      const cRef = firebase.database().ref("crews");
+      const handler = cRef.on("value", (snap) => {
+        const me = crewId();
+        const now = Date.now() / 1000;
+        const out = [];
+        snap.forEach((child) => {
+          const v = child.val() || {};
+          if (!v || v.id === me) return;                       // skip self
+          if (typeof v.lat !== "number" || typeof v.lon !== "number") return;
+          if (v.ts && (now - v.ts) > maxAge) return;           // stale node
+          out.push(v);
+        });
+        try { cb(out); } catch (e) { /* never let a draw error kill the feed */ }
+      }, () => { /* permission/network error — stay quiet, retry is automatic */ });
+      return () => { try { cRef.off("value", handler); } catch (e) {} };
+    },
     _init: init,
   };
 })();

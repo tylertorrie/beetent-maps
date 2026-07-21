@@ -195,6 +195,26 @@ function initMap() {
         "circle-stroke-color": "#04361b", "circle-stroke-width": 2,
       } });
 
+    // OTHER crews' live positions (teal), so two crews on one field can see each
+    // other instead of double-covering rows. Drawn above the field overlays.
+    map.addSource("crews", { type: "geojson", data: emptyFC() });
+    map.addLayer({ id: "crew-halo", type: "circle",
+      filter: ["==", ["get", "type"], "crew"], source: "crews",
+      paint: { "circle-radius": 16, "circle-color": "#127C77", "circle-opacity": 0.18 } });
+    map.addLayer({ id: "crew-dot", type: "circle",
+      filter: ["==", ["get", "type"], "crew"], source: "crews",
+      paint: {
+        "circle-radius": 8, "circle-color": "#14B8A6",
+        "circle-stroke-color": "#04312F", "circle-stroke-width": 2.5,
+      } });
+    map.addLayer({ id: "crew-label", type: "symbol",
+      filter: ["==", ["get", "type"], "crew"], source: "crews",
+      layout: { "text-field": ["get", "label"], "text-font": ["OpenSans"],
+                "text-size": 12, "text-offset": [0, -1.4],
+                "text-allow-overlap": true },
+      paint: { "text-color": "#CFFAF4", "text-halo-color": "#04312F",
+               "text-halo-width": 1.6 } });
+
     // All-fields overview ("Map" view): every synced field's boundary + name.
     map.addSource("allfields", { type: "geojson", data: emptyFC() });
     map.addLayer({ id: "allfields-fill", type: "fill",
@@ -343,6 +363,47 @@ function statusWatchdog() {
     if (lab) lab.textContent = "NO FIX";
   }
   setTimeout(statusWatchdog, 1500);
+}
+
+// ---- Other crews (live) ------------------------------------------------------
+// Each tablet already publishes its position to crews/<id> for the office
+// Monitor; here we also CONSUME that feed so crews can see each other. In Work
+// mode only crews on the SAME field are drawn (others would be noise off-screen);
+// in Map mode every active crew shows.
+let _crewsLatest = [];        // last payload from the relay
+let _crewsUnsub = null;
+
+function startCrewFeed() {
+  if (_crewsUnsub || !window.beePublish || !beePublish.enabled) return;
+  _crewsUnsub = beePublish.onCrews((list) => {
+    _crewsLatest = list || [];
+    refreshCrewLayer();
+  });
+}
+
+function refreshCrewLayer() {
+  if (!map || !map.getSource || !map.getSource("crews")) return;
+  const showAll = (mode === "map");
+  const feats = [];
+  for (const c of _crewsLatest) {
+    if (!showAll) {
+      // Same-field only: match on the geojson filename the crew publishes.
+      if (!activeFieldFile || !c.field_file || c.field_file !== activeFieldFile) continue;
+    }
+    const nm = c.name || c.id || "crew";
+    const prog = (c.total ? ` ${c.placed || 0}/${c.total}` : "");
+    feats.push({
+      type: "Feature",
+      properties: { type: "crew", label: nm + prog },
+      geometry: { type: "Point", coordinates: [c.lon, c.lat] },
+    });
+  }
+  map.getSource("crews").setData({ type: "FeatureCollection", features: feats });
+  const el = document.getElementById("crewcount");
+  if (el) {
+    el.textContent = feats.length ? `${feats.length} other crew${feats.length === 1 ? "" : "s"}` : "";
+    el.classList.toggle("hidden", feats.length === 0);
+  }
 }
 
 // ---- Field loading ----------------------------------------------------------
@@ -973,6 +1034,7 @@ async function loadField(url, name) {
   updateFieldSwitcher(); updatePlacementReadout();
   fitToField();
   refreshScanLayer(); updateScanProgress();   // show this field's scanned pins
+  refreshCrewLayer();                         // re-filter crews to the new field
 }
 
 function fitToField() {
@@ -1173,6 +1235,8 @@ function setMode(m) {
     showAllFields();
     buildFieldCards();
   }
+  // Work = crews on THIS field; Map = every active crew.
+  refreshCrewLayer();
 }
 
 function toggleEl(id, show) {
@@ -1937,6 +2001,12 @@ window.addEventListener("DOMContentLoaded", () => {
   connectPosition();          // globe over ws:// (http hosting only)
   startGeo();                 // tablet GPS — the source on https, fallback on http
   statusWatchdog();           // source pill + brings GPS up if the globe drops
+  // Other crews' live positions. publish.js initialises on DOMContentLoaded too,
+  // so poll briefly until the relay is up, then stop.
+  (function waitForRelay(tries) {
+    startCrewFeed();
+    if (!_crewsUnsub && tries > 0) setTimeout(() => waitForRelay(tries - 1), 1500);
+  })(20);
   // Offline app shell on real https hosting (e.g. GitHub Pages). Skipped on
   // localhost so it can't serve stale code during local sim development.
   const lh = location.hostname === "localhost" || location.hostname === "127.0.0.1";
