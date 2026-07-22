@@ -55,6 +55,16 @@ function initMap() {
     map.addLayer({ id: "track", type: "line",
       filter: ["==", ["get", "t"], "track"], source: "field",
       paint: { "line-color": COLORS.track, "line-width": 2, "line-dasharray": [3, 2] } });
+    // Computed shelter grid — desktop-yellow with a dark outline (the outline is
+    // what makes yellow read over satellite). Handed to us pre-computed; the web
+    // never runs the placement engine.
+    map.addLayer({ id: "shelters", type: "circle",
+      filter: ["==", ["get", "t"], "shelter"], source: "field",
+      paint: {
+        "circle-radius": ["interpolate", ["linear"], ["zoom"], 12, 3, 16, 6],
+        "circle-color": COLORS.manual,
+        "circle-stroke-color": COLORS.manualEdge, "circle-stroke-width": 1.6,
+      } });
     map.addLayer({ id: "pins", type: "circle",
       filter: ["in", ["get", "t"], ["literal", ["manual", "test", "entrance", "parking", "pivot"]]],
       source: "field",
@@ -132,6 +142,14 @@ function fieldFeatures(f) {
   if (Array.isArray(f.parking_pin))
     pt("parking", num(f.parking_pin[0]), num(f.parking_pin[1]), COLORS.parking, "#8A5E00");
 
+  // Computed shelter grid (pushed by the desktop; [[lat,lon],...]).
+  (f.computed_shelters || []).forEach((p) => {
+    const la = num(p[0]), lo = num(p[1]);
+    if (la != null && lo != null)
+      feats.push({ type: "Feature", properties: { t: "shelter" },
+        geometry: { type: "Point", coordinates: [lo, la] } });
+  });
+
   return { type: "FeatureCollection", features: feats };
 }
 
@@ -167,16 +185,22 @@ async function openField(meta) {
   fitTo(fc);
 
   const acres = num(f.acres);
-  const nManual = (f.manual_shelter_pins || []).length;
+  const nShelters = (f.computed_shelters || []).length;
   const nTracks = (f.pivot_tracks || []).length + (f.two_pivots ? (f.pivot_tracks2 || []).length : 0);
   $("fc-name").textContent = f.Name || meta.name;
   $("fc-sub").textContent = [f.company, f.year, f.lld].filter(Boolean).join(" · ");
   const stat = (k, v) => `<div class="fc-stat"><div class="k">${k}</div><div class="v">${v}</div></div>`;
   $("fc-stats").innerHTML =
     stat("Acres", acres != null ? acres.toFixed(1) : "—") +
-    stat("Target shelters", f.num_structures || "—") +
+    stat("Shelters", nShelters || "—") +
     stat("Pivot tracks", nTracks) +
-    stat("Manual pins", nManual);
+    stat("Manual pins", (f.manual_shelter_pins || []).length);
+  // The grid is pushed by the desktop; if a field predates that it just needs a
+  // re-save on the desktop to populate. Say so rather than showing a bare map.
+  const note = $("fieldcard").querySelector(".fc-note");
+  note.textContent = nShelters
+    ? "Read-only preview. Editing arrives in a later phase."
+    : "No computed shelter grid yet — re-save this field on the desktop to publish it.";
   $("fieldcard").classList.remove("hidden");
   $("legend").classList.remove("hidden");
 }

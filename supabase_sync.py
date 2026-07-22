@@ -64,6 +64,24 @@ def _clean(f):
     return json.loads(json.dumps(f, default=str))
 
 
+def _with_computed_shelters(blob):
+    """Attach the computed shelter grid so the web app can draw it WITHOUT the
+    placement engine — the desktop's Python (maketentgrid) stays the single source
+    of truth for placement; the web only ever draws what it's handed.
+
+    `computed_shelters` = [[lat, lon], ...] in NW-snake order (the base grid;
+    manual drags/adds are a later refinement). Pure + best-effort — any failure
+    just leaves the key off, and the field still mirrors."""
+    try:
+        import maketentgrid
+        pos = maketentgrid.get_tent_positions(dict(blob), use_metric=True)
+        blob["computed_shelters"] = [[round(float(la), 7), round(float(lo), 7)]
+                                     for la, lo in pos]
+    except Exception:
+        pass
+    return blob
+
+
 def upsert_field(f):
     """Mirror one field to Supabase (background, best-effort)."""
     def job():
@@ -78,7 +96,7 @@ def upsert_field(f):
         try:
             sb.table("fields").upsert({
                 "company": co, "year": yr, "name": nm,
-                "data": _clean(f),
+                "data": _with_computed_shelters(_clean(f)),
                 "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             }, on_conflict="company,year,name").execute()
         except Exception:
