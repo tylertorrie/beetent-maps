@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Bee Tent Maps — Web</title>
+  <!-- MapLibre + Supabase from CDN. The web planner is an online/office tool, so
+       CDN is fine here (the field TABLET vendors these for offline; this doesn't
+       need to). Swap to vendored copies later if you want zero external deps. -->
+  <link href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- ============================================================ TOP BAR -->
+  <header id="topbar">
+    <div class="brand">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="#B87514" aria-hidden="true"><path d="M12 2C8 2 5 5 5 9c0 5 7 13 7 13s7-8 7-13c0-4-3-7-7-7z"></path></svg>
+      <span>Bee Tent Maps <b>Web</b></span>
+      <span id="modebadge" class="badge">demo</span>
+    </div>
+    <div class="top-right">
+      <span id="whoami" class="whoami"></span>
+      <button id="btn-auth" class="btn ghost">Sign in</button>
+    </div>
+  </header>
+
+  <div id="shell">
+    <!-- ========================================================= SIDEBAR -->
+    <aside id="sidebar">
+      <div class="side-head">
+        <div class="side-title">Fields</div>
+        <button id="btn-refresh" class="btn ghost sm" title="Reload from Supabase">↻</button>
+      </div>
+      <input id="search" class="search" type="text" placeholder="🔎 Search fields…" autocomplete="off" />
+      <div class="scope">
+        <select id="scope-co"><option value="">All companies</option></select>
+        <select id="scope-yr"><option value="">All years</option></select>
+      </div>
+      <ul id="fieldlist"></ul>
+      <div id="listnote" class="listnote"></div>
+    </aside>
+
+    <!-- ============================================================= MAP -->
+    <main id="mapwrap">
+      <div id="map"></div>
+
+      <!-- Field info card (top-left) -->
+      <div id="fieldcard" class="hidden">
+        <div class="fc-head">
+          <div>
+            <div id="fc-name" class="fc-name">—</div>
+            <div id="fc-sub" class="fc-sub"></div>
+          </div>
+          <button id="fc-close" class="btn ghost sm">✕</button>
+        </div>
+        <div id="fc-stats" class="fc-stats"></div>
+        <div class="fc-note">Read-only preview. Editing &amp; computed shelter grid
+          arrive with the next phases.</div>
+      </div>
+
+      <!-- Legend (bottom-left) -->
+      <div id="legend" class="hidden">
+        <div class="lg-head">On the map</div>
+        <div class="lg-row"><span class="lg-sw" style="background:#00CED1;height:0;border-top:3px solid #00CED1;"></span>Boundary</div>
+        <div class="lg-row"><span class="lg-sw dot" style="background:red;border:2px solid darkred;"></span>Pivot</div>
+        <div class="lg-row"><span class="lg-sw" style="height:0;border-top:3px dashed #FF8A2B;"></span>Pivot track</div>
+        <div class="lg-row"><span class="lg-sw dot" style="background:#FFD700;border:2px solid #1A1A1A;"></span>Manual pin</div>
+        <div class="lg-row"><span class="lg-sw" style="background:#39B7D6;opacity:.5;"></span>Wet zone</div>
+      </div>
+
+      <div id="maphint" class="maphint">Pick a field to view it on the map.</div>
+    </main>
+  </div>
+
+  <!-- ======================================================= AUTH DIALOG -->
+  <div id="authscrim" class="hidden">
+    <div class="dialog">
+      <div class="dlg-title">Sign in</div>
+      <div class="dlg-sub">Office &amp; crew access. Uses your Supabase login.</div>
+      <input id="auth-email" class="input" type="email" placeholder="Email" autocomplete="username" />
+      <input id="auth-pass" class="input" type="password" placeholder="Password" autocomplete="current-password" />
+      <div id="auth-err" class="auth-err"></div>
+      <div class="dlg-row">
+        <button id="auth-cancel" class="btn ghost">Cancel</button>
+        <button id="auth-go" class="btn primary">Sign in</button>
+      </div>
+      <div class="dlg-foot">No backend configured yet? The app runs in
+        <b>demo mode</b> with a bundled sample field.</div>
+    </div>
+  </div>
+
+  <script src="config.js"></script>
+  <script src="supabase.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

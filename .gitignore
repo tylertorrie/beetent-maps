@@ -80,3 +80,6 @@ _out.log
 
 # Device-local UI state (collapsed insets, recents, active layer)
 fields/ui_prefs.json
+
+# Web planner local Supabase config (URL + anon key)
+web/config.js
